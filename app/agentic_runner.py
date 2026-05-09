@@ -90,7 +90,7 @@ class AgenticRunner:
                         {
                             "task": task.model_dump(),
                             "reason": reason,
-                            "available_tools": [tool for tool in registry.public_definitions() if tool["name"] in AUTO_TOOLS],
+                            "available_tools": self._autonomous_tool_definitions(),
                             "prior_errors": prior_errors,
                         },
                         ensure_ascii=False,
@@ -126,6 +126,8 @@ class AgenticRunner:
     async def _failover(self, task: AgenticTask, reason: str, exc: Exception) -> dict[str, Any]:
         tool_results: list[dict[str, Any]] = []
         try:
+            if not self._is_autonomous_tool_allowed("nixai_tools_search"):
+                raise ValueError("nixai_tools_search requires user approval.")
             search_result = registry.call(
                 "nixai_tools_search",
                 {"query": task.prompt, "context": {"mode": "read"}, "limit": 5},
@@ -162,6 +164,16 @@ class AgenticRunner:
             if name not in AUTO_TOOLS:
                 results.append({"tool": name, "arguments": arguments, "success": False, "error": "Tool is not approved for autonomous runs."})
                 continue
+            if not self._is_autonomous_tool_allowed(name):
+                results.append(
+                    {
+                        "tool": name,
+                        "arguments": arguments,
+                        "success": False,
+                        "error": "Tool requires user approval. Allow it permanently in settings or disable tool confirmations.",
+                    }
+                )
+                continue
             try:
                 result = registry.call(name, arguments)
                 results.append({"tool": name, "arguments": arguments, "success": True, "result": result})
@@ -177,6 +189,14 @@ class AgenticRunner:
             "Return strict JSON only. Use only listed tools. If tools are missing for the user's request, return needs_review.\n"
             "Schema: {\"action\":\"use_tools|done|needs_review\",\"tool_calls\":[{\"name\":\"...\",\"arguments\":{}}],\"summary\":\"...\"}"
         )
+
+    def _is_autonomous_tool_allowed(self, name: str) -> bool:
+        if name not in AUTO_TOOLS:
+            return False
+        return not self.settings.require_tool_confirmation or self.settings.is_tool_always_allowed(name)
+
+    def _autonomous_tool_definitions(self) -> list[dict[str, Any]]:
+        return [tool for tool in registry.public_definitions() if self._is_autonomous_tool_allowed(tool["name"])]
 
     def _parse_json(self, content: str) -> dict[str, Any]:
         clean = content.strip()

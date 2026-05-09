@@ -71,6 +71,23 @@
             <input id="embedding-model" type="text" placeholder="nomic-embed-text" />
           </label>
 
+          <section class="model-section tool-approval-section">
+            <div class="model-section-header">
+              <div>
+                <h3>Tool-Freigaben</h3>
+                <p>Nachfragen vor Tool-Aufrufen und dauerhaft erlaubte Funktionen.</p>
+              </div>
+            </div>
+            <label class="toggle-field">
+              <input id="require-tool-confirmation" type="checkbox" />
+              <span>Vor Tool-Aufrufen nachfragen</span>
+            </label>
+            <div>
+              <span class="model-role-label">Immer erlaubt</span>
+              <div id="always-allowed-tools" class="tool-chip-list"></div>
+            </div>
+          </section>
+
           <section class="model-section">
             <div class="model-section-header">
               <div>
@@ -223,6 +240,33 @@
               </label>
               <p id="mistake-solution-hint" class="settings-empty">Waehle einen Fehler aus und lass dir eine Lösung vorschlagen.</p>
             </section>
+          </div>
+        </section>
+      </div>
+
+      <div id="tool-approval-modal" class="modal-backdrop" aria-hidden="true">
+        <section class="tool-approval-modal" role="dialog" aria-modal="true" aria-labelledby="tool-approval-title">
+          <header class="settings-header">
+            <div>
+              <p class="eyebrow">Tool-Aufruf</p>
+              <h2 id="tool-approval-title">Freigabe erforderlich</h2>
+            </div>
+            <button id="deny-tool-call" class="icon-button" type="button" aria-label="Tool-Aufruf abbrechen">x</button>
+          </header>
+          <div class="tool-approval-body">
+            <div>
+              <span class="model-role-label">Funktion</span>
+              <h3 id="tool-approval-name"></h3>
+              <p id="tool-approval-description" class="settings-empty"></p>
+            </div>
+            <label class="field">
+              <span>Argumente</span>
+              <pre id="tool-approval-arguments" class="tool-approval-arguments"></pre>
+            </label>
+            <div class="role-editor-actions">
+              <button id="approve-tool-call" type="button">Einmal erlauben</button>
+              <button id="always-allow-tool-call" class="secondary-button" type="button">Immer erlauben</button>
+            </div>
           </div>
         </section>
       </div>

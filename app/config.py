@@ -41,6 +41,8 @@ class Settings(BaseModel):
     embedding_model: str = ""
     embedding_timeout: float = 1.5
     routing_min_score: float = 0.24
+    require_tool_confirmation: bool = True
+    always_allowed_tools: list[str] = Field(default_factory=list)
 
     def model_for_role(self, role: str) -> str:
         wanted = role.strip().casefold()
@@ -48,6 +50,10 @@ class Settings(BaseModel):
             if model_role.role.strip().casefold() == wanted and model_role.model.strip():
                 return model_role.model.strip()
         return self.default_model
+
+    def is_tool_always_allowed(self, tool_name: str) -> bool:
+        wanted = tool_name.strip()
+        return bool(wanted) and wanted in {name.strip() for name in self.always_allowed_tools if name.strip()}
 
 
 def config_dir() -> Path:
@@ -108,6 +114,7 @@ def save_settings(settings: Settings) -> None:
     settings.worker_model = settings.model_for_role("worker")
     settings.reviewer_model = settings.model_for_role("reviewer")
     settings.judge_model = settings.model_for_role("judge")
+    settings.always_allowed_tools = sorted({name.strip() for name in settings.always_allowed_tools if name.strip()})
     path = config_path()
     with path.open("w", encoding="utf-8") as handle:
         json.dump(settings.model_dump(), handle, indent=2)

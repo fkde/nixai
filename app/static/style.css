@@ -426,6 +426,20 @@ textarea:disabled {
   gap: 8px;
 }
 
+.toggle-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.toggle-field input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
 .field span,
 .model-role-label {
   color: var(--muted);
@@ -465,6 +479,36 @@ textarea:disabled {
 .model-role-list {
   display: grid;
   gap: 10px;
+}
+
+.tool-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #181f33;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tool-chip button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
 }
 
 .model-role-row {
@@ -756,7 +800,8 @@ textarea:disabled {
   display: grid;
 }
 
-.mistakes-modal {
+.mistakes-modal,
+.tool-approval-modal {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   width: min(1120px, 96vw);
@@ -766,6 +811,36 @@ textarea:disabled {
   border-radius: 12px;
   background: var(--panel-deep);
   box-shadow: var(--shadow);
+}
+
+.tool-approval-modal {
+  width: min(640px, 94vw);
+}
+
+.tool-approval-body {
+  display: grid;
+  gap: 16px;
+  padding: 18px 22px 22px;
+}
+
+.tool-approval-body h3 {
+  margin: 4px 0 8px;
+  font-size: 18px;
+}
+
+.tool-approval-arguments {
+  min-height: 110px;
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #080c16;
+  color: var(--accent-strong);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .mistakes-wizard {

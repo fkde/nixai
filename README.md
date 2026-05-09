@@ -98,6 +98,7 @@ Example config:
 - Configurable model roles through the settings UI
 - Markdown role prompts for Orchestrator, Worker, Reviewer, Judge, and custom roles
 - Editable central `MISTAKES.md` review source and accepted `MEMORY.md` model context
+- Tool approval prompts with settings for disabling confirmation and permanently allowed tools
 - TaskDiscovery role for extracting recurring Agentic task definitions from user requests
 - First Agentic Task definitions with create/edit/pause/delete API and UI
 - Local Agentic scheduler with run history, approved tool calls, and failover to review

@@ -14,6 +14,7 @@ const state = {
   agenticTasks: [],
   activeTaskId: null,
   agenticRuns: [],
+  pendingToolApproval: null,
 };
 
 const shell = document.querySelector(".shell");
@@ -33,6 +34,8 @@ const settingsForm = document.querySelector("#settings-form");
 const ollamaBaseUrl = document.querySelector("#ollama-base-url");
 const workspacePath = document.querySelector("#workspace-path");
 const embeddingModel = document.querySelector("#embedding-model");
+const requireToolConfirmation = document.querySelector("#require-tool-confirmation");
+const alwaysAllowedTools = document.querySelector("#always-allowed-tools");
 const modelRoleList = document.querySelector("#model-role-list");
 const roleNameOptions = document.querySelector("#role-name-options");
 const addModelRoleButton = document.querySelector("#add-model-role");
@@ -68,6 +71,13 @@ const agenticTaskTitle = document.querySelector("#agentic-task-title");
 const agenticTaskSchedule = document.querySelector("#agentic-task-schedule");
 const agenticTaskStatus = document.querySelector("#agentic-task-status");
 const agenticTaskPrompt = document.querySelector("#agentic-task-prompt");
+const toolApprovalModal = document.querySelector("#tool-approval-modal");
+const toolApprovalName = document.querySelector("#tool-approval-name");
+const toolApprovalDescription = document.querySelector("#tool-approval-description");
+const toolApprovalArguments = document.querySelector("#tool-approval-arguments");
+const approveToolCallButton = document.querySelector("#approve-tool-call");
+const alwaysAllowToolCallButton = document.querySelector("#always-allow-tool-call");
+const denyToolCallButton = document.querySelector("#deny-tool-call");
 
 function setStatus(text, isError = false) {
   statusEl.textContent = text;
@@ -386,7 +396,31 @@ function renderSettings() {
   ollamaBaseUrl.value = state.settings.ollama_base_url || "";
   workspacePath.value = state.settings.workspace_path || "";
   embeddingModel.value = state.settings.embedding_model || "";
+  requireToolConfirmation.checked = state.settings.require_tool_confirmation !== false;
+  renderAlwaysAllowedTools();
   renderModelRoles();
+}
+
+function renderAlwaysAllowedTools() {
+  const tools = Array.isArray(state.settings?.always_allowed_tools) ? state.settings.always_allowed_tools : [];
+  alwaysAllowedTools.innerHTML = "";
+  if (tools.length === 0) {
+    alwaysAllowedTools.innerHTML = '<p class="settings-empty">Noch keine Funktion dauerhaft erlaubt.</p>';
+    return;
+  }
+  tools.forEach((tool) => {
+    const chip = document.createElement("span");
+    chip.className = "tool-chip";
+    chip.innerHTML = `
+      <span>${escapeHtml(tool)}</span>
+      <button type="button" aria-label="${escapeHtml(tool)} entfernen">x</button>
+    `;
+    chip.querySelector("button").addEventListener("click", () => {
+      state.settings.always_allowed_tools = tools.filter((item) => item !== tool);
+      renderAlwaysAllowedTools();
+    });
+    alwaysAllowedTools.append(chip);
+  });
 }
 
 function openSettings() {
@@ -592,6 +626,51 @@ async function sendMessageFeedback(messageId, rating) {
   }
 }
 
+async function callTool(name, argumentsPayload = {}) {
+  const response = await api("/api/tools/call", {
+    method: "POST",
+    body: JSON.stringify({ name, arguments: argumentsPayload }),
+  });
+  if (!response.approval_required) return response;
+  const approval = await requestToolApproval(response);
+  if (!approval.approved) {
+    throw new Error("Tool-Aufruf abgebrochen.");
+  }
+  const approvedResponse = await api("/api/tools/call", {
+    method: "POST",
+    body: JSON.stringify({
+      name,
+      arguments: argumentsPayload,
+      approved: true,
+      always_allow: approval.alwaysAllow,
+    }),
+  });
+  if (approval.alwaysAllow) {
+    await loadSettings();
+  }
+  return approvedResponse;
+}
+
+function requestToolApproval(request) {
+  return new Promise((resolve) => {
+    state.pendingToolApproval = resolve;
+    const definition = request.tool_definition || {};
+    toolApprovalName.textContent = request.tool || definition.name || "Unbekanntes Tool";
+    toolApprovalDescription.textContent = definition.description || request.message || "Das Modell möchte diese Funktion ausführen.";
+    toolApprovalArguments.textContent = JSON.stringify(request.arguments || {}, null, 2);
+    toolApprovalModal.classList.add("open");
+    toolApprovalModal.setAttribute("aria-hidden", "false");
+  });
+}
+
+function finishToolApproval(result) {
+  const resolve = state.pendingToolApproval;
+  state.pendingToolApproval = null;
+  toolApprovalModal.classList.remove("open");
+  toolApprovalModal.setAttribute("aria-hidden", "true");
+  if (resolve) resolve(result);
+}
+
 newChatButton.addEventListener("click", () => {
   createChat().catch((error) => setStatus(error.message, true));
 });
@@ -714,6 +793,18 @@ closeMistakesModalButton.addEventListener("click", () => {
   mistakesModal.setAttribute("aria-hidden", "true");
 });
 
+approveToolCallButton.addEventListener("click", () => {
+  finishToolApproval({ approved: true, alwaysAllow: false });
+});
+
+alwaysAllowToolCallButton.addEventListener("click", () => {
+  finishToolApproval({ approved: true, alwaysAllow: true });
+});
+
+denyToolCallButton.addEventListener("click", () => {
+  finishToolApproval({ approved: false, alwaysAllow: false });
+});
+
 suggestMistakeSolutionButton.addEventListener("click", async () => {
   const entry = activeMistakeEntry();
   if (!entry) return;
@@ -832,6 +923,8 @@ settingsForm.addEventListener("submit", async (event) => {
     ollama_base_url: ollamaBaseUrl.value.trim(),
     workspace_path: workspacePath.value.trim(),
     embedding_model: embeddingModel.value.trim(),
+    require_tool_confirmation: requireToolConfirmation.checked,
+    always_allowed_tools: Array.isArray(state.settings?.always_allowed_tools) ? state.settings.always_allowed_tools : [],
     default_model: assistantRole.model,
     model_roles: modelRoles,
   };

@@ -151,7 +151,9 @@ Current behavior:
 The assistant model is selected through the `assistant` entry in `model_roles`, falling back to `default_model`.
 Code mode injects `WORKER.md`, reviewed `MEMORY.md`, the configured workspace path, and bounded read-only tool results from `app/code_context.py`. The model does not get native shell access; all gathered context goes through `app/tools/*` so workspace boundaries and allowlists still apply. Agentic mode first runs TaskDiscovery using the `task_discovery` model role and `TASK_DISCOVERY.md`, then either creates an Agentic Task definition, asks for missing task information, or falls back to the Orchestrator chat path. Scheduled Agentic runs also receive reviewed `MEMORY.md`. `MISTAKES.md` is a review source only and must not be injected into model context.
 
-Agentic Task execution is active while the FastAPI app is running. The scheduler checks due active tasks, runs the Orchestrator through structured JSON, executes only approved autonomous tools, stores run logs, and pauses tasks after repeated failures. Unsupported capabilities, invalid model JSON, and unexpected tool requests are marked `needs_review` instead of being treated as success.
+Agentic Task execution is active while the FastAPI app is running. The scheduler checks due active tasks, runs the Orchestrator through structured JSON, executes only approved autonomous tools, stores run logs, and pauses tasks after repeated failures. Unsupported capabilities, invalid model JSON, unexpected tool requests, and tools that still require user confirmation are marked `needs_review` instead of being treated as success.
+
+Tool calls exposed through `/api/tools/call` require user confirmation by default. The settings UI can disable confirmation globally, or persist individual tools in `always_allowed_tools` through the "Immer erlauben" action. Scheduled Agentic runs cannot show an interactive prompt, so they only execute tools that are autonomous-safe and either permanently allowed or covered by disabled confirmation.
 
 Default role prompt files are created on demand:
 
