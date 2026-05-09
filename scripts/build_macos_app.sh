@@ -16,14 +16,17 @@ if [[ ! -f "$ICON_SVG" ]]; then
   exit 1
 fi
 
-mkdir -p "$ICONSET_DIR"
-for size in 16 32 128 256 512; do
-  sips -s format png -z "$size" "$size" "$ICON_SVG" --out "$ICONSET_DIR/icon_${size}x${size}.png" >/dev/null
-  double=$((size * 2))
-  sips -s format png -z "$double" "$double" "$ICON_SVG" --out "$ICONSET_DIR/icon_${size}x${size}@2x.png" >/dev/null
-done
+if [[ ! -f "$ICON_ICNS" || "$ICON_SVG" -nt "$ICON_ICNS" ]]; then
+  mkdir -p "$ICONSET_DIR"
+  for size in 16 32 128 256 512; do
+    sips -s format png -z "$size" "$size" "$ICON_SVG" --out "$ICONSET_DIR/icon_${size}x${size}.png" >/dev/null
+    double=$((size * 2))
+    sips -s format png -z "$double" "$double" "$ICON_SVG" --out "$ICONSET_DIR/icon_${size}x${size}@2x.png" >/dev/null
+  done
 
-iconutil -c icns "$ICONSET_DIR" -o "$ICON_ICNS"
+  iconutil -c icns "$ICONSET_DIR" -o "$ICON_ICNS"
+fi
+
 python3 -m PyInstaller --clean -y nixai-mac.spec
 
 echo "Built $ROOT_DIR/dist/NixAI.app"

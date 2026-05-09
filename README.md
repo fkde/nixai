@@ -44,33 +44,35 @@ The package metadata lives in `pyproject.toml`; runtime files such as config and
 
 ## Build
 
-Later binary builds can use the checked-in application package:
+Common build and development commands are bundled in the Makefile:
 
 ```bash
-pyinstaller --onefile --name nixai app/cli.py
+make help
+make check
+make build-cli
+make build-macos-app
 ```
 
-For a desktop-focused binary, include pywebview and start the native mode:
+For the native desktop window during development:
 
 ```bash
-pyinstaller --onefile --name nixai app/cli.py
-./dist/nixai desktop
+make desktop
 ```
 
 For a macOS `.app` bundle with an icon:
 
 ```bash
-./scripts/build_macos_app.sh
+make build-macos-app
 open dist/NixAI.app
 ```
 
 To install it into `/Applications`:
 
 ```bash
-./scripts/install_macos_app.sh
+make install-macos-app
 ```
 
-or:
+The underlying scripts still exist in `scripts/` for direct use. Alternative binary tooling can be explored later, for example:
 
 ```bash
 python -m nuitka --onefile --output-filename=nixai app/cli.py

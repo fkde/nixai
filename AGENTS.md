@@ -50,22 +50,28 @@ Do not raise the Python minimum unless a concrete feature requires it and the tr
 
 ## Common Commands
 
+Show the Makefile command overview:
+
+```bash
+make help
+```
+
 Install base dependencies:
 
 ```bash
-pip install -r requirements.txt
+make install
 ```
 
 Install desktop dependencies:
 
 ```bash
-pip install -r requirements-desktop.txt
+make install-desktop
 ```
 
 Run the web UI:
 
 ```bash
-python -m app.cli serve
+make serve
 ```
 
 Open:
@@ -77,31 +83,31 @@ http://127.0.0.1:8765
 Run native desktop mode:
 
 ```bash
-python -m app.cli desktop
+make desktop
 ```
 
 Build the macOS app bundle:
 
 ```bash
-./scripts/build_macos_app.sh
+make build-macos-app
 ```
 
 Install the macOS app bundle:
 
 ```bash
-./scripts/install_macos_app.sh
+make install-macos-app
 ```
 
 Check desktop dependencies:
 
 ```bash
-python -m app.cli desktop --check
+make desktop-check
 ```
 
 Build the local binary:
 
 ```bash
-python3 -m PyInstaller --clean nixai.spec
+make build-cli
 ```
 
 Check the built binary:
@@ -113,10 +119,10 @@ Check the built binary:
 Basic syntax checks:
 
 ```bash
-PYTHONPYCACHEPREFIX=/private/tmp/nixai-pycache python3 -m compileall app
-node --check app/static/app.js
-git diff --check
+make check
 ```
+
+The underlying scripts and direct commands remain usable when needed.
 
 ## Architecture
 
