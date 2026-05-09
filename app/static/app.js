@@ -3,6 +3,7 @@ const state = {
   activeChatId: null,
   loading: false,
   settings: null,
+  availableTools: [],
   availableModels: [],
   roles: [],
   activeRoleName: null,
@@ -39,6 +40,13 @@ const workspacePath = document.querySelector("#workspace-path");
 const embeddingModel = document.querySelector("#embedding-model");
 const requireToolConfirmation = document.querySelector("#require-tool-confirmation");
 const alwaysAllowedTools = document.querySelector("#always-allowed-tools");
+const emailProvider = document.querySelector("#email-provider");
+const emailProviderStatus = document.querySelector("#email-provider-status");
+const emailProviderAccount = document.querySelector("#email-provider-account");
+const emailProviderHint = document.querySelector("#email-provider-hint");
+const connectEmailProviderButton = document.querySelector("#connect-email-provider");
+const disconnectEmailProviderButton = document.querySelector("#disconnect-email-provider");
+const availableToolList = document.querySelector("#available-tool-list");
 const modelRoleList = document.querySelector("#model-role-list");
 const roleNameOptions = document.querySelector("#role-name-options");
 const addModelRoleButton = document.querySelector("#add-model-role");
@@ -400,9 +408,26 @@ function renderSettings() {
   workspacePath.value = state.settings.workspace_path || "";
   embeddingModel.value = state.settings.embedding_model || "";
   requireToolConfirmation.checked = state.settings.require_tool_confirmation !== false;
+  emailProvider.value = state.settings.email_provider?.provider || "";
+  renderEmailProvider();
   renderAlwaysAllowedTools();
+  renderAvailableTools();
   renderModelRoles();
   renderSettingsSections();
+}
+
+function renderEmailProvider() {
+  const provider = state.settings?.email_provider || {};
+  const status = provider.status || "disconnected";
+  const account = provider.account_email || "Kein Account verbunden.";
+  emailProviderStatus.textContent = status;
+  emailProviderStatus.className = `provider-state ${status}`;
+  emailProviderAccount.textContent = account;
+  emailProviderHint.textContent = provider.provider
+    ? "OAuth ist vorbereitet. Der echte Browser-Flow braucht als nächsten Schritt Client-ID, Redirect URI und Token-Speicher."
+    : "Wähle Google oder Microsoft und starte danach den Auth-Prozess.";
+  connectEmailProviderButton.disabled = !emailProvider.value;
+  disconnectEmailProviderButton.disabled = status === "disconnected" && !provider.provider;
 }
 
 function renderSettingsSections() {
@@ -435,6 +460,31 @@ function renderAlwaysAllowedTools() {
       renderAlwaysAllowedTools();
     });
     alwaysAllowedTools.append(chip);
+  });
+}
+
+function renderAvailableTools() {
+  availableToolList.innerHTML = "";
+  if (!Array.isArray(state.availableTools) || state.availableTools.length === 0) {
+    availableToolList.innerHTML = '<p class="settings-empty">Tool-Liste wird geladen...</p>';
+    return;
+  }
+  state.availableTools.forEach((tool) => {
+    const item = document.createElement("article");
+    item.className = "available-tool-item";
+    const meta = tool.meta || {};
+    item.innerHTML = `
+      <div>
+        <strong>${escapeHtml(tool.name)}</strong>
+        <p>${escapeHtml(tool.description || "")}</p>
+      </div>
+      <div class="tool-meta">
+        <span>${escapeHtml(meta.category || "tool")}</span>
+        <span>${escapeHtml(meta.risk || "read")}</span>
+        <span>${meta.alwaysAllowed ? "immer erlaubt" : meta.requiresConfirmation ? "fragt nach" : "frei"}</span>
+      </div>
+    `;
+    availableToolList.append(item);
   });
 }
 
@@ -550,6 +600,12 @@ async function loadChats() {
 async function loadSettings() {
   state.settings = await api("/api/settings");
   renderSettings();
+}
+
+async function loadTools() {
+  const response = await api("/api/tools");
+  state.availableTools = response.tools || [];
+  renderAvailableTools();
 }
 
 async function loadRoles() {
@@ -819,6 +875,41 @@ settingsNavButtons.forEach((button) => {
   });
 });
 
+emailProvider.addEventListener("change", () => {
+  state.settings.email_provider = {
+    ...(state.settings.email_provider || {}),
+    provider: emailProvider.value,
+    status: emailProvider.value ? (state.settings.email_provider?.status || "disconnected") : "disconnected",
+  };
+  renderEmailProvider();
+});
+
+connectEmailProviderButton.addEventListener("click", async () => {
+  const provider = emailProvider.value;
+  if (!provider) return;
+  try {
+    const response = await api("/api/settings/email-provider/auth", {
+      method: "POST",
+      body: JSON.stringify({ provider }),
+    });
+    state.settings = await api("/api/settings");
+    renderSettings();
+    setStatus(response.message || "Provider vorbereitet");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+});
+
+disconnectEmailProviderButton.addEventListener("click", async () => {
+  try {
+    state.settings = await api("/api/settings/email-provider/disconnect", { method: "POST" });
+    renderSettings();
+    setStatus("E-Mail Provider getrennt");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+});
+
 addModelRoleButton.addEventListener("click", () => {
   const roles = collectModelRoles();
   roles.push({ role: "", model: "" });
@@ -1053,6 +1144,10 @@ settingsForm.addEventListener("submit", async (event) => {
     embedding_model: embeddingModel.value.trim(),
     require_tool_confirmation: requireToolConfirmation.checked,
     always_allowed_tools: Array.isArray(state.settings?.always_allowed_tools) ? state.settings.always_allowed_tools : [],
+    email_provider: {
+      ...(state.settings.email_provider || {}),
+      provider: emailProvider.value,
+    },
     default_model: assistantRole.model,
     model_roles: modelRoles,
   };
@@ -1061,6 +1156,7 @@ settingsForm.addEventListener("submit", async (event) => {
       method: "PUT",
       body: JSON.stringify(payload),
     });
+    await loadTools();
     renderSettings();
     setStatus("Einstellungen gespeichert");
   } catch (error) {
@@ -1090,7 +1186,7 @@ input.addEventListener("keydown", (event) => {
 
 renderModeSwitch();
 
-Promise.all([loadRoles(), loadMistakes(), loadAgenticTasks(), loadSchedulerStatus(), loadSettings(), loadChats()])
+Promise.all([loadRoles(), loadMistakes(), loadAgenticTasks(), loadSchedulerStatus(), loadSettings(), loadTools(), loadChats()])
   .then(() => {
     if (state.activeChatId) return selectChat(state.activeChatId);
     renderMessages([]);

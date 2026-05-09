@@ -18,6 +18,13 @@ class ModelRole(BaseModel):
     model: str
 
 
+class EmailProviderSettings(BaseModel):
+    provider: str = ""
+    status: str = "disconnected"
+    account_email: str = ""
+    scopes: list[str] = Field(default_factory=list)
+
+
 def default_model_roles() -> list[ModelRole]:
     return [
         ModelRole(role="assistant", model="llama3.1:8b"),
@@ -43,6 +50,7 @@ class Settings(BaseModel):
     routing_min_score: float = 0.24
     require_tool_confirmation: bool = True
     always_allowed_tools: list[str] = Field(default_factory=list)
+    email_provider: EmailProviderSettings = Field(default_factory=EmailProviderSettings)
 
     def model_for_role(self, role: str) -> str:
         wanted = role.strip().casefold()
@@ -115,6 +123,11 @@ def save_settings(settings: Settings) -> None:
     settings.reviewer_model = settings.model_for_role("reviewer")
     settings.judge_model = settings.model_for_role("judge")
     settings.always_allowed_tools = sorted({name.strip() for name in settings.always_allowed_tools if name.strip()})
+    settings.email_provider.provider = settings.email_provider.provider.strip().lower()
+    if settings.email_provider.provider not in {"", "google", "microsoft"}:
+        settings.email_provider.provider = ""
+    if settings.email_provider.status not in {"disconnected", "pending", "connected", "error"}:
+        settings.email_provider.status = "disconnected"
     path = config_path()
     with path.open("w", encoding="utf-8") as handle:
         json.dump(settings.model_dump(), handle, indent=2)

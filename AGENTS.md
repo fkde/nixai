@@ -25,6 +25,7 @@ Implemented:
 - RAG-style tool routing with keyword fallback and optional Ollama embeddings
 - tool-call approval flow with `Einmal erlauben`, `Immer erlauben`, and global confirmation toggle
 - grouped settings overlay over the chat area for Basis, Modelle, Prompts, Tools, Memory, and Agentic
+- E-mail provider settings scaffold for Google Gmail and Microsoft Outlook OAuth
 - editable `MISTAKES.md` review source
 - Mistakes review wizard that proposes future-facing fixes and writes accepted guidance to `MEMORY.md`
 - shared reviewed `MEMORY.md` context injected into relevant model prompts
@@ -353,6 +354,7 @@ Keep the frontend simple and app-like:
 - dark local-agent interface with purple accent
 - compact settings and controls
 - settings open as a grouped overlay over the chat area, not as a narrow side panel
+- tools settings show provider connection state and the registered tool catalog
 - readable code blocks
 - modal prompts for explicit approvals and guided review flows
 
@@ -373,6 +375,7 @@ Near-term useful UI work:
 - judge retry/done decision logic
 - acceptance criteria verification
 - external connectors such as email or calendar
+- real Google/Microsoft OAuth browser flow, token storage, and connected e-mail tools
 - full plugin system
 - RAG over project documents beyond current tool routing
 - authentication or remote access

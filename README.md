@@ -98,6 +98,7 @@ Example config:
 - Code mode gathers bounded read-only workspace context through NixAI tools
 - Configurable model roles through the settings UI
 - Grouped settings overlay for Basis, Modelle, Prompts, Tools, Memory, and Agentic
+- E-mail provider settings scaffold for Google Gmail and Microsoft Outlook OAuth
 - Markdown role prompts for Orchestrator, Worker, Reviewer, Judge, and custom roles
 - Editable central `MISTAKES.md` review source and accepted `MEMORY.md` model context
 - Tool approval prompts with settings for disabling confirmation and permanently allowed tools

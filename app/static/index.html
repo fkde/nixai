@@ -164,8 +164,8 @@
             <section class="settings-section tool-approval-section" data-settings-panel="tools">
               <div class="settings-section-title">
                 <p class="eyebrow">Tools</p>
-                <h3>Tool-Freigaben</h3>
-                <p>Nachfragen vor Tool-Aufrufen und dauerhaft erlaubte Funktionen.</p>
+                <h3>Tools & Provider</h3>
+                <p>Nachfragen vor Tool-Aufrufen, dauerhaft erlaubte Funktionen und externe Verbindungen.</p>
               </div>
 
               <div class="settings-grid two">
@@ -179,6 +179,45 @@
                   <span class="model-role-label">Immer erlaubt</span>
                   <div id="always-allowed-tools" class="tool-chip-list"></div>
                 </div>
+              </div>
+
+              <div class="settings-card provider-card">
+                <div class="model-section-header compact">
+                  <div>
+                    <h3>E-Mail Provider</h3>
+                    <p>Provider wählen und später per OAuth verbinden. E-Mail-Tools werden erst nach echter Verbindung aktiv.</p>
+                  </div>
+                </div>
+                <div class="provider-grid">
+                  <label class="field">
+                    <span>Provider</span>
+                    <select id="email-provider">
+                      <option value="">Nicht verbunden</option>
+                      <option value="google">Google Gmail</option>
+                      <option value="microsoft">Microsoft Outlook</option>
+                    </select>
+                  </label>
+                  <div class="provider-status">
+                    <span class="model-role-label">Status</span>
+                    <strong id="email-provider-status">disconnected</strong>
+                    <small id="email-provider-account">Kein Account verbunden.</small>
+                  </div>
+                </div>
+                <div class="role-editor-actions">
+                  <button id="connect-email-provider" type="button">Provider verbinden</button>
+                  <button id="disconnect-email-provider" class="danger-button" type="button">Trennen</button>
+                </div>
+                <p id="email-provider-hint" class="settings-empty">Wähle Google oder Microsoft und starte danach den Auth-Prozess.</p>
+              </div>
+
+              <div class="settings-card">
+                <div class="model-section-header compact">
+                  <div>
+                    <h3>Verfügbare Tools</h3>
+                    <p>Registrierte Funktionen, Risiko und Freigabestatus.</p>
+                  </div>
+                </div>
+                <div id="available-tool-list" class="available-tool-list"></div>
               </div>
             </section>
 

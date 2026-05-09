@@ -615,6 +615,92 @@ textarea:disabled {
   color: var(--muted);
 }
 
+.provider-card {
+  gap: 16px;
+}
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(240px, 1fr);
+  gap: 14px;
+  align-items: end;
+}
+
+.provider-status {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0f1216;
+}
+
+.provider-status strong {
+  font-size: 14px;
+  text-transform: uppercase;
+}
+
+.provider-state.connected {
+  color: var(--accent-strong);
+}
+
+.provider-state.pending {
+  color: var(--gold);
+}
+
+.provider-state.error {
+  color: var(--danger);
+}
+
+.provider-status small {
+  color: var(--muted);
+}
+
+.available-tool-list {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.available-tool-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0f1216;
+}
+
+.available-tool-item strong {
+  font-size: 13px;
+}
+
+.available-tool-item p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.tool-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.tool-meta span {
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .model-role-row {
   display: grid;
   grid-template-columns: minmax(110px, 0.8fr) minmax(150px, 1.2fr) auto;
@@ -1036,6 +1122,8 @@ textarea:disabled {
 
   .settings-grid.two,
   .settings-grid.agentic-grid,
+  .provider-grid,
+  .available-tool-item,
   .model-role-list,
   .role-editor-grid {
     grid-template-columns: 1fr;
