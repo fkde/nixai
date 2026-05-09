@@ -34,6 +34,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS chats (
               id TEXT PRIMARY KEY,
               title TEXT NOT NULL,
+              workspace_path TEXT NOT NULL DEFAULT '',
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
             );
@@ -92,6 +93,9 @@ def init_db() -> None:
             """
         )
         message_columns = {row["name"] for row in db.execute("PRAGMA table_info(messages)").fetchall()}
+        chat_columns = {row["name"] for row in db.execute("PRAGMA table_info(chats)").fetchall()}
+        if "workspace_path" not in chat_columns:
+            db.execute("ALTER TABLE chats ADD COLUMN workspace_path TEXT NOT NULL DEFAULT ''")
         if "mode" not in message_columns:
             db.execute(
                 "ALTER TABLE messages ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat' CHECK(mode IN ('chat', 'code', 'agentic'))"
@@ -127,18 +131,18 @@ def row_to_agentic_task_run(row: sqlite3.Row) -> AgenticTaskRun:
 def list_chats() -> list[Chat]:
     with get_connection() as db:
         rows = db.execute(
-            "SELECT id, title, created_at, updated_at FROM chats ORDER BY updated_at DESC"
+            "SELECT id, title, workspace_path, created_at, updated_at FROM chats ORDER BY updated_at DESC"
         ).fetchall()
     return [row_to_chat(row) for row in rows]
 
 
-def create_chat(title: Optional[str] = None) -> Chat:
+def create_chat(title: Optional[str] = None, workspace_path: str = "") -> Chat:
     now = utc_now()
-    chat = Chat(id=new_id(), title=title or "Neuer Chat", created_at=now, updated_at=now)
+    chat = Chat(id=new_id(), title=title or "Neuer Chat", workspace_path=workspace_path.strip(), created_at=now, updated_at=now)
     with get_connection() as db:
         db.execute(
-            "INSERT INTO chats (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-            (chat.id, chat.title, chat.created_at, chat.updated_at),
+            "INSERT INTO chats (id, title, workspace_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (chat.id, chat.title, chat.workspace_path, chat.created_at, chat.updated_at),
         )
     return chat
 
@@ -146,10 +150,33 @@ def create_chat(title: Optional[str] = None) -> Chat:
 def get_chat(chat_id: str) -> Optional[Chat]:
     with get_connection() as db:
         row = db.execute(
-            "SELECT id, title, created_at, updated_at FROM chats WHERE id = ?",
+            "SELECT id, title, workspace_path, created_at, updated_at FROM chats WHERE id = ?",
             (chat_id,),
         ).fetchone()
     return row_to_chat(row) if row else None
+
+
+def update_chat(chat_id: str, title: Optional[str] = None, workspace_path: Optional[str] = None) -> Optional[Chat]:
+    assignments = []
+    values = []
+    if title is not None:
+        assignments.append("title = ?")
+        values.append(" ".join(title.strip().split())[:80] or "Neuer Chat")
+    if workspace_path is not None:
+        assignments.append("workspace_path = ?")
+        values.append(workspace_path.strip())
+    if not assignments:
+        return get_chat(chat_id)
+    now = utc_now()
+    assignments.append("updated_at = ?")
+    values.append(now)
+    values.append(chat_id)
+    with get_connection() as db:
+        result = db.execute(
+            f"UPDATE chats SET {', '.join(assignments)} WHERE id = ?",
+            values,
+        )
+    return get_chat(chat_id) if result.rowcount else None
 
 
 def delete_chat(chat_id: str) -> bool:

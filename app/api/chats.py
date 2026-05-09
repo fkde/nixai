@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from app import database
 from app.agent import Agent
 from app.mistake_distiller import MistakeDistiller
-from app.models import Chat, CreateChatRequest, CreateMessageRequest, CreateMessageResponse, Message, MessageFeedbackRequest, MessageFeedbackResponse
+from app.models import Chat, CreateChatRequest, CreateMessageRequest, CreateMessageResponse, Message, MessageFeedbackRequest, MessageFeedbackResponse, UpdateChatRequest
 
 
 router = APIRouter(prefix="/api/chats", tags=["chats"])
@@ -23,7 +23,7 @@ def get_chats() -> list[Chat]:
 
 @router.post("", response_model=Chat)
 def post_chat(request: Optional[CreateChatRequest] = None) -> Chat:
-    return database.create_chat(request.title if request else None)
+    return database.create_chat(request.title if request else None, request.workspace_path if request else "")
 
 
 @router.get("/{chat_id}", response_model=Chat)
@@ -38,6 +38,14 @@ def get_chat(chat_id: str) -> Chat:
 def delete_chat(chat_id: str) -> None:
     if not database.delete_chat(chat_id):
         raise HTTPException(status_code=404, detail="Chat not found")
+
+
+@router.put("/{chat_id}", response_model=Chat)
+def put_chat(chat_id: str, request: UpdateChatRequest) -> Chat:
+    chat = database.update_chat(chat_id, title=request.title, workspace_path=request.workspace_path)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return chat
 
 
 @router.get("/{chat_id}/messages", response_model=list[Message])

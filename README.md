@@ -96,6 +96,7 @@ Example config:
 - Chat, Code, and Agentic message modes in one history
 - Live assistant output with tokens-per-second status
 - Code mode gathers bounded read-only workspace context through NixAI tools
+- Per-chat workspace path with the global workspace as fallback
 - Configurable model roles through the settings UI
 - Grouped settings overlay for Basis, Modelle, Prompts, Tools, Memory, and Agentic
 - E-mail provider settings scaffold for Google Gmail and Microsoft Outlook OAuth

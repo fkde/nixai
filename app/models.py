@@ -25,6 +25,7 @@ def new_id() -> str:
 class Chat(BaseModel):
     id: str
     title: str
+    workspace_path: str = ""
     created_at: str
     updated_at: str
 
@@ -66,6 +67,12 @@ class AgenticTaskRun(BaseModel):
 
 class CreateChatRequest(BaseModel):
     title: Optional[str] = None
+    workspace_path: str = ""
+
+
+class UpdateChatRequest(BaseModel):
+    title: Optional[str] = None
+    workspace_path: Optional[str] = None
 
 
 class CreateMessageRequest(BaseModel):

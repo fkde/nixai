@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from app.tools.registry import registry
+from app.tools import filesystem, git
 from app.tools.workspace import WorkspaceError, workspace_root
 
 
@@ -13,6 +13,9 @@ MAX_CONTEXT_CHARS = 24_000
 
 
 class CodeContextBuilder:
+    def __init__(self, workspace_path: str = "") -> None:
+        self.workspace_path = workspace_path
+
     def build(self, user_message: str) -> str:
         sections = [
             "NixAI code mode tool policy:",
@@ -24,7 +27,7 @@ class CodeContextBuilder:
         ]
 
         try:
-            root = workspace_root()
+            root = workspace_root(self.workspace_path)
         except WorkspaceError as exc:
             return "\n".join([*sections, f"Workspace error: {exc}"])
 
@@ -73,7 +76,18 @@ class CodeContextBuilder:
 
     def _call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
         try:
-            result = registry.call(tool, arguments)
+            if tool == "nixai_workspace_list_files":
+                result = filesystem.list_files(str(arguments.get("path") or "."), self.workspace_path)
+            elif tool == "nixai_workspace_read_file":
+                result = filesystem.read_file(str(arguments.get("path") or ""), self.workspace_path)
+            elif tool == "nixai_workspace_search_files":
+                result = filesystem.search_files(str(arguments.get("query") or ""), self.workspace_path)
+            elif tool == "nixai_git_status":
+                result = git.git_status(self.workspace_path)
+            elif tool == "nixai_git_diff":
+                result = git.git_diff(self.workspace_path)
+            else:
+                result = f"Tool is not available in code context: {tool}"
         except Exception as exc:
             result = f"Tool error: {exc}"
         return {"tool": tool, "arguments": arguments, "result": result}

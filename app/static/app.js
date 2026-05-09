@@ -26,6 +26,7 @@ const shell = document.querySelector(".shell");
 const chatList = document.querySelector("#chat-list");
 const messagesEl = document.querySelector("#messages");
 const chatTitle = document.querySelector("#chat-title");
+const chatWorkspace = document.querySelector("#chat-workspace");
 const form = document.querySelector("#message-form");
 const input = document.querySelector("#message-input");
 const sendButton = document.querySelector("#send-button");
@@ -156,6 +157,10 @@ function renderChats() {
     item.append(button, deleteButton);
     chatList.append(item);
   }
+}
+
+function activeChat() {
+  return state.chats.find((item) => item.id === state.activeChatId) || null;
 }
 
 function renderModeSwitch() {
@@ -719,11 +724,26 @@ async function refreshModels() {
 
 async function selectChat(chatId) {
   state.activeChatId = chatId;
-  const chat = state.chats.find((item) => item.id === chatId);
+  const chat = activeChat();
   chatTitle.textContent = chat ? chat.title : "Chat";
+  chatWorkspace.value = chat?.workspace_path || "";
+  chatWorkspace.disabled = !chat;
   renderChats();
   const messages = await api(`/api/chats/${chatId}/messages`);
   renderMessages(messages);
+}
+
+async function saveChatWorkspace() {
+  const chat = activeChat();
+  if (!chat) return;
+  const workspace = chatWorkspace.value.trim();
+  if (workspace === (chat.workspace_path || "")) return;
+  const updated = await api(`/api/chats/${chat.id}`, {
+    method: "PUT",
+    body: JSON.stringify({ workspace_path: workspace }),
+  });
+  state.chats = state.chats.map((item) => item.id === updated.id ? updated : item);
+  renderChats();
 }
 
 async function createChat() {
@@ -754,6 +774,8 @@ async function deleteChat(chatId, title) {
     await selectChat(state.chats[0].id);
   } else {
     chatTitle.textContent = "Kein Chat ausgewählt";
+    chatWorkspace.value = "";
+    chatWorkspace.disabled = true;
     renderMessages([]);
   }
   setStatus("Chat gelöscht");
@@ -927,6 +949,17 @@ newChatButton.addEventListener("click", () => {
 
 settingsToggle.addEventListener("click", () => {
   openSettings();
+});
+
+chatWorkspace.addEventListener("blur", () => {
+  saveChatWorkspace().catch((error) => setStatus(error.message, true));
+});
+
+chatWorkspace.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    chatWorkspace.blur();
+  }
 });
 
 modeButtons.forEach((button) => {

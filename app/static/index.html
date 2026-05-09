@@ -16,7 +16,6 @@
           </div>
           <div class="sidebar-actions">
             <button id="new-chat" type="button">+ Neuer Chat</button>
-            <button id="settings-toggle" type="button">Einstellungen</button>
           </div>
         </div>
         <nav id="chat-list" class="chat-list" aria-label="Chats"></nav>
@@ -27,8 +26,18 @@
           <div>
             <p class="eyebrow">Lokaler Ollama-Agent</p>
             <h2 id="chat-title">Kein Chat ausgewählt</h2>
+            <label class="chat-workspace-field">
+              <span>Workspace</span>
+              <input id="chat-workspace" type="text" placeholder="Fallback aus Einstellungen" />
+            </label>
           </div>
           <div class="chat-header-actions">
+            <button id="settings-toggle" class="header-icon-button" type="button" aria-label="Einstellungen öffnen">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
+                <path d="m19.4 15 .4-3-.4-3-2.1-.6a7.4 7.4 0 0 0-1-1.7l.5-2.1-2.7-1.5-1.6 1.5a7.5 7.5 0 0 0-2 0L8.9 3.1 6.2 4.6l.5 2.1a7.4 7.4 0 0 0-1 1.7L3.6 9 3.2 12l.4 3 2.1.6c.3.6.6 1.2 1 1.7l-.5 2.1 2.7 1.5 1.6-1.5a7.5 7.5 0 0 0 2 0l1.6 1.5 2.7-1.5-.5-2.1c.4-.5.7-1.1 1-1.7l2.1-.6Z" />
+              </svg>
+            </button>
             <div class="mode-switch" role="group" aria-label="Modus">
               <button class="mode-button active" type="button" data-mode="chat">Chat</button>
               <button class="mode-button" type="button" data-mode="code">Code</button>
@@ -97,7 +106,7 @@
                 </label>
 
                 <label class="field settings-card">
-                  <span>Workspace</span>
+                  <span>Fallback Workspace</span>
                   <input id="workspace-path" type="text" placeholder="/path/to/project" />
                 </label>
 

@@ -14,6 +14,7 @@ Implemented:
 - Ollama chat adapter using `/api/chat`, including streamed responses
 - live assistant output with tokens-per-second status in the UI
 - shared `chat`, `code`, and `agentic` message modes in one chat history
+- per-chat workspace path for Code mode, with global workspace as fallback
 - configurable model-role mapping in settings
 - editable Markdown role prompts for built-in and custom roles
 - `TaskDiscovery` role for extracting recurring Agentic Task intent from user requests
@@ -205,7 +206,7 @@ Scheduled Agentic runs cannot display an interactive prompt. They only execute t
 `code`:
 
 - uses the `worker` model role
-- requires a configured workspace for useful answers
+- uses the chat workspace when set, otherwise the global fallback workspace
 - injects `WORKER.md`, reviewed `MEMORY.md`, workspace path, and bounded read-only tool results
 - may inspect file lists, specific files, search results, Git status, and Git diff through NixAI tools
 - does not give the model native shell access

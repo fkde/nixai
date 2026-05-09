@@ -91,11 +91,11 @@ class Agent:
 
     def _history_with_mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> list[Message]:
         history = database.list_messages(chat_id)
-        return [self._system_message(chat_id, self._mode_context(mode, user_message)), *history]
+        return [self._system_message(chat_id, self._mode_context(chat_id, mode, user_message)), *history]
 
-    def _mode_context(self, mode: MessageMode, user_message: str = "") -> str:
+    def _mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> str:
         if mode == "code":
-            workspace = self.settings.workspace_path
+            workspace = self._workspace_for_chat(chat_id)
             return (
                 f"{role_prompt('WORKER')}\n\n"
                 f"{self._memory_context_block()}\n\n"
@@ -103,7 +103,7 @@ class Agent:
                 f"Configured workspace: {workspace}\n"
                 "Help with code and project understanding. Prefer workspace-grounded answers. "
                 "Do not claim that files, Git, or tests were inspected unless tool results are provided.\n\n"
-                f"{CodeContextBuilder().build(user_message)}"
+                f"{CodeContextBuilder(workspace).build(user_message)}"
             )
         if mode == "agentic":
             return (
@@ -121,6 +121,10 @@ class Agent:
 
     def _memory_context_block(self) -> str:
         return "Shared reviewed memory:\n" + memory_context()
+
+    def _workspace_for_chat(self, chat_id: str) -> str:
+        chat = database.get_chat(chat_id)
+        return (chat.workspace_path if chat and chat.workspace_path.strip() else self.settings.workspace_path).strip()
 
     def _system_message(self, chat_id: str, content: str) -> Message:
         return Message(id=new_id(), chat_id=chat_id, role="system", content=content, mode="chat", created_at=utc_now())
