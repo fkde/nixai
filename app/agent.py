@@ -7,6 +7,7 @@ from app.agentic_schedule import compute_next_run, utc_now_dt
 from app.code_context import CodeContextBuilder
 from app.config import load_settings
 from app.llm.ollama import OllamaClient
+from app.mistakes import mistakes_context
 from app.models import CreateMessageResponse, Message, MessageMode, new_id, utc_now
 from app.roles import role_prompt
 from app.task_discovery import TaskDiscovery
@@ -56,6 +57,7 @@ class Agent:
             workspace = self.settings.workspace_path
             return (
                 f"{role_prompt('WORKER')}\n\n"
+                f"{self._mistakes_context_block()}\n\n"
                 "NixAI mode: CODE.\n"
                 f"Configured workspace: {workspace}\n"
                 "Help with code and project understanding. Prefer workspace-grounded answers. "
@@ -65,6 +67,7 @@ class Agent:
         if mode == "agentic":
             return (
                 f"{role_prompt('ORCHESTRATOR')}\n\n"
+                f"{self._mistakes_context_block()}\n\n"
                 "NixAI mode: AGENTIC.\n"
                 "Guide the user through a controlled agent workflow. If the request sounds recurring, "
                 "ask for missing schedule details or confirm the recurring task plan. "
@@ -74,6 +77,9 @@ class Agent:
             f"{role_prompt('ASSISTANT')}\n\n"
             "NixAI mode: CHAT. Answer conversationally without assuming workspace tool access."
         )
+
+    def _mistakes_context_block(self) -> str:
+        return "Shared mistakes and corrections:\n" + mistakes_context()
 
     def _system_message(self, chat_id: str, content: str) -> Message:
         return Message(id=new_id(), chat_id=chat_id, role="system", content=content, mode="chat", created_at=utc_now())

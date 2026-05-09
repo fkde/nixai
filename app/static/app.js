@@ -6,6 +6,7 @@ const state = {
   availableModels: [],
   roles: [],
   activeRoleName: null,
+  mistakes: null,
   activeMode: "chat",
   agenticTasks: [],
   activeTaskId: null,
@@ -41,6 +42,9 @@ const deleteRoleButton = document.querySelector("#delete-role");
 const roleNameInput = document.querySelector("#role-name");
 const roleContentInput = document.querySelector("#role-content");
 const rolePreview = document.querySelector("#role-preview");
+const saveMistakesButton = document.querySelector("#save-mistakes");
+const mistakesContent = document.querySelector("#mistakes-content");
+const mistakesPreview = document.querySelector("#mistakes-preview");
 const agenticTaskList = document.querySelector("#agentic-task-list");
 const newAgenticTaskButton = document.querySelector("#new-agentic-task");
 const saveAgenticTaskButton = document.querySelector("#save-agentic-task");
@@ -238,6 +242,12 @@ function renderRoles() {
   renderRoleEditor();
 }
 
+function renderMistakes() {
+  if (!state.mistakes) return;
+  mistakesContent.value = state.mistakes.content || "";
+  mistakesPreview.innerHTML = markdownPreview(state.mistakes.content || "");
+}
+
 function activeAgenticTask() {
   return state.agenticTasks.find((task) => task.id === state.activeTaskId) || null;
 }
@@ -389,6 +399,11 @@ async function loadRoles() {
   renderRoles();
 }
 
+async function loadMistakes() {
+  state.mistakes = await api("/api/mistakes");
+  renderMistakes();
+}
+
 async function loadAgenticTasks() {
   state.agenticTasks = await api("/api/agentic-tasks");
   if (state.activeTaskId && !state.agenticTasks.some((task) => task.id === state.activeTaskId)) {
@@ -531,6 +546,10 @@ roleContentInput.addEventListener("input", () => {
   rolePreview.innerHTML = markdownPreview(roleContentInput.value);
 });
 
+mistakesContent.addEventListener("input", () => {
+  mistakesPreview.innerHTML = markdownPreview(mistakesContent.value);
+});
+
 roleNameInput.addEventListener("input", () => {
   const normalized = roleNameInput.value.trim().replace(/[^A-Za-z0-9_-]+/g, "_").toUpperCase();
   if (!roleContentInput.value.trim()) {
@@ -568,6 +587,19 @@ deleteRoleButton.addEventListener("click", async () => {
     await loadRoles();
     renderSettings();
     setStatus("Rolle geloescht");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+});
+
+saveMistakesButton.addEventListener("click", async () => {
+  try {
+    state.mistakes = await api("/api/mistakes", {
+      method: "PUT",
+      body: JSON.stringify({ content: mistakesContent.value }),
+    });
+    renderMistakes();
+    setStatus("Mistakes gespeichert");
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -680,7 +712,7 @@ input.addEventListener("keydown", (event) => {
 
 renderModeSwitch();
 
-Promise.all([loadRoles(), loadAgenticTasks(), loadSchedulerStatus(), loadSettings(), loadChats()])
+Promise.all([loadRoles(), loadMistakes(), loadAgenticTasks(), loadSchedulerStatus(), loadSettings(), loadChats()])
   .then(() => {
     if (state.activeChatId) return selectChat(state.activeChatId);
     renderMessages([]);

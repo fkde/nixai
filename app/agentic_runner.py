@@ -9,6 +9,7 @@ from app import database
 from app.agentic_schedule import compute_next_run, utc_now_dt
 from app.config import load_settings
 from app.llm.ollama import OllamaClient, OllamaError
+from app.mistakes import mistakes_context
 from app.models import AgenticTask, AgenticTaskRun
 from app.roles import role_prompt
 from app.tools.registry import registry
@@ -171,6 +172,7 @@ class AgenticRunner:
     def _system_prompt(self) -> str:
         return (
             f"{role_prompt('ORCHESTRATOR')}\n\n"
+            f"Shared mistakes and corrections:\n{mistakes_context()}\n\n"
             "You are running a scheduled NixAI Agentic Task.\n"
             "Return strict JSON only. Use only listed tools. If tools are missing for the user's request, return needs_review.\n"
             "Schema: {\"action\":\"use_tools|done|needs_review\",\"tool_calls\":[{\"name\":\"...\",\"arguments\":{}}],\"summary\":\"...\"}"

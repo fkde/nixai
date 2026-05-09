@@ -97,6 +97,7 @@ Example config:
 - Code mode gathers bounded read-only workspace context through NixAI tools
 - Configurable model roles through the settings UI
 - Markdown role prompts for Orchestrator, Worker, Reviewer, Judge, and custom roles
+- Editable central `MISTAKES.md` for recurring corrections and safety notes
 - TaskDiscovery role for extracting recurring Agentic task definitions from user requests
 - First Agentic Task definitions with create/edit/pause/delete API and UI
 - Local Agentic scheduler with run history, approved tool calls, and failover to review
