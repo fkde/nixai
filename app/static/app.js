@@ -15,6 +15,7 @@ const state = {
   activeTaskId: null,
   agenticRuns: [],
   pendingToolApproval: null,
+  activeSettingsSection: "basis",
 };
 
 const shell = document.querySelector(".shell");
@@ -31,6 +32,8 @@ const modeButtons = document.querySelectorAll(".mode-button");
 const settingsClose = document.querySelector("#settings-close");
 const settingsPanel = document.querySelector("#settings-panel");
 const settingsForm = document.querySelector("#settings-form");
+const settingsNavButtons = document.querySelectorAll(".settings-nav-button");
+const settingsSections = document.querySelectorAll(".settings-section");
 const ollamaBaseUrl = document.querySelector("#ollama-base-url");
 const workspacePath = document.querySelector("#workspace-path");
 const embeddingModel = document.querySelector("#embedding-model");
@@ -399,6 +402,18 @@ function renderSettings() {
   requireToolConfirmation.checked = state.settings.require_tool_confirmation !== false;
   renderAlwaysAllowedTools();
   renderModelRoles();
+  renderSettingsSections();
+}
+
+function renderSettingsSections() {
+  settingsNavButtons.forEach((button) => {
+    const active = button.dataset.settingsSection === state.activeSettingsSection;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  settingsSections.forEach((section) => {
+    section.classList.toggle("active", section.dataset.settingsPanel === state.activeSettingsSection);
+  });
 }
 
 function renderAlwaysAllowedTools() {
@@ -795,6 +810,13 @@ modeButtons.forEach((button) => {
 
 settingsClose.addEventListener("click", () => {
   closeSettings();
+});
+
+settingsNavButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    state.activeSettingsSection = button.dataset.settingsSection || "basis";
+    renderSettingsSections();
+  });
 });
 
 addModelRoleButton.addEventListener("click", () => {

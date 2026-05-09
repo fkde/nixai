@@ -24,6 +24,7 @@ Implemented:
 - public URL check/fetch internet tools with private-address blocking
 - RAG-style tool routing with keyword fallback and optional Ollama embeddings
 - tool-call approval flow with `Einmal erlauben`, `Immer erlauben`, and global confirmation toggle
+- grouped settings overlay over the chat area for Basis, Modelle, Prompts, Tools, Memory, and Agentic
 - editable `MISTAKES.md` review source
 - Mistakes review wizard that proposes future-facing fixes and writes accepted guidance to `MEMORY.md`
 - shared reviewed `MEMORY.md` context injected into relevant model prompts
@@ -351,6 +352,7 @@ Keep the frontend simple and app-like:
 - no Monaco editor in the POC
 - dark local-agent interface with purple accent
 - compact settings and controls
+- settings open as a grouped overlay over the chat area, not as a narrow side panel
 - readable code blocks
 - modal prompts for explicit approvals and guided review flows
 

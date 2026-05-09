@@ -50,171 +50,222 @@
         <header class="settings-header">
           <div>
             <p class="eyebrow">Konfiguration</p>
-            <h2>Modelle & Rollen</h2>
+            <h2>Einstellungen</h2>
           </div>
           <button id="settings-close" class="icon-button" type="button" aria-label="Einstellungen schließen">x</button>
         </header>
 
-        <form id="settings-form" class="settings-form">
-          <label class="field">
-            <span>Ollama URL</span>
-            <input id="ollama-base-url" type="url" placeholder="http://localhost:11434" />
-          </label>
+        <div class="settings-body">
+          <nav class="settings-nav" aria-label="Einstellungsgruppen">
+            <button class="settings-nav-button active" type="button" data-settings-section="basis">
+              <span>Basis</span>
+              <small>Ollama, Workspace, Embeddings</small>
+            </button>
+            <button class="settings-nav-button" type="button" data-settings-section="models">
+              <span>Modelle</span>
+              <small>Rollen und Modellzuweisung</small>
+            </button>
+            <button class="settings-nav-button" type="button" data-settings-section="prompts">
+              <span>Prompts</span>
+              <small>Markdown-Rollen bearbeiten</small>
+            </button>
+            <button class="settings-nav-button" type="button" data-settings-section="tools">
+              <span>Tools</span>
+              <small>Freigaben und Zugriff</small>
+            </button>
+            <button class="settings-nav-button" type="button" data-settings-section="memory">
+              <span>Memory</span>
+              <small>Mistakes Review</small>
+            </button>
+            <button class="settings-nav-button" type="button" data-settings-section="agentic">
+              <span>Agentic</span>
+              <small>Tasks und Runs</small>
+            </button>
+          </nav>
 
-          <label class="field">
-            <span>Workspace</span>
-            <input id="workspace-path" type="text" placeholder="/path/to/project" />
-          </label>
+          <form id="settings-form" class="settings-form">
+            <section class="settings-section active" data-settings-panel="basis">
+              <div class="settings-section-title">
+                <p class="eyebrow">Basis</p>
+                <h3>Lokale Laufzeit</h3>
+                <p>Verbindung zu Ollama, Projektordner und optionales Embedding-Modell.</p>
+              </div>
 
-          <label class="field">
-            <span>Embedding-Modell</span>
-            <input id="embedding-model" type="text" placeholder="nomic-embed-text" />
-          </label>
+              <div class="settings-grid two">
+                <label class="field settings-card">
+                  <span>Ollama URL</span>
+                  <input id="ollama-base-url" type="url" placeholder="http://localhost:11434" />
+                </label>
 
-          <section class="model-section tool-approval-section">
-            <div class="model-section-header">
-              <div>
+                <label class="field settings-card">
+                  <span>Workspace</span>
+                  <input id="workspace-path" type="text" placeholder="/path/to/project" />
+                </label>
+
+                <label class="field settings-card">
+                  <span>Embedding-Modell</span>
+                  <input id="embedding-model" type="text" placeholder="nomic-embed-text" />
+                </label>
+              </div>
+            </section>
+
+            <section class="settings-section" data-settings-panel="models">
+              <div class="model-section-header">
+                <div>
+                  <p class="eyebrow">Modelle</p>
+                  <h3>Rollen-Zuweisung</h3>
+                  <p id="models-hint">Modelle werden aus Ollama geladen, wenn verfügbar.</p>
+                </div>
+                <button id="refresh-models" type="button">Modelle laden</button>
+              </div>
+
+              <div id="model-role-list" class="model-role-list"></div>
+              <datalist id="role-name-options"></datalist>
+
+              <button id="add-model-role" class="secondary-button" type="button">+ Hinzufügen</button>
+            </section>
+
+            <section class="settings-section role-prompt-section" data-settings-panel="prompts">
+              <div class="model-section-header">
+                <div>
+                  <p class="eyebrow">Prompts</p>
+                  <h3>Rollen-Prompts</h3>
+                  <p>Markdown-Kontext fuer Orchestrator, Worker, Reviewer und eigene Rollen.</p>
+                </div>
+                <button id="new-role" type="button">Neu</button>
+              </div>
+
+              <div id="role-prompt-list" class="role-prompt-list"></div>
+
+              <div class="role-editor-card">
+                <label class="field">
+                  <span>Rollenname</span>
+                  <input id="role-name" type="text" placeholder="ORCHESTRATOR" />
+                </label>
+
+                <div class="role-editor-grid">
+                  <label class="field">
+                    <span>Markdown</span>
+                    <textarea id="role-content" class="markdown-editor" rows="12" spellcheck="false"></textarea>
+                  </label>
+                  <section class="markdown-preview-wrap" aria-label="Markdown Vorschau">
+                    <span class="model-role-label">Vorschau</span>
+                    <div id="role-preview" class="markdown-preview"></div>
+                  </section>
+                </div>
+
+                <div class="role-editor-actions">
+                  <button id="delete-role" class="danger-button" type="button">Loeschen</button>
+                  <button id="save-role" class="secondary-button" type="button">Rolle speichern</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section tool-approval-section" data-settings-panel="tools">
+              <div class="settings-section-title">
+                <p class="eyebrow">Tools</p>
                 <h3>Tool-Freigaben</h3>
                 <p>Nachfragen vor Tool-Aufrufen und dauerhaft erlaubte Funktionen.</p>
               </div>
-            </div>
-            <label class="toggle-field">
-              <input id="require-tool-confirmation" type="checkbox" />
-              <span>Vor Tool-Aufrufen nachfragen</span>
-            </label>
-            <div>
-              <span class="model-role-label">Immer erlaubt</span>
-              <div id="always-allowed-tools" class="tool-chip-list"></div>
-            </div>
-          </section>
 
-          <section class="model-section">
-            <div class="model-section-header">
-              <div>
-                <h3>Rollen</h3>
-                <p id="models-hint">Modelle werden aus Ollama geladen, wenn verfügbar.</p>
-              </div>
-              <button id="refresh-models" type="button">Modelle laden</button>
-            </div>
-
-            <div id="model-role-list" class="model-role-list"></div>
-            <datalist id="role-name-options"></datalist>
-
-            <button id="add-model-role" class="secondary-button" type="button">+ Hinzufügen</button>
-          </section>
-
-          <section class="model-section role-prompt-section">
-            <div class="model-section-header">
-              <div>
-                <h3>Rollen-Prompts</h3>
-                <p>Markdown-Kontext fuer Orchestrator, Worker, Reviewer und eigene Rollen.</p>
-              </div>
-              <button id="new-role" type="button">Neu</button>
-            </div>
-
-            <div id="role-prompt-list" class="role-prompt-list"></div>
-
-            <div class="role-editor-card">
-              <label class="field">
-                <span>Rollenname</span>
-                <input id="role-name" type="text" placeholder="ORCHESTRATOR" />
-              </label>
-
-              <div class="role-editor-grid">
-                <label class="field">
-                  <span>Markdown</span>
-                  <textarea id="role-content" class="markdown-editor" rows="12" spellcheck="false"></textarea>
-                </label>
-                <section class="markdown-preview-wrap" aria-label="Markdown Vorschau">
-                  <span class="model-role-label">Vorschau</span>
-                  <div id="role-preview" class="markdown-preview"></div>
-                </section>
-              </div>
-
-              <div class="role-editor-actions">
-                <button id="delete-role" class="danger-button" type="button">Loeschen</button>
-                <button id="save-role" class="secondary-button" type="button">Rolle speichern</button>
-              </div>
-            </div>
-          </section>
-
-          <section class="model-section mistakes-section">
-            <div class="model-section-header">
-              <div>
-                <h3>Mistakes</h3>
-                <p>Zentrales Lernjournal fuer Fehler, Korrekturen und Safety-Hinweise.</p>
-              </div>
-              <div class="inline-actions">
-                <button id="analyze-mistakes" type="button" disabled>Fehler analysieren</button>
-                <button id="save-mistakes" class="secondary-button" type="button">Speichern</button>
-              </div>
-            </div>
-
-            <div class="role-editor-card">
-              <label class="field">
-                <span>MISTAKES.md</span>
-                <textarea id="mistakes-content" class="markdown-editor" rows="10" spellcheck="false"></textarea>
-              </label>
-              <section class="markdown-preview-wrap" aria-label="Mistakes Vorschau">
-                <span class="model-role-label">Vorschau</span>
-                <div id="mistakes-preview" class="markdown-preview"></div>
-              </section>
-            </div>
-          </section>
-
-          <section class="model-section agentic-task-section">
-            <div class="model-section-header">
-              <div>
-                <h3>Agentic Tasks</h3>
-                <p id="agentic-scheduler-status">Scheduler wird geladen...</p>
-              </div>
-              <button id="new-agentic-task" type="button">Neu</button>
-            </div>
-
-            <div id="agentic-task-list" class="agentic-task-list"></div>
-
-            <div class="role-editor-card">
-              <label class="field">
-                <span>Titel</span>
-                <input id="agentic-task-title" type="text" placeholder="E-Mail Zusammenfassung" />
-              </label>
-              <label class="field">
-                <span>Schedule</span>
-                <input id="agentic-task-schedule" type="text" placeholder="daily at 18:00" />
-              </label>
-              <label class="field">
-                <span>Status</span>
-                <select id="agentic-task-status">
-                  <option value="active">Aktiv</option>
-                  <option value="paused">Pausiert</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>Aufgabe</span>
-                <textarea id="agentic-task-prompt" rows="5" placeholder="Was soll NixAI wiederkehrend tun?"></textarea>
-              </label>
-              <div class="role-editor-actions">
-                <button id="delete-agentic-task" class="danger-button" type="button">Loeschen</button>
-                <button id="run-agentic-task" type="button">Jetzt ausfuehren</button>
-                <button id="save-agentic-task" class="secondary-button" type="button">Task speichern</button>
-              </div>
-            </div>
-
-            <div class="agentic-run-panel">
-              <div class="model-section-header compact">
-                <div>
-                  <h3>Runs</h3>
-                  <p>Letzte Ausfuehrungen und Failover-Status.</p>
+              <div class="settings-grid two">
+                <div class="settings-card">
+                  <label class="toggle-field">
+                    <input id="require-tool-confirmation" type="checkbox" />
+                    <span>Vor Tool-Aufrufen nachfragen</span>
+                  </label>
+                </div>
+                <div class="settings-card">
+                  <span class="model-role-label">Immer erlaubt</span>
+                  <div id="always-allowed-tools" class="tool-chip-list"></div>
                 </div>
               </div>
-              <div id="agentic-run-list" class="agentic-run-list"></div>
-            </div>
-          </section>
+            </section>
 
-          <footer class="settings-footer">
-            <button id="save-settings" type="submit">Speichern</button>
-          </footer>
-        </form>
+            <section class="settings-section mistakes-section" data-settings-panel="memory">
+              <div class="model-section-header">
+                <div>
+                  <p class="eyebrow">Memory</p>
+                  <h3>Mistakes</h3>
+                  <p>Zentrales Lernjournal fuer Fehler, Korrekturen und Safety-Hinweise.</p>
+                </div>
+                <div class="inline-actions">
+                  <button id="analyze-mistakes" type="button" disabled>Fehler analysieren</button>
+                  <button id="save-mistakes" class="secondary-button" type="button">Speichern</button>
+                </div>
+              </div>
+
+              <div class="role-editor-card">
+                <label class="field">
+                  <span>MISTAKES.md</span>
+                  <textarea id="mistakes-content" class="markdown-editor" rows="10" spellcheck="false"></textarea>
+                </label>
+                <section class="markdown-preview-wrap" aria-label="Mistakes Vorschau">
+                  <span class="model-role-label">Vorschau</span>
+                  <div id="mistakes-preview" class="markdown-preview"></div>
+                </section>
+              </div>
+            </section>
+
+            <section class="settings-section agentic-task-section" data-settings-panel="agentic">
+              <div class="model-section-header">
+                <div>
+                  <p class="eyebrow">Agentic</p>
+                  <h3>Agentic Tasks</h3>
+                  <p id="agentic-scheduler-status">Scheduler wird geladen...</p>
+                </div>
+                <button id="new-agentic-task" type="button">Neu</button>
+              </div>
+
+              <div class="settings-grid agentic-grid">
+                <div>
+                  <div id="agentic-task-list" class="agentic-task-list"></div>
+                </div>
+
+                <div class="role-editor-card">
+                  <label class="field">
+                    <span>Titel</span>
+                    <input id="agentic-task-title" type="text" placeholder="E-Mail Zusammenfassung" />
+                  </label>
+                  <label class="field">
+                    <span>Schedule</span>
+                    <input id="agentic-task-schedule" type="text" placeholder="daily at 18:00" />
+                  </label>
+                  <label class="field">
+                    <span>Status</span>
+                    <select id="agentic-task-status">
+                      <option value="active">Aktiv</option>
+                      <option value="paused">Pausiert</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Aufgabe</span>
+                    <textarea id="agentic-task-prompt" rows="5" placeholder="Was soll NixAI wiederkehrend tun?"></textarea>
+                  </label>
+                  <div class="role-editor-actions">
+                    <button id="delete-agentic-task" class="danger-button" type="button">Loeschen</button>
+                    <button id="run-agentic-task" type="button">Jetzt ausfuehren</button>
+                    <button id="save-agentic-task" class="secondary-button" type="button">Task speichern</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="agentic-run-panel">
+                <div class="model-section-header compact">
+                  <div>
+                    <h3>Runs</h3>
+                    <p>Letzte Ausfuehrungen und Failover-Status.</p>
+                  </div>
+                </div>
+                <div id="agentic-run-list" class="agentic-run-list"></div>
+              </div>
+            </section>
+
+            <footer class="settings-footer">
+              <button id="save-settings" type="submit">Speichern</button>
+            </footer>
+          </form>
+        </div>
       </aside>
 
       <div id="mistakes-modal" class="modal-backdrop" aria-hidden="true">
