@@ -10,8 +10,6 @@
   --muted: #8d9ab5;
   --accent: #8b5cf6;
   --accent-strong: #c4b5fd;
-  --cyan: #22d3ee;
-  --cyan-soft: #123f4e;
   --gold: #b9a5ff;
   --danger: #e16f6f;
   --shadow: 0 20px 70px rgba(0, 0, 0, 0.42);
@@ -25,7 +23,7 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(circle at 18% 16%, rgba(34, 211, 238, 0.12), transparent 28%),
+    radial-gradient(circle at 18% 16%, rgba(124, 58, 237, 0.12), transparent 28%),
     radial-gradient(circle at 72% 18%, rgba(139, 92, 246, 0.14), transparent 30%),
     var(--bg);
   color: var(--text);
@@ -107,9 +105,9 @@ button:hover {
   width: 100%;
   padding: 12px 13px;
   text-align: left;
-  background: #1d2b30;
-  border-color: #284e67;
-  color: var(--cyan);
+  background: #21183b;
+  border-color: #4f378f;
+  color: var(--accent-strong);
   font-weight: 700;
 }
 
@@ -136,9 +134,9 @@ button:hover {
 }
 
 .chat-item.active {
-  border-color: var(--cyan);
-  background: #0f3540;
-  color: #b8f6ff;
+  border-color: var(--accent);
+  background: #251a45;
+  color: var(--accent-strong);
 }
 
 .chat {
@@ -192,7 +190,7 @@ button:hover {
 }
 
 .mode-button.active {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.45), rgba(34, 211, 238, 0.22));
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.58), rgba(196, 181, 253, 0.16));
   color: var(--text);
 }
 
@@ -213,7 +211,7 @@ button:hover {
   border-radius: 999px;
   padding: 6px 10px;
   background: #10151a;
-  color: var(--cyan);
+  color: var(--accent-strong);
   font-size: 13px;
 }
 
@@ -260,8 +258,8 @@ button:hover {
 }
 
 .message.user .bubble {
-  background: #101f34;
-  border-color: #28547c;
+  background: #171a2b;
+  border-color: #3c315f;
 }
 
 .message.assistant .bubble {
@@ -270,7 +268,7 @@ button:hover {
 }
 
 .message.code .bubble {
-  border-color: rgba(34, 211, 238, 0.42);
+  border-color: rgba(167, 139, 250, 0.46);
 }
 
 .message.agentic .bubble {
@@ -327,9 +325,9 @@ textarea:focus {
 #send-button {
   align-self: end;
   padding: 12px 18px;
-  background: linear-gradient(135deg, var(--accent-strong), var(--cyan));
+  background: linear-gradient(135deg, var(--accent-strong), var(--accent));
   border-color: var(--accent);
-  color: #070a12;
+  color: #090d17;
   font-weight: 700;
 }
 
