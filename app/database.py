@@ -185,16 +185,21 @@ def delete_chat(chat_id: str) -> bool:
     return result.rowcount > 0
 
 
-def list_messages(chat_id: str) -> list[Message]:
+def list_messages(chat_id: str, mode: Optional[MessageMode] = None) -> list[Message]:
+    where = "WHERE chat_id = ?"
+    params: list[str] = [chat_id]
+    if mode is not None:
+        where += " AND mode = ?"
+        params.append(mode)
     with get_connection() as db:
         rows = db.execute(
-            """
+            f"""
             SELECT id, chat_id, role, content, mode, feedback, created_at
             FROM messages
-            WHERE chat_id = ?
+            {where}
             ORDER BY created_at ASC
             """,
-            (chat_id,),
+            params,
         ).fetchall()
     return [row_to_message(row) for row in rows]
 

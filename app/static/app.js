@@ -253,7 +253,23 @@ function changeMode(nextMode) {
   state.activeMode = nextMode;
   renderModeSwitch();
   animateModeChange(nextIndex - previousIndex);
+  if (state.activeChatId) {
+    loadActiveModeMessages(nextMode).catch((error) => setStatus(error.message, true));
+  } else {
+    renderMessages([]);
+  }
   setStatus(`${state.activeMode} bereit`);
+}
+
+async function loadActiveModeMessages(mode = state.activeMode) {
+  if (!state.activeChatId) {
+    renderMessages([]);
+    return;
+  }
+  const chatId = state.activeChatId;
+  const messages = await api(`/api/chats/${chatId}/messages?mode=${encodeURIComponent(mode)}`);
+  if (chatId !== state.activeChatId || mode !== state.activeMode) return;
+  renderMessages(messages);
 }
 
 function modelOptionsHtml(selectedModel) {
@@ -813,8 +829,7 @@ async function selectChat(chatId) {
   chatWorkspace.value = chat?.workspace_path || "";
   chatWorkspace.disabled = !chat;
   renderChats();
-  const messages = await api(`/api/chats/${chatId}/messages`);
-  renderMessages(messages);
+  await loadActiveModeMessages();
 }
 
 async function saveChatWorkspace() {
@@ -973,8 +988,7 @@ async function sendMessageFeedback(messageId, rating) {
       body: JSON.stringify({ rating }),
     });
     if (state.activeChatId) {
-      const messages = await api(`/api/chats/${state.activeChatId}/messages`);
-      renderMessages(messages);
+      await loadActiveModeMessages();
     }
     setStatus(rating === "down" ? "Feedback gespeichert, Mistakes werden aktualisiert" : "Feedback gespeichert");
   } catch (error) {

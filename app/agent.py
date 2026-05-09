@@ -90,7 +90,7 @@ class Agent:
         return user, answer
 
     def _history_with_mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> list[Message]:
-        history = database.list_messages(chat_id)
+        history = database.list_messages(chat_id, mode=mode)
         return [self._system_message(chat_id, self._mode_context(chat_id, mode, user_message)), *history]
 
     def _mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> str:

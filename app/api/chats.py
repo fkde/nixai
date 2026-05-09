@@ -4,13 +4,13 @@ import json
 from typing import Optional
 
 from fastapi import BackgroundTasks
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app import database
 from app.agent import Agent
 from app.mistake_distiller import MistakeDistiller
-from app.models import Chat, CreateChatRequest, CreateMessageRequest, CreateMessageResponse, Message, MessageFeedbackRequest, MessageFeedbackResponse, UpdateChatRequest
+from app.models import Chat, CreateChatRequest, CreateMessageRequest, CreateMessageResponse, Message, MessageFeedbackRequest, MessageFeedbackResponse, MessageMode, UpdateChatRequest
 
 
 router = APIRouter(prefix="/api/chats", tags=["chats"])
@@ -49,10 +49,10 @@ def put_chat(chat_id: str, request: UpdateChatRequest) -> Chat:
 
 
 @router.get("/{chat_id}/messages", response_model=list[Message])
-def get_messages(chat_id: str) -> list[Message]:
+def get_messages(chat_id: str, mode: Optional[MessageMode] = Query(default=None)) -> list[Message]:
     if database.get_chat(chat_id) is None:
         raise HTTPException(status_code=404, detail="Chat not found")
-    return database.list_messages(chat_id)
+    return database.list_messages(chat_id, mode=mode)
 
 
 @router.post("/{chat_id}/messages", response_model=CreateMessageResponse)
