@@ -93,8 +93,10 @@ Example config:
 - Persistent local chats
 - Ollama chat adapter
 - Simple agent orchestrator
+- Chat, Code, and Agentic message modes in one history
 - Configurable model roles through the settings UI
 - Markdown role prompts for Orchestrator, Worker, Reviewer, Judge, and custom roles
+- First Agentic Task definitions with create/edit/pause/delete API and UI
 - RAG-style tool routing with optional Ollama embeddings
 - Workspace file listing, reading, and search
 - Git status and diff helpers

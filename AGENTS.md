@@ -10,8 +10,10 @@ NixAI is a local proof-of-concept AI agent runner for Ollama models. The current
 - SQLite chat persistence
 - Ollama chat adapter
 - simple single-agent orchestrator
+- shared Chat / Code / Agentic message modes
 - settings UI for dynamic model roles
 - Markdown role prompt library for Orchestrator/Worker/Reviewer-style contexts
+- first Agentic Task definitions with API and settings UI management
 - RAG-style tool routing with optional Ollama embeddings
 - vanilla HTML/CSS/JS chat UI
 - optional native desktop window via `pywebview`
@@ -102,6 +104,7 @@ Important files:
 - `app/models.py`: Pydantic models
 - `app/agent.py`: current single-agent orchestrator
 - `app/api/settings.py`: settings and Ollama model discovery API
+- `app/api/agentic_tasks.py`: Agentic Task create/list/update/delete API
 - `app/api/roles.py`: Markdown role prompt API
 - `app/api/tools.py`: tool list, route/select, and call API
 - `app/llm/ollama.py`: Ollama adapter
@@ -121,7 +124,7 @@ Important files:
 The active orchestrator is a simple single-agent chat runner:
 
 ```python
-Agent.run(chat_id: str, user_message: str) -> CreateMessageResponse
+Agent.run(chat_id: str, user_message: str, mode: MessageMode = "chat") -> CreateMessageResponse
 ```
 
 Current behavior:
@@ -131,10 +134,13 @@ Current behavior:
 3. Update the chat title if it is still the default.
 4. Load chat history.
 5. Send history to Ollama.
-6. Store assistant response.
+6. Store assistant response with the selected message mode.
 7. Return both persisted messages.
 
 The assistant model is selected through the `assistant` entry in `model_roles`, falling back to `default_model`.
+Code mode currently injects the `WORKER` role prompt and configured workspace path. Agentic mode injects the `ORCHESTRATOR` role prompt. Recurring requests with obvious schedule wording create an Agentic Task definition instead of calling Ollama.
+
+Agentic Task execution is not active yet. Tasks are stored definitions only, with `active` / `paused` status for the future scheduler.
 
 Role prompt files are prepared, but not yet injected into the agent loop. Defaults are created on demand:
 
@@ -152,6 +158,7 @@ Not implemented yet:
 - model-routed roles
 - role prompt injection into model context
 - tool calling from model output
+- actual scheduled Agentic Task execution
 - automatic test execution in the agent loop
 - patch creation or file editing
 - judge/retry/done decision logic

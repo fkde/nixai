@@ -46,6 +46,6 @@ def get_messages(chat_id: str) -> list[Message]:
 @router.post("/{chat_id}/messages", response_model=CreateMessageResponse)
 async def post_message(chat_id: str, request: CreateMessageRequest) -> CreateMessageResponse:
     try:
-        return await Agent().run(chat_id, request.content)
+        return await Agent().run(chat_id, request.content, mode=request.mode)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

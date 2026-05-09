@@ -6,6 +6,9 @@ const state = {
   availableModels: [],
   roles: [],
   activeRoleName: null,
+  activeMode: "chat",
+  agenticTasks: [],
+  activeTaskId: null,
 };
 
 const shell = document.querySelector(".shell");
@@ -18,6 +21,7 @@ const input = document.querySelector("#message-input");
 const sendButton = document.querySelector("#send-button");
 const newChatButton = document.querySelector("#new-chat");
 const settingsToggle = document.querySelector("#settings-toggle");
+const modeButtons = document.querySelectorAll(".mode-button");
 const settingsClose = document.querySelector("#settings-close");
 const settingsPanel = document.querySelector("#settings-panel");
 const settingsForm = document.querySelector("#settings-form");
@@ -36,6 +40,14 @@ const deleteRoleButton = document.querySelector("#delete-role");
 const roleNameInput = document.querySelector("#role-name");
 const roleContentInput = document.querySelector("#role-content");
 const rolePreview = document.querySelector("#role-preview");
+const agenticTaskList = document.querySelector("#agentic-task-list");
+const newAgenticTaskButton = document.querySelector("#new-agentic-task");
+const saveAgenticTaskButton = document.querySelector("#save-agentic-task");
+const deleteAgenticTaskButton = document.querySelector("#delete-agentic-task");
+const agenticTaskTitle = document.querySelector("#agentic-task-title");
+const agenticTaskSchedule = document.querySelector("#agentic-task-schedule");
+const agenticTaskStatus = document.querySelector("#agentic-task-status");
+const agenticTaskPrompt = document.querySelector("#agentic-task-prompt");
 
 function setStatus(text, isError = false) {
   statusEl.textContent = text;
@@ -67,6 +79,19 @@ function renderChats() {
     button.addEventListener("click", () => selectChat(chat.id));
     chatList.append(button);
   }
+}
+
+function renderModeSwitch() {
+  modeButtons.forEach((button) => {
+    const active = button.dataset.mode === state.activeMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  input.placeholder = {
+    chat: "Nachricht schreiben...",
+    code: "Code-Frage oder Projektauftrag schreiben...",
+    agentic: "Agentic Aufgabe oder wiederkehrenden Task beschreiben...",
+  }[state.activeMode];
 }
 
 function modelOptionsHtml(selectedModel) {
@@ -208,6 +233,43 @@ function renderRoles() {
   renderRoleEditor();
 }
 
+function activeAgenticTask() {
+  return state.agenticTasks.find((task) => task.id === state.activeTaskId) || null;
+}
+
+function renderAgenticTasks() {
+  agenticTaskList.innerHTML = "";
+  if (state.agenticTasks.length === 0) {
+    agenticTaskList.innerHTML = '<p class="settings-empty">Noch keine Agentic Tasks.</p>';
+  }
+  state.agenticTasks.forEach((task) => {
+    const button = document.createElement("button");
+    button.className = "agentic-task-item";
+    button.classList.toggle("active", task.id === state.activeTaskId);
+    button.type = "button";
+    button.innerHTML = `
+      <span>${escapeHtml(task.title)}</span>
+      <small>${escapeHtml(task.schedule)} · ${escapeHtml(task.status)}</small>
+    `;
+    button.addEventListener("click", () => {
+      state.activeTaskId = task.id;
+      renderAgenticTasks();
+      renderAgenticTaskEditor();
+    });
+    agenticTaskList.append(button);
+  });
+  renderAgenticTaskEditor();
+}
+
+function renderAgenticTaskEditor() {
+  const task = activeAgenticTask();
+  deleteAgenticTaskButton.disabled = !task;
+  agenticTaskTitle.value = task?.title || "";
+  agenticTaskSchedule.value = task?.schedule || "daily at 18:00";
+  agenticTaskStatus.value = task?.status || "active";
+  agenticTaskPrompt.value = task?.prompt || "";
+}
+
 function collectModelRoles() {
   return [...modelRoleList.querySelectorAll(".model-role-row")]
     .map((row) => ({
@@ -247,10 +309,11 @@ function renderMessages(messages) {
     return;
   }
   for (const message of messages) {
+    const mode = message.mode || "chat";
     const item = document.createElement("article");
-    item.className = `message ${message.role}`;
+    item.className = `message ${message.role} ${mode}`;
     item.innerHTML = `
-      <div class="message-role">${message.role}</div>
+      <div class="message-role"><span>[${escapeHtml(mode)}]</span> ${escapeHtml(message.role)}</div>
       <div class="bubble">${formatContent(message.content)}</div>
     `;
     messagesEl.append(item);
@@ -295,6 +358,14 @@ async function loadRoles() {
   renderRoles();
 }
 
+async function loadAgenticTasks() {
+  state.agenticTasks = await api("/api/agentic-tasks");
+  if (state.activeTaskId && !state.agenticTasks.some((task) => task.id === state.activeTaskId)) {
+    state.activeTaskId = null;
+  }
+  renderAgenticTasks();
+}
+
 async function refreshModels() {
   modelsHint.textContent = "lade Modelle...";
   try {
@@ -334,7 +405,7 @@ function setLoading(loading) {
   state.loading = loading;
   input.disabled = loading;
   sendButton.disabled = loading;
-  setStatus(loading ? "Ollama antwortet..." : "bereit");
+  setStatus(loading ? `${state.activeMode} arbeitet...` : "bereit");
 }
 
 async function sendMessage(content) {
@@ -345,10 +416,13 @@ async function sendMessage(content) {
   try {
     await api(`/api/chats/${state.activeChatId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, mode: state.activeMode }),
     });
     await loadChats();
     await selectChat(state.activeChatId);
+    if (state.activeMode === "agentic") {
+      await loadAgenticTasks();
+    }
     input.value = "";
   } catch (error) {
     setStatus(error.message, true);
@@ -363,6 +437,14 @@ newChatButton.addEventListener("click", () => {
 
 settingsToggle.addEventListener("click", () => {
   openSettings();
+});
+
+modeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    state.activeMode = button.dataset.mode || "chat";
+    renderModeSwitch();
+    setStatus(`${state.activeMode} bereit`);
+  });
 });
 
 settingsClose.addEventListener("click", () => {
@@ -437,6 +519,50 @@ deleteRoleButton.addEventListener("click", async () => {
   }
 });
 
+newAgenticTaskButton.addEventListener("click", () => {
+  state.activeTaskId = null;
+  renderAgenticTasks();
+  agenticTaskTitle.focus();
+});
+
+saveAgenticTaskButton.addEventListener("click", async () => {
+  const payload = {
+    title: agenticTaskTitle.value.trim(),
+    schedule: agenticTaskSchedule.value.trim(),
+    status: agenticTaskStatus.value,
+    prompt: agenticTaskPrompt.value.trim(),
+  };
+  if (!payload.title || !payload.schedule || !payload.prompt) {
+    setStatus("Titel, Schedule und Aufgabe sind erforderlich.", true);
+    return;
+  }
+  try {
+    const task = activeAgenticTask();
+    const saved = await api(task ? `/api/agentic-tasks/${task.id}` : "/api/agentic-tasks", {
+      method: task ? "PUT" : "POST",
+      body: JSON.stringify(payload),
+    });
+    state.activeTaskId = saved.id;
+    await loadAgenticTasks();
+    setStatus("Agentic Task gespeichert");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+});
+
+deleteAgenticTaskButton.addEventListener("click", async () => {
+  const task = activeAgenticTask();
+  if (!task) return;
+  try {
+    await api(`/api/agentic-tasks/${task.id}`, { method: "DELETE" });
+    state.activeTaskId = null;
+    await loadAgenticTasks();
+    setStatus("Agentic Task geloescht");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+});
+
 settingsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const modelRoles = collectModelRoles();
@@ -479,7 +605,9 @@ input.addEventListener("keydown", (event) => {
   }
 });
 
-Promise.all([loadRoles(), loadSettings(), loadChats()])
+renderModeSwitch();
+
+Promise.all([loadRoles(), loadAgenticTasks(), loadSettings(), loadChats()])
   .then(() => {
     if (state.activeChatId) return selectChat(state.activeChatId);
     renderMessages([]);

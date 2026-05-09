@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 
 MessageRole = Literal["user", "assistant", "system", "tool"]
+MessageMode = Literal["chat", "code", "agentic"]
+TaskStatus = Literal["active", "paused"]
 
 
 def utc_now() -> str:
@@ -30,7 +32,18 @@ class Message(BaseModel):
     chat_id: str
     role: MessageRole
     content: str
+    mode: MessageMode = "chat"
     created_at: str
+
+
+class AgenticTask(BaseModel):
+    id: str
+    title: str
+    prompt: str
+    schedule: str
+    status: TaskStatus = "active"
+    created_at: str
+    updated_at: str
 
 
 class CreateChatRequest(BaseModel):
@@ -39,8 +52,23 @@ class CreateChatRequest(BaseModel):
 
 class CreateMessageRequest(BaseModel):
     content: str = Field(min_length=1)
+    mode: MessageMode = "chat"
 
 
 class CreateMessageResponse(BaseModel):
     user_message: Message
     assistant_message: Message
+
+
+class CreateAgenticTaskRequest(BaseModel):
+    title: str = Field(min_length=1)
+    prompt: str = Field(min_length=1)
+    schedule: str = Field(min_length=1)
+    status: TaskStatus = "active"
+
+
+class UpdateAgenticTaskRequest(BaseModel):
+    title: str = Field(min_length=1)
+    prompt: str = Field(min_length=1)
+    schedule: str = Field(min_length=1)
+    status: TaskStatus = "active"

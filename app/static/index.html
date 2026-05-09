@@ -28,7 +28,14 @@
             <p class="eyebrow">Lokaler Ollama-Agent</p>
             <h2 id="chat-title">Kein Chat ausgewählt</h2>
           </div>
-          <span id="status" class="status">bereit</span>
+          <div class="chat-header-actions">
+            <div class="mode-switch" role="group" aria-label="Modus">
+              <button class="mode-button active" type="button" data-mode="chat">Chat</button>
+              <button class="mode-button" type="button" data-mode="code">Code</button>
+              <button class="mode-button" type="button" data-mode="agentic">Agentic</button>
+            </div>
+            <span id="status" class="status">bereit</span>
+          </div>
         </header>
 
         <div id="messages" class="messages"></div>
@@ -110,6 +117,44 @@
               <div class="role-editor-actions">
                 <button id="delete-role" class="danger-button" type="button">Loeschen</button>
                 <button id="save-role" class="secondary-button" type="button">Rolle speichern</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="model-section agentic-task-section">
+            <div class="model-section-header">
+              <div>
+                <h3>Agentic Tasks</h3>
+                <p>Wiederkehrende Aufgaben als kontrollierte Definitionen.</p>
+              </div>
+              <button id="new-agentic-task" type="button">Neu</button>
+            </div>
+
+            <div id="agentic-task-list" class="agentic-task-list"></div>
+
+            <div class="role-editor-card">
+              <label class="field">
+                <span>Titel</span>
+                <input id="agentic-task-title" type="text" placeholder="E-Mail Zusammenfassung" />
+              </label>
+              <label class="field">
+                <span>Schedule</span>
+                <input id="agentic-task-schedule" type="text" placeholder="daily at 18:00" />
+              </label>
+              <label class="field">
+                <span>Status</span>
+                <select id="agentic-task-status">
+                  <option value="active">Aktiv</option>
+                  <option value="paused">Pausiert</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Aufgabe</span>
+                <textarea id="agentic-task-prompt" rows="5" placeholder="Was soll NixAI wiederkehrend tun?"></textarea>
+              </label>
+              <div class="role-editor-actions">
+                <button id="delete-agentic-task" class="danger-button" type="button">Loeschen</button>
+                <button id="save-agentic-task" class="secondary-button" type="button">Task speichern</button>
               </div>
             </div>
           </section>
