@@ -32,6 +32,7 @@ const input = document.querySelector("#message-input");
 const sendButton = document.querySelector("#send-button");
 const newChatButton = document.querySelector("#new-chat");
 const settingsToggle = document.querySelector("#settings-toggle");
+const modeSwitch = document.querySelector(".mode-switch");
 const modeButtons = document.querySelectorAll(".mode-button");
 const settingsClose = document.querySelector("#settings-close");
 const settingsPanel = document.querySelector("#settings-panel");
@@ -93,6 +94,7 @@ const toolApprovalArguments = document.querySelector("#tool-approval-arguments")
 const approveToolCallButton = document.querySelector("#approve-tool-call");
 const alwaysAllowToolCallButton = document.querySelector("#always-allow-tool-call");
 const denyToolCallButton = document.querySelector("#deny-tool-call");
+const modeOrder = ["chat", "code", "agentic"];
 
 function setStatus(text, isError = false) {
   if (text && isError) {
@@ -211,6 +213,8 @@ function activeChat() {
 }
 
 function renderModeSwitch() {
+  const activeIndex = Math.max(0, modeOrder.indexOf(state.activeMode));
+  modeSwitch?.style.setProperty("--mode-index", String(activeIndex));
   modeButtons.forEach((button) => {
     const active = button.dataset.mode === state.activeMode;
     button.classList.toggle("active", active);
@@ -221,6 +225,23 @@ function renderModeSwitch() {
     code: "Code-Frage oder Projektauftrag schreiben...",
     agentic: "Agentic Aufgabe oder wiederkehrenden Task beschreiben...",
   }[state.activeMode];
+}
+
+function animateModeChange(direction) {
+  if (!direction || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  messagesEl.classList.remove("mode-shift-forward", "mode-shift-back");
+  void messagesEl.offsetWidth;
+  messagesEl.classList.add(direction > 0 ? "mode-shift-forward" : "mode-shift-back");
+}
+
+function changeMode(nextMode) {
+  if (!nextMode || nextMode === state.activeMode) return;
+  const previousIndex = modeOrder.indexOf(state.activeMode);
+  const nextIndex = modeOrder.indexOf(nextMode);
+  state.activeMode = nextMode;
+  renderModeSwitch();
+  animateModeChange(nextIndex - previousIndex);
+  setStatus(`${state.activeMode} bereit`);
 }
 
 function modelOptionsHtml(selectedModel) {
@@ -1012,10 +1033,12 @@ chatWorkspace.addEventListener("keydown", (event) => {
 
 modeButtons.forEach((button) => {
   button.addEventListener("click", () => {
-    state.activeMode = button.dataset.mode || "chat";
-    renderModeSwitch();
-    setStatus(`${state.activeMode} bereit`);
+    changeMode(button.dataset.mode || "chat");
   });
+});
+
+messagesEl.addEventListener("animationend", () => {
+  messagesEl.classList.remove("mode-shift-forward", "mode-shift-back");
 });
 
 settingsClose.addEventListener("click", () => {
