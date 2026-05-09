@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 MessageRole = Literal["user", "assistant", "system", "tool"]
 MessageMode = Literal["chat", "code", "agentic"]
+FeedbackRating = Literal["up", "down"]
 TaskStatus = Literal["active", "paused"]
 TaskRunStatus = Literal["running", "success", "failed", "needs_review"]
 
@@ -34,6 +35,7 @@ class Message(BaseModel):
     role: MessageRole
     content: str
     mode: MessageMode = "chat"
+    feedback: Optional[FeedbackRating] = None
     created_at: str
 
 
@@ -92,3 +94,12 @@ class UpdateAgenticTaskRequest(BaseModel):
 
 class RunAgenticTaskResponse(BaseModel):
     run: AgenticTaskRun
+
+
+class MessageFeedbackRequest(BaseModel):
+    rating: FeedbackRating
+
+
+class MessageFeedbackResponse(BaseModel):
+    message: Message
+    mistakes_update_queued: bool = False

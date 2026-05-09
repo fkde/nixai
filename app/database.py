@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.config import database_path
-from app.models import AgenticTask, AgenticTaskRun, Chat, Message, MessageMode, MessageRole, TaskRunStatus, TaskStatus, new_id, utc_now
+from app.models import AgenticTask, AgenticTaskRun, Chat, FeedbackRating, Message, MessageMode, MessageRole, TaskRunStatus, TaskStatus, new_id, utc_now
 
 
 def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
@@ -44,6 +44,7 @@ def init_db() -> None:
               role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system', 'tool')),
               content TEXT NOT NULL,
               mode TEXT NOT NULL DEFAULT 'chat' CHECK(mode IN ('chat', 'code', 'agentic')),
+              feedback TEXT CHECK(feedback IN ('up', 'down')),
               created_at TEXT NOT NULL,
               FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
             );
@@ -95,6 +96,8 @@ def init_db() -> None:
             db.execute(
                 "ALTER TABLE messages ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat' CHECK(mode IN ('chat', 'code', 'agentic'))"
             )
+        if "feedback" not in message_columns:
+            db.execute("ALTER TABLE messages ADD COLUMN feedback TEXT CHECK(feedback IN ('up', 'down'))")
         task_columns = {row["name"] for row in db.execute("PRAGMA table_info(agentic_tasks)").fetchall()}
         for column, ddl in {
             "next_run_at": "ALTER TABLE agentic_tasks ADD COLUMN next_run_at TEXT",
@@ -159,7 +162,7 @@ def list_messages(chat_id: str) -> list[Message]:
     with get_connection() as db:
         rows = db.execute(
             """
-            SELECT id, chat_id, role, content, mode, created_at
+            SELECT id, chat_id, role, content, mode, feedback, created_at
             FROM messages
             WHERE chat_id = ?
             ORDER BY created_at ASC
@@ -181,6 +184,30 @@ def add_message(chat_id: str, role: MessageRole, content: str, mode: MessageMode
         )
         db.execute("UPDATE chats SET updated_at = ? WHERE id = ?", (message.created_at, chat_id))
     return message
+
+
+def get_message(message_id: str) -> Optional[Message]:
+    with get_connection() as db:
+        row = db.execute(
+            """
+            SELECT id, chat_id, role, content, mode, feedback, created_at
+            FROM messages
+            WHERE id = ?
+            """,
+            (message_id,),
+        ).fetchone()
+    return row_to_message(row) if row else None
+
+
+def set_message_feedback(message_id: str, rating: FeedbackRating) -> Optional[Message]:
+    with get_connection() as db:
+        result = db.execute(
+            "UPDATE messages SET feedback = ? WHERE id = ?",
+            (rating, message_id),
+        )
+    if result.rowcount == 0:
+        return None
+    return get_message(message_id)
 
 
 def update_chat_title_if_default(chat_id: str, title: str) -> None:

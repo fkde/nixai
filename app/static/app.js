@@ -76,6 +76,16 @@ function formatContent(content) {
   return escaped.replace(/```([\s\S]*?)```/g, (_match, code) => `<pre><code>${code.trim()}</code></pre>`);
 }
 
+function thumbIcon(direction) {
+  const rotate = direction === "down" ? ' class="thumb-down"' : "";
+  return `
+    <svg${rotate} viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7 10v10h3l4-7h5a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-9.5a2 2 0 0 0-1.8 1.1L7 6" />
+      <path d="M3 10V4h4v6H3Z" />
+    </svg>
+  `;
+}
+
 function renderChats() {
   chatList.innerHTML = "";
   for (const chat of state.chats) {
@@ -351,11 +361,21 @@ function renderMessages(messages) {
   }
   for (const message of messages) {
     const mode = message.mode || "chat";
+    const feedback = message.feedback || "";
     const item = document.createElement("article");
     item.className = `message ${message.role} ${mode}`;
+    const feedbackActions = message.role === "assistant"
+      ? `
+        <div class="message-feedback" aria-label="Antwort bewerten">
+          <button class="feedback-button ${feedback === "up" ? "active" : ""}" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="up" aria-label="Daumen hoch">${thumbIcon("up")}</button>
+          <button class="feedback-button ${feedback === "down" ? "active" : ""}" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="down" aria-label="Daumen runter">${thumbIcon("down")}</button>
+        </div>
+      `
+      : "";
     item.innerHTML = `
       <div class="message-role"><span>[${escapeHtml(mode)}]</span> ${escapeHtml(message.role)}</div>
       <div class="bubble">${formatContent(message.content)}</div>
+      ${feedbackActions}
     `;
     messagesEl.append(item);
   }
@@ -497,6 +517,22 @@ async function sendMessage(content) {
     setStatus(error.message, true);
   } finally {
     setLoading(false);
+  }
+}
+
+async function sendMessageFeedback(messageId, rating) {
+  try {
+    await api(`/api/chats/messages/${messageId}/feedback`, {
+      method: "POST",
+      body: JSON.stringify({ rating }),
+    });
+    if (state.activeChatId) {
+      const messages = await api(`/api/chats/${state.activeChatId}/messages`);
+      renderMessages(messages);
+    }
+    setStatus(rating === "down" ? "Feedback gespeichert, Mistakes werden aktualisiert" : "Feedback gespeichert");
+  } catch (error) {
+    setStatus(error.message, true);
   }
 }
 
@@ -701,6 +737,12 @@ form.addEventListener("submit", (event) => {
   const content = input.value.trim();
   if (!content || state.loading) return;
   sendMessage(content);
+});
+
+messagesEl.addEventListener("click", (event) => {
+  const button = event.target.closest(".feedback-button");
+  if (!button) return;
+  sendMessageFeedback(button.dataset.messageId, button.dataset.rating);
 });
 
 input.addEventListener("keydown", (event) => {

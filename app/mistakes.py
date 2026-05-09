@@ -59,5 +59,11 @@ def save_mistakes(content: str) -> MistakesDocument:
     return load_mistakes()
 
 
+def append_mistake_entry(entry: str) -> MistakesDocument:
+    document = load_mistakes()
+    content = document.content.rstrip()
+    return save_mistakes(f"{content}\n\n{entry.strip()}\n")
+
+
 def mistakes_context() -> str:
     return load_mistakes().content

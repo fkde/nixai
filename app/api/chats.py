@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from typing import Optional
 
+from fastapi import BackgroundTasks
 from fastapi import APIRouter, HTTPException
 
 from app import database
 from app.agent import Agent
-from app.models import Chat, CreateChatRequest, CreateMessageRequest, CreateMessageResponse, Message
+from app.mistake_distiller import MistakeDistiller
+from app.models import Chat, CreateChatRequest, CreateMessageRequest, CreateMessageResponse, Message, MessageFeedbackRequest, MessageFeedbackResponse
 
 
 router = APIRouter(prefix="/api/chats", tags=["chats"])
@@ -49,3 +51,18 @@ async def post_message(chat_id: str, request: CreateMessageRequest) -> CreateMes
         return await Agent().run(chat_id, request.content, mode=request.mode)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/messages/{message_id}/feedback", response_model=MessageFeedbackResponse)
+async def post_message_feedback(
+    message_id: str,
+    request: MessageFeedbackRequest,
+    background_tasks: BackgroundTasks,
+) -> MessageFeedbackResponse:
+    message = database.set_message_feedback(message_id, request.rating)
+    if message is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+    queued = request.rating == "down" and message.role == "assistant"
+    if queued:
+        background_tasks.add_task(MistakeDistiller().process_downvote, message.id)
+    return MessageFeedbackResponse(message=message, mistakes_update_queued=queued)
