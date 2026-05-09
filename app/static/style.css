@@ -552,11 +552,10 @@ textarea:disabled {
 
 .settings-form {
   display: grid;
-  align-content: start;
-  gap: 18px;
+  grid-template-rows: minmax(0, 1fr) auto;
   min-height: 0;
-  overflow-y: auto;
-  padding: 24px 28px 92px;
+  overflow: hidden;
+  padding: 24px 28px 0;
 }
 
 .settings-section {
@@ -564,6 +563,9 @@ textarea:disabled {
   align-content: start;
   gap: 18px;
   max-width: 1120px;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 2px 24px 0;
 }
 
 .settings-section.active {
@@ -815,13 +817,14 @@ textarea:disabled {
 }
 
 .role-prompt-section {
+  grid-template-rows: auto auto minmax(0, 1fr);
   padding-top: 4px;
 }
 
 .role-prompt-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 7px;
 }
 
 .role-prompt-item {
@@ -829,12 +832,14 @@ textarea:disabled {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 9px 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(21, 29, 48, 0.72);
 }
 
 .role-prompt-item.active {
   border-color: var(--accent);
-  background: #251a45;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.28), rgba(31, 24, 56, 0.92));
   color: var(--accent-strong);
 }
 
@@ -849,16 +854,20 @@ textarea:disabled {
 
 .role-prompt-item small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .role-editor-card {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 14px;
-  padding: 14px;
+  min-height: 0;
+  padding: 16px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #12161b;
+  background:
+    linear-gradient(180deg, rgba(139, 92, 246, 0.08), transparent 38%),
+    #10151d;
 }
 
 .agentic-task-list {
@@ -955,30 +964,42 @@ textarea:disabled {
 
 .role-editor-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
-  gap: 12px;
+  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+  gap: 14px;
+  min-height: 0;
+}
+
+.role-editor-grid .field {
+  min-height: 0;
 }
 
 .markdown-editor {
-  min-height: 240px;
+  min-height: 360px;
+  height: 100%;
+  resize: vertical;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 13px;
   line-height: 1.55;
+  tab-size: 2;
 }
 
 .markdown-preview-wrap {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
+  min-height: 0;
 }
 
 .markdown-preview {
-  min-height: 180px;
-  max-height: 340px;
+  min-height: 360px;
+  max-height: none;
   overflow: auto;
-  padding: 14px;
+  padding: 18px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #0f1216;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 32%),
+    #0d1118;
   color: var(--text);
   line-height: 1.55;
 }
@@ -1053,13 +1074,13 @@ textarea:disabled {
 }
 
 .settings-footer {
-  position: sticky;
-  bottom: 0;
   display: flex;
   justify-content: flex-end;
-  padding: 16px 0 0;
+  margin: 0 -28px;
+  padding: 14px 28px 16px;
   border-top: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(9, 13, 23, 0), rgba(9, 13, 23, 0.98) 30%);
+  background: rgba(9, 13, 23, 0.98);
+  box-shadow: 0 -18px 36px rgba(0, 0, 0, 0.28);
 }
 
 #save-settings {
