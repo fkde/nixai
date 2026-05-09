@@ -26,10 +26,10 @@
           <div>
             <p class="eyebrow">Lokaler Ollama-Agent</p>
             <h2 id="chat-title">Kein Chat ausgewählt</h2>
-            <label class="chat-workspace-field">
+            <p class="chat-workspace-field">
               <span>Workspace</span>
-              <input id="chat-workspace" type="text" placeholder="Fallback aus Einstellungen" />
-            </label>
+              <strong id="chat-workspace">Fallback aus Einstellungen</strong>
+            </p>
           </div>
           <div class="chat-header-actions">
             <button id="settings-toggle" class="header-icon-button" type="button" aria-label="Einstellungen öffnen">
@@ -49,6 +49,12 @@
         <div id="messages" class="messages"></div>
 
         <form id="message-form" class="composer">
+          <div class="composer-plus">
+            <button id="composer-plus-button" class="composer-plus-button" type="button" aria-label="Aktionen öffnen" aria-expanded="false">+</button>
+            <div id="composer-plus-menu" class="composer-plus-menu" hidden>
+              <button id="add-workspace" type="button">Workspace hinzufügen</button>
+            </div>
+          </div>
           <textarea id="message-input" rows="3" placeholder="Nachricht schreiben..."></textarea>
           <button id="send-button" type="submit">Senden</button>
         </form>

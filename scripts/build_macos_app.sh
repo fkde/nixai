@@ -24,6 +24,6 @@ for size in 16 32 128 256 512; do
 done
 
 iconutil -c icns "$ICONSET_DIR" -o "$ICON_ICNS"
-python3 -m PyInstaller --clean nixai-mac.spec
+python3 -m PyInstaller --clean -y nixai-mac.spec
 
 echo "Built $ROOT_DIR/dist/NixAI.app"

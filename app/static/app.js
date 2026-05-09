@@ -30,6 +30,9 @@ const chatWorkspace = document.querySelector("#chat-workspace");
 const form = document.querySelector("#message-form");
 const input = document.querySelector("#message-input");
 const sendButton = document.querySelector("#send-button");
+const composerPlusButton = document.querySelector("#composer-plus-button");
+const composerPlusMenu = document.querySelector("#composer-plus-menu");
+const addWorkspaceButton = document.querySelector("#add-workspace");
 const newChatButton = document.querySelector("#new-chat");
 const settingsToggle = document.querySelector("#settings-toggle");
 const modeSwitch = document.querySelector(".mode-switch");
@@ -222,6 +225,12 @@ function renderChats() {
 
 function activeChat() {
   return state.chats.find((item) => item.id === state.activeChatId) || null;
+}
+
+function workspaceLabel(chat) {
+  const path = chat?.workspace_path?.trim();
+  if (path) return path;
+  return "Fallback aus Einstellungen";
 }
 
 function renderModeSwitch() {
@@ -826,23 +835,52 @@ async function selectChat(chatId) {
   state.activeChatId = chatId;
   const chat = activeChat();
   chatTitle.textContent = chat ? chat.title : "Chat";
-  chatWorkspace.value = chat?.workspace_path || "";
-  chatWorkspace.disabled = !chat;
+  chatWorkspace.textContent = workspaceLabel(chat);
   renderChats();
   await loadActiveModeMessages();
 }
 
-async function saveChatWorkspace() {
+async function saveChatWorkspace(workspace) {
   const chat = activeChat();
   if (!chat) return;
-  const workspace = chatWorkspace.value.trim();
-  if (workspace === (chat.workspace_path || "")) return;
+  const nextWorkspace = workspace.trim();
+  if (nextWorkspace === (chat.workspace_path || "")) return;
   const updated = await api(`/api/chats/${chat.id}`, {
     method: "PUT",
-    body: JSON.stringify({ workspace_path: workspace }),
+    body: JSON.stringify({ workspace_path: nextWorkspace }),
   });
   state.chats = state.chats.map((item) => item.id === updated.id ? updated : item);
+  chatWorkspace.textContent = workspaceLabel(updated);
   renderChats();
+}
+
+function closeComposerMenu() {
+  composerPlusMenu.hidden = true;
+  composerPlusButton.setAttribute("aria-expanded", "false");
+}
+
+function toggleComposerMenu() {
+  const open = composerPlusMenu.hidden;
+  composerPlusMenu.hidden = !open;
+  composerPlusButton.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+async function requestWorkspacePath() {
+  if (!state.activeChatId) {
+    await createChat();
+  }
+  const chat = activeChat();
+  const current = chat?.workspace_path || "";
+  let workspace = "";
+  if (window.pywebview?.api?.choose_workspace) {
+    workspace = await window.pywebview.api.choose_workspace();
+    if (!workspace) return;
+  } else {
+    workspace = window.prompt("Workspace-Pfad für diesen Chat", current);
+  }
+  if (workspace === null) return;
+  await saveChatWorkspace(workspace);
+  setStatus(workspace.trim() ? "Workspace gesetzt" : "Workspace-Fallback aktiv");
 }
 
 async function createChat() {
@@ -873,8 +911,7 @@ async function deleteChat(chatId, title) {
     await selectChat(state.chats[0].id);
   } else {
     chatTitle.textContent = "Kein Chat ausgewählt";
-    chatWorkspace.value = "";
-    chatWorkspace.disabled = true;
+    chatWorkspace.textContent = workspaceLabel(null);
     renderMessages([]);
   }
   setStatus("Chat gelöscht");
@@ -1049,14 +1086,25 @@ settingsToggle.addEventListener("click", () => {
   openSettings();
 });
 
-chatWorkspace.addEventListener("blur", () => {
-  saveChatWorkspace().catch((error) => setStatus(error.message, true));
+composerPlusButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleComposerMenu();
 });
 
-chatWorkspace.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    chatWorkspace.blur();
+addWorkspaceButton.addEventListener("click", () => {
+  closeComposerMenu();
+  requestWorkspacePath().catch((error) => setStatus(error.message, true));
+});
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".composer-plus")) {
+    closeComposerMenu();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeComposerMenu();
   }
 });
 

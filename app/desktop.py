@@ -11,6 +11,21 @@ from app.config import config_path, database_path, load_settings
 from app.database import init_db
 
 
+class DesktopApi:
+    def __init__(self) -> None:
+        self.window = None
+
+    def choose_workspace(self) -> str:
+        if self.window is None:
+            return ""
+        import webview
+
+        result = self.window.create_file_dialog(webview.FOLDER_DIALOG, allow_multiple=False)
+        if not result:
+            return ""
+        return str(result[0])
+
+
 def ensure_desktop_dependencies() -> None:
     try:
         import webview  # noqa: F401
@@ -54,6 +69,7 @@ def run_desktop(host: str = "127.0.0.1", port: int = 0) -> None:
     thread.start()
     _wait_until_ready(url)
 
+    api = DesktopApi()
     window = webview.create_window(
         "NixAI",
         url,
@@ -61,7 +77,9 @@ def run_desktop(host: str = "127.0.0.1", port: int = 0) -> None:
         height=820,
         min_size=(920, 640),
         text_select=True,
+        js_api=api,
     )
+    api.window = window
     window.events.closing += lambda: setattr(server, "should_exit", True)
 
     print(f"NixAI desktop at {url}")
