@@ -104,6 +104,7 @@ Important files:
 - `app/database.py`: SQLite schema and chat/message persistence
 - `app/models.py`: Pydantic models
 - `app/agent.py`: current single-agent orchestrator
+- `app/code_context.py`: safe read-only code-mode context builder using NixAI tools
 - `app/api/settings.py`: settings and Ollama model discovery API
 - `app/api/agentic_tasks.py`: Agentic Task create/list/update/delete API
 - `app/api/roles.py`: Markdown role prompt API
@@ -140,11 +141,11 @@ Current behavior:
 7. Return both persisted messages.
 
 The assistant model is selected through the `assistant` entry in `model_roles`, falling back to `default_model`.
-Code mode currently injects the `WORKER` role prompt and configured workspace path. Agentic mode first runs TaskDiscovery using the `task_discovery` model role and `TASK_DISCOVERY.md`, then either creates an Agentic Task definition, asks for missing task information, or falls back to the Orchestrator chat path.
+Code mode injects `WORKER.md`, the configured workspace path, and bounded read-only tool results from `app/code_context.py`. The model does not get native shell access; all gathered context goes through `app/tools/*` so workspace boundaries and allowlists still apply. Agentic mode first runs TaskDiscovery using the `task_discovery` model role and `TASK_DISCOVERY.md`, then either creates an Agentic Task definition, asks for missing task information, or falls back to the Orchestrator chat path.
 
 Agentic Task execution is not active yet. Tasks are stored definitions only, with `active` / `paused` status for the future scheduler.
 
-Role prompt files are prepared, but not yet injected into the agent loop. Defaults are created on demand:
+Default role prompt files are created on demand:
 
 ```text
 ASSISTANT.md
@@ -159,15 +160,14 @@ Not implemented yet:
 
 - Planner / Worker / Reviewer / Judge loop
 - model-routed roles
-- role prompt injection into model context
-- tool calling from model output
+- model-driven tool calling from structured output
 - actual scheduled Agentic Task execution
 - automatic test execution in the agent loop
 - patch creation or file editing
 - judge/retry/done decision logic
 - acceptance criteria verification
 
-Preferred next step: add a controlled agent mode that can read workspace context, run Git status/diff, and execute allowlisted tests, then feed those results into the model. Keep file writes out of the POC unless explicitly requested.
+Preferred next step: replace deterministic code context gathering with a model-planned tool pass that returns structured tool calls, then execute only approved/read-only calls automatically and keep tests/builds behind explicit intent.
 
 ## Safety Rules
 

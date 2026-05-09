@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from app import database
+from app.code_context import CodeContextBuilder
 from app.config import load_settings
 from app.llm.ollama import OllamaClient
 from app.models import CreateMessageResponse, Message, MessageMode, new_id, utc_now
@@ -40,16 +41,16 @@ class Agent:
                 + "\n".join(f"- {item}" for item in discovery.missing_info)
             )
         else:
-            history = self._history_with_mode_context(chat_id, mode)
+            history = self._history_with_mode_context(chat_id, mode, user_message)
             answer = await self.ollama.chat(history, model=self.settings.model_for_role(self._model_role_for_mode(mode)))
         assistant = database.add_message(chat_id, "assistant", answer, mode=mode)
         return CreateMessageResponse(user_message=user, assistant_message=assistant)
 
-    def _history_with_mode_context(self, chat_id: str, mode: MessageMode) -> list[Message]:
+    def _history_with_mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> list[Message]:
         history = database.list_messages(chat_id)
-        return [self._system_message(chat_id, self._mode_context(mode)), *history]
+        return [self._system_message(chat_id, self._mode_context(mode, user_message)), *history]
 
-    def _mode_context(self, mode: MessageMode) -> str:
+    def _mode_context(self, mode: MessageMode, user_message: str = "") -> str:
         if mode == "code":
             workspace = self.settings.workspace_path
             return (
@@ -57,7 +58,8 @@ class Agent:
                 "NixAI mode: CODE.\n"
                 f"Configured workspace: {workspace}\n"
                 "Help with code and project understanding. Prefer workspace-grounded answers. "
-                "Do not claim that files, Git, or tests were inspected unless tool results are provided."
+                "Do not claim that files, Git, or tests were inspected unless tool results are provided.\n\n"
+                f"{CodeContextBuilder().build(user_message)}"
             )
         if mode == "agentic":
             return (

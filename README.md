@@ -94,6 +94,7 @@ Example config:
 - Ollama chat adapter
 - Simple agent orchestrator
 - Chat, Code, and Agentic message modes in one history
+- Code mode gathers bounded read-only workspace context through NixAI tools
 - Configurable model roles through the settings UI
 - Markdown role prompts for Orchestrator, Worker, Reviewer, Judge, and custom roles
 - TaskDiscovery role for extracting recurring Agentic task definitions from user requests
