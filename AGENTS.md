@@ -31,6 +31,7 @@ Implemented:
 - Mistakes review wizard that proposes future-facing fixes and writes accepted guidance to `MEMORY.md`
 - shared reviewed `MEMORY.md` context injected into relevant model prompts
 - PyInstaller spec and current local binary output at `dist/nixai`
+- macOS `.app` bundle spec at `nixai-mac.spec`, built via `scripts/build_macos_app.sh`
 
 Repository:
 
@@ -77,6 +78,18 @@ Run native desktop mode:
 
 ```bash
 python -m app.cli desktop
+```
+
+Build the macOS app bundle:
+
+```bash
+./scripts/build_macos_app.sh
+```
+
+Install the macOS app bundle:
+
+```bash
+./scripts/install_macos_app.sh
 ```
 
 Check desktop dependencies:

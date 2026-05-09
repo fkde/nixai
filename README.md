@@ -57,6 +57,19 @@ pyinstaller --onefile --name nixai app/cli.py
 ./dist/nixai desktop
 ```
 
+For a macOS `.app` bundle with an icon:
+
+```bash
+./scripts/build_macos_app.sh
+open dist/NixAI.app
+```
+
+To install it into `/Applications`:
+
+```bash
+./scripts/install_macos_app.sh
+```
+
 or:
 
 ```bash
