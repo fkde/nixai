@@ -4,6 +4,8 @@ const state = {
   loading: false,
   settings: null,
   availableModels: [],
+  roles: [],
+  activeRoleName: null,
 };
 
 const shell = document.querySelector(".shell");
@@ -23,9 +25,17 @@ const ollamaBaseUrl = document.querySelector("#ollama-base-url");
 const workspacePath = document.querySelector("#workspace-path");
 const embeddingModel = document.querySelector("#embedding-model");
 const modelRoleList = document.querySelector("#model-role-list");
+const roleNameOptions = document.querySelector("#role-name-options");
 const addModelRoleButton = document.querySelector("#add-model-role");
 const refreshModelsButton = document.querySelector("#refresh-models");
 const modelsHint = document.querySelector("#models-hint");
+const rolePromptList = document.querySelector("#role-prompt-list");
+const newRoleButton = document.querySelector("#new-role");
+const saveRoleButton = document.querySelector("#save-role");
+const deleteRoleButton = document.querySelector("#delete-role");
+const roleNameInput = document.querySelector("#role-name");
+const roleContentInput = document.querySelector("#role-content");
+const rolePreview = document.querySelector("#role-preview");
 
 function setStatus(text, isError = false) {
   statusEl.textContent = text;
@@ -33,7 +43,7 @@ function setStatus(text, isError = false) {
 }
 
 function escapeHtml(value) {
-  return value
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -86,6 +96,12 @@ function normalizeModelRoles(modelRoles) {
   }));
 }
 
+function roleOptionsHtml() {
+  return state.roles
+    .map((role) => `<option value="${escapeHtml(role.name)}">${escapeHtml(role.filename)}</option>`)
+    .join("");
+}
+
 function renderModelRoles() {
   const roles = normalizeModelRoles(state.settings?.model_roles);
   modelRoleList.innerHTML = "";
@@ -96,7 +112,7 @@ function renderModelRoles() {
     row.innerHTML = `
       <label class="model-role-field">
         <span class="model-role-label">Rolle</span>
-        <input class="role-input" type="text" value="${escapeHtml(roleConfig.role)}" placeholder="assistant" />
+        <input class="role-input" type="text" value="${escapeHtml(roleConfig.role)}" placeholder="ASSISTANT" list="role-name-options" />
       </label>
       <label class="model-role-field">
         <span class="model-role-label">Modell</span>
@@ -121,6 +137,75 @@ function renderModelRoles() {
     });
     modelRoleList.append(row);
   });
+}
+
+function activeRole() {
+  return state.roles.find((role) => role.name === state.activeRoleName) || null;
+}
+
+function renderRoleOptions() {
+  roleNameOptions.innerHTML = roleOptionsHtml();
+}
+
+function markdownPreview(content) {
+  let inCode = false;
+  const html = String(content ?? "")
+    .split("\n")
+    .map((line) => {
+      if (line.trim().startsWith("```")) {
+        inCode = !inCode;
+        return inCode ? "<pre><code>" : "</code></pre>";
+      }
+      if (inCode) return `${escapeHtml(line)}\n`;
+      if (line.startsWith("### ")) return `<h4>${escapeHtml(line.slice(4))}</h4>`;
+      if (line.startsWith("## ")) return `<h3>${escapeHtml(line.slice(3))}</h3>`;
+      if (line.startsWith("# ")) return `<h2>${escapeHtml(line.slice(2))}</h2>`;
+      if (line.startsWith("- ")) return `<p class="preview-list-item">${escapeHtml(line.slice(2))}</p>`;
+      if (!line.trim()) return "<br />";
+      return `<p>${escapeHtml(line)}</p>`;
+    })
+    .join("");
+  return inCode ? `${html}</code></pre>` : html;
+}
+
+function renderRoleList() {
+  rolePromptList.innerHTML = "";
+  state.roles.forEach((role) => {
+    const button = document.createElement("button");
+    button.className = "role-prompt-item";
+    button.classList.toggle("active", role.name === state.activeRoleName);
+    button.type = "button";
+    button.innerHTML = `
+      <span>${escapeHtml(role.name)}</span>
+      ${role.default ? '<small>Default</small>' : "<small>Custom</small>"}
+    `;
+    button.addEventListener("click", () => {
+      state.activeRoleName = role.name;
+      renderRoleList();
+      renderRoleEditor();
+    });
+    rolePromptList.append(button);
+  });
+}
+
+function renderRoleEditor() {
+  const role = activeRole();
+  deleteRoleButton.disabled = !role || role.default;
+  if (!role) {
+    roleNameInput.value = "";
+    roleContentInput.value = "# CUSTOM_ROLE\n\n## Mission\n- \n\n## Boundaries\n- \n";
+    rolePreview.innerHTML = markdownPreview(roleContentInput.value);
+    return;
+  }
+  roleNameInput.value = role.name;
+  roleContentInput.value = role.content || "";
+  rolePreview.innerHTML = markdownPreview(role.content || "");
+}
+
+function renderRoles() {
+  renderRoleOptions();
+  renderRoleList();
+  renderRoleEditor();
 }
 
 function collectModelRoles() {
@@ -197,6 +282,17 @@ async function loadChats() {
 async function loadSettings() {
   state.settings = await api("/api/settings");
   renderSettings();
+}
+
+async function loadRoles() {
+  state.roles = await api("/api/roles");
+  if (!state.activeRoleName && state.roles.length > 0) {
+    state.activeRoleName = state.roles[0].name;
+  }
+  if (state.activeRoleName && !state.roles.some((role) => role.name === state.activeRoleName)) {
+    state.activeRoleName = state.roles[0]?.name || null;
+  }
+  renderRoles();
 }
 
 async function refreshModels() {
@@ -288,6 +384,59 @@ refreshModelsButton.addEventListener("click", () => {
   });
 });
 
+newRoleButton.addEventListener("click", () => {
+  state.activeRoleName = null;
+  renderRoleList();
+  renderRoleEditor();
+  roleNameInput.focus();
+});
+
+roleContentInput.addEventListener("input", () => {
+  rolePreview.innerHTML = markdownPreview(roleContentInput.value);
+});
+
+roleNameInput.addEventListener("input", () => {
+  const normalized = roleNameInput.value.trim().replace(/[^A-Za-z0-9_-]+/g, "_").toUpperCase();
+  if (!roleContentInput.value.trim()) {
+    roleContentInput.value = `# ${normalized || "CUSTOM_ROLE"}\n\n## Mission\n- \n\n## Boundaries\n- \n`;
+  }
+  rolePreview.innerHTML = markdownPreview(roleContentInput.value);
+});
+
+saveRoleButton.addEventListener("click", async () => {
+  const name = roleNameInput.value.trim();
+  if (!name) {
+    setStatus("Rollenname fehlt.", true);
+    return;
+  }
+  try {
+    const saved = await api(`/api/roles/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      body: JSON.stringify({ name, content: roleContentInput.value }),
+    });
+    state.activeRoleName = saved.name;
+    await loadRoles();
+    renderSettings();
+    setStatus("Rolle gespeichert");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+});
+
+deleteRoleButton.addEventListener("click", async () => {
+  const role = activeRole();
+  if (!role || role.default) return;
+  try {
+    await api(`/api/roles/${encodeURIComponent(role.name)}`, { method: "DELETE" });
+    state.activeRoleName = null;
+    await loadRoles();
+    renderSettings();
+    setStatus("Rolle geloescht");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+});
+
 settingsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const modelRoles = collectModelRoles();
@@ -330,7 +479,7 @@ input.addEventListener("keydown", (event) => {
   }
 });
 
-Promise.all([loadSettings(), loadChats()])
+Promise.all([loadRoles(), loadSettings(), loadChats()])
   .then(() => {
     if (state.activeChatId) return selectChat(state.activeChatId);
     renderMessages([]);

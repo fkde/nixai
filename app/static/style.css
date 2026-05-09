@@ -50,7 +50,7 @@ select {
 }
 
 .shell.settings-open {
-  grid-template-columns: 320px minmax(0, 1fr) minmax(360px, 420px);
+  grid-template-columns: 320px minmax(0, 1fr) minmax(420px, 560px);
 }
 
 .sidebar {
@@ -396,6 +396,144 @@ textarea:disabled {
   height: 42px;
   padding: 0;
   color: var(--danger);
+}
+
+.role-prompt-section {
+  padding-top: 4px;
+}
+
+.role-prompt-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.role-prompt-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.role-prompt-item.active {
+  border-color: var(--accent);
+  background: #1c3533;
+  color: var(--accent-strong);
+}
+
+.role-prompt-item span {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.role-prompt-item small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.role-editor-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #12161b;
+}
+
+.role-editor-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.markdown-editor {
+  min-height: 240px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.markdown-preview-wrap {
+  display: grid;
+  gap: 8px;
+}
+
+.markdown-preview {
+  min-height: 180px;
+  max-height: 340px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0f1216;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview p {
+  margin: 0 0 9px;
+}
+
+.markdown-preview h2 {
+  font-size: 18px;
+}
+
+.markdown-preview h3 {
+  font-size: 15px;
+  color: var(--accent-strong);
+}
+
+.markdown-preview h4 {
+  font-size: 14px;
+  color: var(--gold);
+}
+
+.markdown-preview pre {
+  overflow-x: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: #090b0e;
+}
+
+.preview-list-item {
+  position: relative;
+  padding-left: 18px;
+  color: #d7dddf;
+}
+
+.preview-list-item::before {
+  content: "";
+  position: absolute;
+  top: 0.72em;
+  left: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.role-editor-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.danger-button {
+  padding: 10px 12px;
+  border-color: rgba(225, 111, 111, 0.55);
+  color: var(--danger);
+}
+
+.danger-button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
 }
 
 .settings-footer {

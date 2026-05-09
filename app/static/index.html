@@ -74,8 +74,44 @@
             </div>
 
             <div id="model-role-list" class="model-role-list"></div>
+            <datalist id="role-name-options"></datalist>
 
             <button id="add-model-role" class="secondary-button" type="button">+ Hinzufügen</button>
+          </section>
+
+          <section class="model-section role-prompt-section">
+            <div class="model-section-header">
+              <div>
+                <h3>Rollen-Prompts</h3>
+                <p>Markdown-Kontext fuer Orchestrator, Worker, Reviewer und eigene Rollen.</p>
+              </div>
+              <button id="new-role" type="button">Neu</button>
+            </div>
+
+            <div id="role-prompt-list" class="role-prompt-list"></div>
+
+            <div class="role-editor-card">
+              <label class="field">
+                <span>Rollenname</span>
+                <input id="role-name" type="text" placeholder="ORCHESTRATOR" />
+              </label>
+
+              <div class="role-editor-grid">
+                <label class="field">
+                  <span>Markdown</span>
+                  <textarea id="role-content" class="markdown-editor" rows="12" spellcheck="false"></textarea>
+                </label>
+                <section class="markdown-preview-wrap" aria-label="Markdown Vorschau">
+                  <span class="model-role-label">Vorschau</span>
+                  <div id="role-preview" class="markdown-preview"></div>
+                </section>
+              </div>
+
+              <div class="role-editor-actions">
+                <button id="delete-role" class="danger-button" type="button">Loeschen</button>
+                <button id="save-role" class="secondary-button" type="button">Rolle speichern</button>
+              </div>
+            </div>
           </section>
 
           <footer class="settings-footer">

@@ -94,6 +94,7 @@ Example config:
 - Ollama chat adapter
 - Simple agent orchestrator
 - Configurable model roles through the settings UI
+- Markdown role prompts for Orchestrator, Worker, Reviewer, Judge, and custom roles
 - RAG-style tool routing with optional Ollama embeddings
 - Workspace file listing, reading, and search
 - Git status and diff helpers

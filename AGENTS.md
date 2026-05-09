@@ -11,6 +11,7 @@ NixAI is a local proof-of-concept AI agent runner for Ollama models. The current
 - Ollama chat adapter
 - simple single-agent orchestrator
 - settings UI for dynamic model roles
+- Markdown role prompt library for Orchestrator/Worker/Reviewer-style contexts
 - RAG-style tool routing with optional Ollama embeddings
 - vanilla HTML/CSS/JS chat UI
 - optional native desktop window via `pywebview`
@@ -101,9 +102,11 @@ Important files:
 - `app/models.py`: Pydantic models
 - `app/agent.py`: current single-agent orchestrator
 - `app/api/settings.py`: settings and Ollama model discovery API
+- `app/api/roles.py`: Markdown role prompt API
 - `app/api/tools.py`: tool list, route/select, and call API
 - `app/llm/ollama.py`: Ollama adapter
 - `app/desktop.py`: native desktop wrapper using `pywebview`
+- `app/roles.py`: role prompt storage, defaults, and filename safety
 - `app/tools/workspace.py`: workspace path normalization and boundary checks
 - `app/tools/filesystem.py`: read-only file list/read/search helpers
 - `app/tools/git.py`: read-only Git status/diff helpers
@@ -133,10 +136,21 @@ Current behavior:
 
 The assistant model is selected through the `assistant` entry in `model_roles`, falling back to `default_model`.
 
+Role prompt files are prepared, but not yet injected into the agent loop. Defaults are created on demand:
+
+```text
+ASSISTANT.md
+ORCHESTRATOR.md
+WORKER.md
+REVIEWER.md
+JUDGE.md
+```
+
 Not implemented yet:
 
 - Planner / Worker / Reviewer / Judge loop
 - model-routed roles
+- role prompt injection into model context
 - tool calling from model output
 - automatic test execution in the agent loop
 - patch creation or file editing
@@ -184,6 +198,7 @@ macOS/Linux:
 
 ```text
 ~/.config/nixai/config.json
+~/.config/nixai/roles/*.md
 ~/.local/share/nixai/nixai.sqlite
 ```
 
@@ -191,6 +206,7 @@ Windows:
 
 ```text
 %APPDATA%/NixAI/config.json
+%APPDATA%/NixAI/roles/*.md
 %LOCALAPPDATA%/NixAI/nixai.sqlite
 ```
 
@@ -225,6 +241,7 @@ Upcoming useful UI additions:
 - model indicator in the chat header
 - workspace path/status panel
 - agent mode toggle
+- first Orchestrator -> Worker -> Reviewer flow using saved role prompts
 - Git status/diff tool buttons
 - test command runner buttons
 
