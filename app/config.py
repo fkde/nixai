@@ -37,6 +37,7 @@ def default_model_roles() -> list[ModelRole]:
 
 
 class Settings(BaseModel):
+    user_name: str = ""
     ollama_base_url: str = "http://localhost:11434"
     default_model: str = "llama3.1:8b"
     planner_model: str = "gemma4:e4b"
@@ -117,6 +118,7 @@ def load_settings() -> Settings:
 
 
 def save_settings(settings: Settings) -> None:
+    settings.user_name = " ".join(settings.user_name.strip().split())[:80]
     settings.default_model = settings.model_for_role("assistant")
     settings.planner_model = settings.model_for_role("planner")
     settings.worker_model = settings.model_for_role("worker")

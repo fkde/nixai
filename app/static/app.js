@@ -38,6 +38,7 @@ const settingsPanel = document.querySelector("#settings-panel");
 const settingsForm = document.querySelector("#settings-form");
 const settingsNavButtons = document.querySelectorAll(".settings-nav-button");
 const settingsSections = document.querySelectorAll(".settings-section");
+const userName = document.querySelector("#user-name");
 const ollamaBaseUrl = document.querySelector("#ollama-base-url");
 const workspacePath = document.querySelector("#workspace-path");
 const embeddingModel = document.querySelector("#embedding-model");
@@ -111,6 +112,52 @@ function escapeHtml(value) {
 function formatContent(content) {
   const escaped = escapeHtml(content);
   return escaped.replace(/```([\s\S]*?)```/g, (_match, code) => `<pre><code>${code.trim()}</code></pre>`);
+}
+
+function firstName() {
+  return (state.settings?.user_name || "").trim().split(/\s+/)[0] || "";
+}
+
+function emptyGreeting() {
+  const name = firstName();
+  const suffix = name ? `, ${escapeHtml(name)}` : "";
+  const variants = [
+    {
+      title: `Nixorious ist wach${suffix}.`,
+      text: "Ich habe Kaffee simuliert, die Konsole geradegerückt und warte auf den ersten Gedanken.",
+    },
+    {
+      title: `Bereit am lokalen Kontrollpult${suffix}.`,
+      text: "Sag Chat, Code oder Agentic, und ich ziehe mir den passenden Mantel an.",
+    },
+    {
+      title: `Leerer Chat. Maximale Möglichkeiten${suffix}.`,
+      text: "Noch ist hier alles still. Verdächtig still. Schreib etwas und wir ändern das.",
+    },
+    {
+      title: `Hier ist NixAI${suffix}.`,
+      text: "Lokal, motiviert und nur einen Prompt davon entfernt, sich nützlich zu machen.",
+    },
+  ];
+  const seed = state.activeChatId
+    ? [...state.activeChatId].reduce((sum, char) => sum + char.charCodeAt(0), 0)
+    : new Date().getDate();
+  return variants[seed % variants.length];
+}
+
+function emptyChatHtml(kind = "chat") {
+  const greeting = emptyGreeting();
+  const helper = kind === "none"
+    ? "Lege links einen neuen Chat an, dann kann ich loslegen."
+    : "Starte mit einer Nachricht. Ich verspreche, nicht dramatischer zu antworten als nötig.";
+  return `
+    <section class="empty">
+      <span>NixAI wartet</span>
+      <h3>${greeting.title}</h3>
+      <p>${greeting.text}</p>
+      <small>${helper}</small>
+    </section>
+  `;
 }
 
 function thumbIcon(direction) {
@@ -435,6 +482,7 @@ function collectModelRoles() {
 
 function renderSettings() {
   if (!state.settings) return;
+  userName.value = state.settings.user_name || "";
   ollamaBaseUrl.value = state.settings.ollama_base_url || "";
   workspacePath.value = state.settings.workspace_path || "";
   embeddingModel.value = state.settings.embedding_model || "";
@@ -533,11 +581,11 @@ function closeSettings() {
 function renderMessages(messages) {
   messagesEl.innerHTML = "";
   if (!state.activeChatId) {
-    messagesEl.innerHTML = '<p class="empty">Lege links einen Chat an und sende deine erste Nachricht.</p>';
+    messagesEl.innerHTML = emptyChatHtml("none");
     return;
   }
   if (messages.length === 0) {
-    messagesEl.innerHTML = '<p class="empty">Dieser Chat ist noch leer.</p>';
+    messagesEl.innerHTML = emptyChatHtml("chat");
     return;
   }
   for (const message of messages) {
@@ -1245,6 +1293,7 @@ settingsForm.addEventListener("submit", async (event) => {
   const assistantRole = modelRoles.find((item) => item.role.toLowerCase() === "assistant") || modelRoles[0];
   const payload = {
     ...state.settings,
+    user_name: userName.value.trim(),
     ollama_base_url: ollamaBaseUrl.value.trim(),
     workspace_path: workspacePath.value.trim(),
     embedding_model: embeddingModel.value.trim(),
@@ -1264,6 +1313,9 @@ settingsForm.addEventListener("submit", async (event) => {
     });
     await loadTools();
     renderSettings();
+    if (messagesEl.querySelector(".empty")) {
+      renderMessages([]);
+    }
     setStatus("Einstellungen gespeichert");
   } catch (error) {
     setStatus(error.message, true);
