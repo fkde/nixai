@@ -151,12 +151,18 @@
                   <h3>Rollen-Prompts</h3>
                   <p>Markdown-Kontext fuer Orchestrator, Worker, Reviewer und eigene Rollen.</p>
                 </div>
-                <button id="new-role" type="button">Neu</button>
               </div>
 
-              <div id="role-prompt-list" class="role-prompt-list"></div>
-
               <div class="role-editor-card">
+                <div class="role-tabs-row">
+                  <div id="role-prompt-list" class="role-prompt-list" role="tablist" aria-label="Rollen-Prompts"></div>
+                  <div class="role-tabs-actions">
+                    <button id="new-role" class="secondary-button" type="button">Neu</button>
+                    <button id="delete-role" class="danger-button" type="button">Löschen</button>
+                    <button id="save-role" class="secondary-button" type="button">Rolle speichern</button>
+                  </div>
+                </div>
+
                 <label class="field">
                   <span>Rollenname</span>
                   <input id="role-name" type="text" placeholder="ORCHESTRATOR" />
@@ -173,10 +179,6 @@
                   </section>
                 </div>
 
-                <div class="role-editor-actions">
-                  <button id="delete-role" class="danger-button" type="button">Loeschen</button>
-                  <button id="save-role" class="secondary-button" type="button">Rolle speichern</button>
-                </div>
               </div>
             </section>
 

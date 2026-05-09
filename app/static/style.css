@@ -1121,50 +1121,67 @@ textarea:disabled {
 }
 
 .role-prompt-section {
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
   padding-top: 4px;
+}
+
+.role-tabs-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(70, 86, 121, 0.52);
+}
+
+.role-tabs-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .role-prompt-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  gap: 4px;
+  scrollbar-width: thin;
 }
 
 .role-prompt-item {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  flex: 0 0 auto;
   min-width: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(21, 29, 48, 0.72);
+  margin-bottom: 0;
+  padding: 10px 14px;
+  border-color: transparent;
+  border-bottom-color: rgba(70, 86, 121, 0.52);
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--muted);
 }
 
 .role-prompt-item.active {
-  border-color: var(--accent);
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.28), rgba(31, 24, 56, 0.92));
+  border-color: rgba(139, 92, 246, 0.74);
+  background: linear-gradient(180deg, rgba(139, 92, 246, 0.24), rgba(16, 21, 29, 0.98));
   color: var(--accent-strong);
 }
 
 .role-prompt-item span {
-  max-width: 160px;
+  max-width: 190px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
-}
-
-.role-prompt-item small {
-  color: var(--muted);
-  font-size: 10px;
 }
 
 .role-editor-card {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 14px;
+  gap: 16px;
   min-height: 0;
   padding: 16px;
   border: 1px solid var(--border);
@@ -1271,6 +1288,7 @@ textarea:disabled {
   grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
   gap: 14px;
   min-height: 0;
+  align-items: stretch;
 }
 
 .role-editor-grid .field {
@@ -1279,7 +1297,8 @@ textarea:disabled {
 
 .markdown-editor {
   min-height: 360px;
-  height: 100%;
+  height: clamp(360px, 48vh, 620px);
+  max-height: none;
   resize: vertical;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 13px;
@@ -1296,6 +1315,7 @@ textarea:disabled {
 
 .markdown-preview {
   min-height: 360px;
+  height: clamp(360px, 48vh, 620px);
   max-height: none;
   overflow: auto;
   padding: 18px;
@@ -1356,7 +1376,13 @@ textarea:disabled {
 .role-editor-actions {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 10px;
+}
+
+.role-tabs-actions .secondary-button,
+.role-tabs-actions .danger-button {
+  padding: 8px 10px;
 }
 
 .inline-actions {

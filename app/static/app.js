@@ -388,9 +388,10 @@ function renderRoleList() {
     button.className = "role-prompt-item";
     button.classList.toggle("active", role.name === state.activeRoleName);
     button.type = "button";
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", role.name === state.activeRoleName ? "true" : "false");
     button.innerHTML = `
       <span>${escapeHtml(role.name)}</span>
-      ${role.default ? '<small>Default</small>' : "<small>Custom</small>"}
     `;
     button.addEventListener("click", () => {
       state.activeRoleName = role.name;
