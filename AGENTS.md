@@ -11,6 +11,7 @@ NixAI is a local proof-of-concept AI agent runner for Ollama models. The current
 - Ollama chat adapter
 - simple single-agent orchestrator
 - settings UI for dynamic model roles
+- RAG-style tool routing with optional Ollama embeddings
 - vanilla HTML/CSS/JS chat UI
 - optional native desktop window via `pywebview`
 - prepared read-only workspace tools for filesystem, Git, and allowlisted shell commands
@@ -100,12 +101,16 @@ Important files:
 - `app/models.py`: Pydantic models
 - `app/agent.py`: current single-agent orchestrator
 - `app/api/settings.py`: settings and Ollama model discovery API
+- `app/api/tools.py`: tool list, route/select, and call API
 - `app/llm/ollama.py`: Ollama adapter
 - `app/desktop.py`: native desktop wrapper using `pywebview`
 - `app/tools/workspace.py`: workspace path normalization and boundary checks
 - `app/tools/filesystem.py`: read-only file list/read/search helpers
 - `app/tools/git.py`: read-only Git status/diff helpers
 - `app/tools/shell.py`: allowlisted command runner
+- `app/tools/registry.py`: executable tool registry
+- `app/tools/catalog.py`: tool metadata enrichment for routing
+- `app/tools/routing/`: keyword and optional embedding-based tool retrieval
 - `app/static/`: vanilla web UI
 
 ## Current Orchestrator Mode

@@ -21,6 +21,7 @@ const settingsPanel = document.querySelector("#settings-panel");
 const settingsForm = document.querySelector("#settings-form");
 const ollamaBaseUrl = document.querySelector("#ollama-base-url");
 const workspacePath = document.querySelector("#workspace-path");
+const embeddingModel = document.querySelector("#embedding-model");
 const modelRoleList = document.querySelector("#model-role-list");
 const addModelRoleButton = document.querySelector("#add-model-role");
 const refreshModelsButton = document.querySelector("#refresh-models");
@@ -135,6 +136,7 @@ function renderSettings() {
   if (!state.settings) return;
   ollamaBaseUrl.value = state.settings.ollama_base_url || "";
   workspacePath.value = state.settings.workspace_path || "";
+  embeddingModel.value = state.settings.embedding_model || "";
   renderModelRoles();
 }
 
@@ -298,6 +300,7 @@ settingsForm.addEventListener("submit", async (event) => {
     ...state.settings,
     ollama_base_url: ollamaBaseUrl.value.trim(),
     workspace_path: workspacePath.value.trim(),
+    embedding_model: embeddingModel.value.trim(),
     default_model: assistantRole.model,
     model_roles: modelRoles,
   };

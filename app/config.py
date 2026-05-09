@@ -37,6 +37,9 @@ class Settings(BaseModel):
     judge_model: str = "llama3.1:8b"
     workspace_path: str = Field(default_factory=lambda: str(Path.home()))
     model_roles: list[ModelRole] = Field(default_factory=default_model_roles)
+    embedding_model: str = ""
+    embedding_timeout: float = 1.5
+    routing_min_score: float = 0.24
 
     def model_for_role(self, role: str) -> str:
         wanted = role.strip().casefold()
