@@ -166,13 +166,13 @@ function emptyChatHtml(kind = "chat") {
   const greeting = emptyGreeting();
   const helper = kind === "none"
     ? "Lege links einen neuen Chat an, dann kann ich loslegen."
-    : "Starte mit einer Nachricht. Ich verspreche, nicht dramatischer zu antworten als nötig.";
+    : "";
   return `
     <section class="empty">
       <span>NixAI wartet</span>
       <h3>${greeting.title}</h3>
       <p>${greeting.text}</p>
-      <small>${helper}</small>
+      ${helper ? `<small>${helper}</small>` : ""}
     </section>
   `;
 }
