@@ -2,34 +2,39 @@
 
 Guidance for AI coding agents working on NixAI.
 
-## Project Status
+## Current Stand
 
-NixAI is a local proof-of-concept AI agent runner for Ollama models. The current implementation is intentionally small and conservative:
+NixAI is a local proof-of-concept AI agent runner for Ollama models. The current version is intentionally local-first, read-heavy, and approval-oriented.
 
-- FastAPI backend
-- SQLite chat persistence
-- Ollama chat adapter
-- simple single-agent orchestrator
-- shared Chat / Code / Agentic message modes
-- settings UI for dynamic model roles
-- Markdown role prompt library for Orchestrator/Worker/Reviewer-style contexts
-- first Agentic Task definitions with API and settings UI management
-- local Agentic scheduler with run history and bounded failover
-- TaskDiscovery role for distilling Agentic requests into structured JSON
-- central editable `MISTAKES.md` review source and accepted `MEMORY.md` model context
-- RAG-style tool routing with optional Ollama embeddings
-- vanilla HTML/CSS/JS chat UI
-- optional native desktop window via `pywebview`
-- prepared read-only workspace tools for filesystem, Git, and allowlisted shell commands
-- PyInstaller build spec for a local binary
+Implemented:
 
-The repository is on `main` and tracks:
+- FastAPI backend with vanilla HTML/CSS/JS UI
+- optional native desktop window through `pywebview`
+- SQLite persistence for chats, messages, feedback, Agentic Tasks, and Agentic Task runs
+- Ollama chat adapter using `/api/chat`
+- shared `chat`, `code`, and `agentic` message modes in one chat history
+- configurable model-role mapping in settings
+- editable Markdown role prompts for built-in and custom roles
+- `TaskDiscovery` role for extracting recurring Agentic Task intent from user requests
+- Agentic Task CRUD UI, scheduler, run history, failover, and pause-after-failure behavior
+- read-only workspace context for Code mode through NixAI tools
+- workspace filesystem, Git status/diff, allowlisted shell, and tool-search registry
+- RAG-style tool routing with keyword fallback and optional Ollama embeddings
+- tool-call approval flow with `Einmal erlauben`, `Immer erlauben`, and global confirmation toggle
+- editable `MISTAKES.md` review source
+- Mistakes review wizard that proposes future-facing fixes and writes accepted guidance to `MEMORY.md`
+- shared reviewed `MEMORY.md` context injected into relevant model prompts
+- PyInstaller spec and current local binary output at `dist/nixai`
+
+Repository:
 
 ```text
 origin git@github.com:fkde/nixai.git
+branch main
+latest known commit a54ab7c Add tool call approval controls
 ```
 
-Current runtime target:
+Runtime target:
 
 ```text
 Python 3.9+
@@ -45,6 +50,12 @@ Install base dependencies:
 pip install -r requirements.txt
 ```
 
+Install desktop dependencies:
+
+```bash
+pip install -r requirements-desktop.txt
+```
+
 Run the web UI:
 
 ```bash
@@ -57,105 +68,153 @@ Open:
 http://127.0.0.1:8765
 ```
 
-Install desktop dependencies:
-
-```bash
-pip install -r requirements-desktop.txt
-```
-
 Run native desktop mode:
 
 ```bash
 python -m app.cli desktop
 ```
 
-Build local binary:
+Check desktop dependencies:
 
 ```bash
-python -m PyInstaller nixai.spec
+python -m app.cli desktop --check
 ```
 
-Current local binary output path:
+Build the local binary:
 
-```text
-dist/nixai
+```bash
+python3 -m PyInstaller --clean nixai.spec
 ```
 
-Basic syntax check:
+Check the built binary:
+
+```bash
+./dist/nixai desktop --check
+```
+
+Basic syntax checks:
 
 ```bash
 PYTHONPYCACHEPREFIX=/private/tmp/nixai-pycache python3 -m compileall app
+node --check app/static/app.js
+git diff --check
 ```
 
 ## Architecture
 
-Current flow:
+Interactive chat flow:
 
 ```text
-Chat UI
+UI
   -> FastAPI API
   -> Agent
   -> OllamaClient
   -> Ollama /api/chat
+  -> SQLite persisted messages
 ```
 
-Important files:
+Code mode context flow:
 
-- `app/cli.py`: CLI entrypoint for `serve` and `desktop`
-- `app/main.py`: FastAPI application factory and static UI mounting
-- `app/database.py`: SQLite schema and chat/message persistence
-- `app/models.py`: Pydantic models
-- `app/agent.py`: current single-agent orchestrator
-- `app/agentic_runner.py`: scheduled Agentic Task execution, tool calls, failover, and run summaries
-- `app/agentic_schedule.py`: small parser for recurring schedules such as `daily at 18:00`
-- `app/agentic_scheduler.py`: background loop and manual run entrypoint
-- `app/code_context.py`: safe read-only code-mode context builder using NixAI tools
-- `app/mistakes.py`: central `MISTAKES.md` storage and review-entry parser
-- `app/memory.py`: accepted `MEMORY.md` storage and model context helper
-- `app/mistake_review.py`: converts reviewed mistakes into future-facing memory instructions
-- `app/api/settings.py`: settings and Ollama model discovery API
-- `app/api/agentic_tasks.py`: Agentic Task create/list/update/delete API
-- `app/api/roles.py`: Markdown role prompt API
-- `app/api/tools.py`: tool list, route/select, and call API
-- `app/llm/ollama.py`: Ollama adapter
-- `app/desktop.py`: native desktop wrapper using `pywebview`
-- `app/roles.py`: role prompt storage, defaults, and filename safety
-- `app/task_discovery.py`: TaskDiscovery adapter for extracting task intent from user requests
+```text
+User message
+  -> CodeContextBuilder
+  -> ToolRegistry
+  -> workspace/Git/search tools
+  -> WORKER.md + MEMORY.md + bounded tool results
+  -> Ollama
+```
+
+Agentic task flow:
+
+```text
+User request
+  -> TaskDiscovery
+  -> Agentic Task definition or clarification
+  -> scheduler/manual run
+  -> AgenticRunner structured JSON plan
+  -> approved autonomous tools
+  -> reviewer summary / needs_review failover
+```
+
+Tool approval flow:
+
+```text
+/api/tools/call
+  -> require_tool_confirmation?
+  -> approval_required response
+  -> UI prompt
+  -> approved one time or always_allowed_tools
+  -> ToolRegistry.call(...)
+```
+
+Scheduled Agentic runs cannot display an interactive prompt. They only execute tools that are autonomous-safe and either permanently allowed or covered by disabled confirmation. Otherwise the run becomes `needs_review`.
+
+## Important Files
+
+- `app/cli.py`: Typer CLI for `serve` and `desktop`
+- `app/main.py`: FastAPI app, API router mounting, static UI mounting, scheduler lifecycle
+- `app/desktop.py`: native desktop wrapper around the local FastAPI UI
+- `app/database.py`: SQLite schema, migrations, chat/message/task/run persistence
+- `app/models.py`: Pydantic request/response/domain models
+- `app/config.py`: platformdirs-backed settings, model roles, tool approval settings
+- `app/agent.py`: main chat/code/agentic orchestrator entrypoint
+- `app/code_context.py`: bounded read-only Code mode context builder
+- `app/task_discovery.py`: recurring-task intent extraction through the `task_discovery` role
+- `app/agentic_scheduler.py`: background scheduler loop and manual run coordination
+- `app/agentic_runner.py`: scheduled Agentic execution, approved tool calls, failover, summaries
+- `app/agentic_schedule.py`: small recurring schedule parser
+- `app/roles.py`: default/custom role prompt storage and filename safety
+- `app/mistakes.py`: `MISTAKES.md` storage and entry parser
+- `app/mistake_distiller.py`: downvote-to-mistake distillation
+- `app/mistake_review.py`: mistake-to-memory solution proposal and acceptance
+- `app/memory.py`: `MEMORY.md` storage and context helper
+- `app/llm/ollama.py`: Ollama API client
+- `app/api/chats.py`: chat, message, and feedback routes
+- `app/api/settings.py`: settings and Ollama model discovery routes
+- `app/api/roles.py`: role prompt routes
+- `app/api/mistakes.py`: mistakes, review wizard, and memory routes
+- `app/api/agentic_tasks.py`: Agentic Task CRUD/run routes
+- `app/api/tools.py`: tool list, route/select, approval-aware call route
 - `app/tools/workspace.py`: workspace path normalization and boundary checks
 - `app/tools/filesystem.py`: read-only file list/read/search helpers
 - `app/tools/git.py`: read-only Git status/diff helpers
-- `app/tools/shell.py`: allowlisted command runner
+- `app/tools/shell.py`: allowlisted shell runner
 - `app/tools/registry.py`: executable tool registry
-- `app/tools/catalog.py`: tool metadata enrichment for routing
-- `app/tools/routing/`: keyword and optional embedding-based tool retrieval
-- `app/static/`: vanilla web UI
+- `app/tools/catalog.py`: tool metadata enrichment
+- `app/tools/routing/`: keyword, cosine, embedding, and hard-filter routing helpers
+- `app/static/index.html`: UI structure
+- `app/static/app.js`: UI state, API calls, settings, feedback, approvals, wizards
+- `app/static/style.css`: dark UI styling with purple accent
+- `nixai.spec`: PyInstaller build configuration
 
-## Current Orchestrator Mode
+## Modes
 
-The active orchestrator is a simple single-agent chat runner:
+`chat`:
 
-```python
-Agent.run(chat_id: str, user_message: str, mode: MessageMode = "chat") -> CreateMessageResponse
-```
+- plain assistant conversation
+- uses the `assistant` model role
+- does not assume workspace tool access
 
-Current behavior:
+`code`:
 
-1. Verify chat exists.
-2. Store the user message.
-3. Update the chat title if it is still the default.
-4. Load chat history.
-5. Send history to Ollama.
-6. Store assistant response with the selected message mode.
-7. Return both persisted messages.
+- uses the `worker` model role
+- requires a configured workspace for useful answers
+- injects `WORKER.md`, reviewed `MEMORY.md`, workspace path, and bounded read-only tool results
+- may inspect file lists, specific files, search results, Git status, and Git diff through NixAI tools
+- does not give the model native shell access
+- test/build commands remain allowlisted and should be explicit
 
-The assistant model is selected through the `assistant` entry in `model_roles`, falling back to `default_model`.
-Code mode injects `WORKER.md`, reviewed `MEMORY.md`, the configured workspace path, and bounded read-only tool results from `app/code_context.py`. The model does not get native shell access; all gathered context goes through `app/tools/*` so workspace boundaries and allowlists still apply. Agentic mode first runs TaskDiscovery using the `task_discovery` model role and `TASK_DISCOVERY.md`, then either creates an Agentic Task definition, asks for missing task information, or falls back to the Orchestrator chat path. Scheduled Agentic runs also receive reviewed `MEMORY.md`. `MISTAKES.md` is a review source only and must not be injected into model context.
+`agentic`:
 
-Agentic Task execution is active while the FastAPI app is running. The scheduler checks due active tasks, runs the Orchestrator through structured JSON, executes only approved autonomous tools, stores run logs, and pauses tasks after repeated failures. Unsupported capabilities, invalid model JSON, unexpected tool requests, and tools that still require user confirmation are marked `needs_review` instead of being treated as success.
+- first runs `TaskDiscovery` using `TASK_DISCOVERY.md` and the `task_discovery` model role
+- creates recurring Agentic Tasks when enough schedule/task information is found
+- asks for missing information when the request is incomplete
+- falls back to Orchestrator chat behavior for non-recurring tasks
+- scheduled runs use `ORCHESTRATOR.md`, reviewed `MEMORY.md`, structured JSON, approved tools, and reviewer summaries
 
-Tool calls exposed through `/api/tools/call` require user confirmation by default. The settings UI can disable confirmation globally, or persist individual tools in `always_allowed_tools` through the "Immer erlauben" action. Scheduled Agentic runs cannot show an interactive prompt, so they only execute tools that are autonomous-safe and either permanently allowed or covered by disabled confirmation.
+## Roles And Memory
 
-Default role prompt files are created on demand:
+Default role prompt files are created on demand in the config directory:
 
 ```text
 ASSISTANT.md
@@ -166,28 +225,33 @@ REVIEWER.md
 JUDGE.md
 ```
 
-Not implemented yet:
+Users can add custom roles from the settings UI. Role names are normalized and saved as Markdown files under `roles/`.
 
-- Planner / Worker / Reviewer / Judge loop
-- model-routed roles
-- broader model-driven tool calling from structured output
-- automatic test execution in the agent loop
-- patch creation or file editing
-- judge/retry/done decision logic
-- acceptance criteria verification
+`MISTAKES.md`:
 
-Preferred next step: add concrete external connectors/tools, such as email or calendar, then expand Agentic Tasks from workspace-only tools to those approved integrations with per-tool risk controls.
+- editable in settings
+- receives downvote distillations
+- can be reviewed in the Mistakes wizard
+- must never be injected into model context
 
-## Safety Rules
+`MEMORY.md`:
 
-This project is intentionally read-only-heavy.
+- receives accepted guidance from reviewed mistakes
+- is injected into Code mode and scheduled Agentic model prompts
+- is the only persistent learning document that models should see
+
+When adding new model prompts, prefer `MEMORY.md` over raw `MISTAKES.md`.
+
+## Tool Policy
+
+All tools should remain explicit and bounded.
 
 Workspace tools must:
 
 - only operate inside the configured workspace
 - normalize and resolve paths before use
 - reject directory traversal
-- avoid writing files in the POC tool layer
+- avoid write operations in the POC tool layer
 
 Shell tools must:
 
@@ -195,7 +259,7 @@ Shell tools must:
 - use the allowlist in `app/tools/shell.py`
 - keep outputs explicit and bounded where practical
 
-Currently allowlisted commands:
+Currently allowlisted shell commands:
 
 ```text
 git status
@@ -207,11 +271,24 @@ npm test
 npm run build
 ```
 
-Do not add write-capable commands without a clear UX/control plan.
+Tool approval settings live in `config.json`:
+
+```json
+{
+  "require_tool_confirmation": true,
+  "always_allowed_tools": []
+}
+```
+
+Manual `/api/tools/call` requests require approval by default. The UI can approve a call once or add the tool to `always_allowed_tools`. Disabling `require_tool_confirmation` allows calls without prompts.
+
+Autonomous scheduled Agentic tools are limited to the `AUTO_TOOLS` set in `app/agentic_runner.py` and still respect tool confirmation settings.
+
+Do not add write-capable tools or broader shell commands without a clear approval, preview, and rollback UX.
 
 ## Config And Runtime Data
 
-Config and SQLite data are intentionally outside the repository through `platformdirs`.
+Config and data are intentionally outside the repository through `platformdirs`.
 
 macOS/Linux:
 
@@ -233,40 +310,54 @@ Windows:
 %LOCALAPPDATA%/NixAI/nixai.sqlite
 ```
 
-Do not commit runtime databases, local configs, generated `dist/`, or generated `build/` directories.
+Do not commit runtime databases, local configs, generated `build/`, or generated `dist/`.
 
 ## Desktop Notes
 
-The desktop mode wraps the existing local FastAPI UI in a native window via `pywebview`.
+Desktop mode wraps the existing local FastAPI UI in a native window via `pywebview`.
 
 Platform notes:
 
-- macOS: uses Cocoa/WKWebView; Python 3.9 requires PyObjC `<12` pins.
-- Windows: may require Microsoft Edge WebView2 Runtime.
-- Linux: requires GTK or Qt WebKit/WebEngine system dependencies depending on backend.
+- macOS: Cocoa/WKWebView; Python 3.9 uses PyObjC `<12` pins
+- Windows: may require Microsoft Edge WebView2 Runtime
+- Linux: requires GTK or Qt WebKit/WebEngine system dependencies depending on backend
 
-The browser UI and desktop UI intentionally share the same frontend files.
+The browser UI and desktop UI intentionally share `app/static/*`.
 
 ## Frontend Direction
 
 Keep the frontend simple and app-like:
 
+- vanilla HTML/CSS/JS
 - no React/Vue unless there is a strong reason
 - no Monaco editor in the POC
-- dark, focused, local-agent interface
-- sidebar for chats
-- main panel for messages
-- compact controls
+- dark local-agent interface with purple accent
+- compact settings and controls
 - readable code blocks
+- modal prompts for explicit approvals and guided review flows
 
-Upcoming useful UI additions:
+Near-term useful UI work:
 
 - model indicator in the chat header
-- workspace path/status panel
-- agent mode toggle
-- first Orchestrator -> Worker -> Reviewer flow using saved role prompts
+- workspace status panel
+- dedicated tool/result timeline in messages
+- clearer Agentic run detail view with raw tool results
 - Git status/diff tool buttons
-- test command runner buttons
+- test command runner buttons with approval prompts
+
+## Not Implemented Yet
+
+- full Planner -> Worker -> Reviewer -> Judge loop
+- patch creation or controlled file editing
+- automatic test execution in an agent loop
+- judge retry/done decision logic
+- acceptance criteria verification
+- external connectors such as email or calendar
+- full plugin system
+- RAG over project documents beyond current tool routing
+- authentication or remote access
+
+Preferred next step: add concrete external connectors/tools, such as email or calendar, then expand Agentic Tasks from workspace-only tools to approved integrations with per-tool risk controls.
 
 ## Git And Commit Hygiene
 
@@ -275,6 +366,8 @@ Before committing:
 ```bash
 git status --short
 PYTHONPYCACHEPREFIX=/private/tmp/nixai-pycache python3 -m compileall app
+node --check app/static/app.js
+git diff --check
 ```
 
 Commit only source, docs, and build configuration. Leave ignored local files alone.
