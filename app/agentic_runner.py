@@ -22,6 +22,9 @@ AUTO_TOOLS = {
     "nixai_git_status",
     "nixai_git_diff",
     "nixai_tools_search",
+    "nixai_notify_desktop",
+    "nixai_web_check_url",
+    "nixai_web_fetch_url",
 }
 MAX_TOOL_CALLS = 5
 MAX_ATTEMPTS = 2

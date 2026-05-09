@@ -33,6 +33,10 @@ class ToolCatalog:
     def _category(self, text: str, name: str) -> str:
         if name == "nixai_tools_search":
             return "tools"
+        if self._contains(text, ["notification", "notify", "desktop", "macos"]):
+            return "notification"
+        if self._contains(text, ["web", "url", "http", "internet", "website"]):
+            return "internet"
         if self._contains(text, ["git", "diff", "status"]):
             return "git"
         if self._contains(text, ["file", "filesystem", "read", "search", "workspace"]):
@@ -42,6 +46,10 @@ class ToolCatalog:
         return "workspace"
 
     def _risk(self, text: str, name: str) -> str:
+        if self._contains(text, ["notification", "notify", "send alert"]):
+            return "external"
+        if self._contains(text, ["web", "url", "http", "internet", "website"]):
+            return "external"
         if self._contains(text, ["write", "update", "delete", "remove", "commit", "create file", "edit"]):
             return "write"
         return "read"
@@ -65,6 +73,10 @@ class ToolCatalog:
             capabilities.append("git.diff")
         if self._contains(text, ["test", "phpunit", "composer", "npm", "build", "command"]):
             capabilities.append("command.run")
+        if self._contains(text, ["notification", "notify", "desktop", "macos"]):
+            capabilities.append("notification.send")
+        if self._contains(text, ["web", "url", "http", "internet", "website"]):
+            capabilities.append("internet.fetch")
         return sorted(set(capabilities or ["workspace.read"]))
 
     def _routing_text(self, definition: ToolDefinition) -> str:

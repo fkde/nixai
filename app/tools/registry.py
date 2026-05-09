@@ -4,7 +4,7 @@ from typing import Any
 
 from app.tools.catalog import ToolCatalog
 from app.tools.definitions import ToolDefinition
-from app.tools import filesystem, git, shell
+from app.tools import filesystem, git, internet, notification, shell
 
 
 def _string_schema(description: str) -> dict[str, Any]:
@@ -88,6 +88,44 @@ class ToolRegistry:
                 input_schema=_object_schema({"command": _string_schema("Allowlisted command to run.")}, ["command"]),
                 handler=lambda args: shell.run_command(str(args.get("command") or "")),
                 examples=["Run npm test", "composer phpunit ausführen", "Run git status"],
+                meta={"autoRun": False},
+            ),
+            ToolDefinition(
+                name="nixai_notify_desktop",
+                description="Sends a macOS desktop notification from NixAI.",
+                routing_description="Use when the user asks NixAI to notify them, alert them, or send a local Mac notification.",
+                input_schema=_object_schema(
+                    {
+                        "title": _string_schema("Short notification title."),
+                        "message": _string_schema("Notification body text."),
+                        "subtitle": _string_schema("Optional notification subtitle."),
+                    },
+                    ["message"],
+                ),
+                handler=lambda args: notification.notify_desktop(
+                    str(args.get("title") or "NixAI"),
+                    str(args.get("message") or ""),
+                    str(args.get("subtitle") or ""),
+                ),
+                examples=["Notify me when the task is done", "Mac Notification senden", "Schick mir eine lokale Erinnerung"],
+                meta={"autoRun": False},
+            ),
+            ToolDefinition(
+                name="nixai_web_fetch_url",
+                description="Fetches text content from a public http or https URL.",
+                routing_description="Use when the user asks to read a specific public web page or retrieve internet content from a URL.",
+                input_schema=_object_schema({"url": _string_schema("Public http or https URL to fetch.")}, ["url"]),
+                handler=lambda args: internet.fetch_url(str(args.get("url") or "")),
+                examples=["Fetch https://example.com", "Read this URL", "Hole den Inhalt dieser Webseite"],
+                meta={"autoRun": False},
+            ),
+            ToolDefinition(
+                name="nixai_web_check_url",
+                description="Checks a public http or https URL and returns status metadata without reading the full body.",
+                routing_description="Use when the user asks whether a website is reachable or wants lightweight URL metadata.",
+                input_schema=_object_schema({"url": _string_schema("Public http or https URL to check.")}, ["url"]),
+                handler=lambda args: internet.check_url(str(args.get("url") or "")),
+                examples=["Check https://example.com", "Ist diese URL erreichbar?", "Website Status prüfen"],
                 meta={"autoRun": False},
             ),
             ToolDefinition(

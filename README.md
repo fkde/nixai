@@ -106,6 +106,8 @@ Example config:
 - RAG-style tool routing with optional Ollama embeddings
 - Workspace file listing, reading, and search
 - Git status and diff helpers
+- macOS desktop notification tool
+- Public URL check/fetch internet tools
 - Strict shell command allowlist
 - Minimal local chat UI
 

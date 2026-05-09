@@ -20,6 +20,8 @@ Implemented:
 - Agentic Task CRUD UI, scheduler, run history, failover, and pause-after-failure behavior
 - read-only workspace context for Code mode through NixAI tools
 - workspace filesystem, Git status/diff, allowlisted shell, and tool-search registry
+- macOS desktop notification tool
+- public URL check/fetch internet tools with private-address blocking
 - RAG-style tool routing with keyword fallback and optional Ollama embeddings
 - tool-call approval flow with `Einmal erlauben`, `Immer erlauben`, and global confirmation toggle
 - editable `MISTAKES.md` review source
@@ -180,6 +182,8 @@ Scheduled Agentic runs cannot display an interactive prompt. They only execute t
 - `app/tools/filesystem.py`: read-only file list/read/search helpers
 - `app/tools/git.py`: read-only Git status/diff helpers
 - `app/tools/shell.py`: allowlisted shell runner
+- `app/tools/notification.py`: macOS desktop notification helper
+- `app/tools/internet.py`: public URL check/fetch helpers with localhost/private-network blocking
 - `app/tools/registry.py`: executable tool registry
 - `app/tools/catalog.py`: tool metadata enrichment
 - `app/tools/routing/`: keyword, cosine, embedding, and hard-filter routing helpers
@@ -271,6 +275,19 @@ vendor/bin/phpunit
 npm test
 npm run build
 ```
+
+Internet tools must:
+
+- only allow `http` and `https`
+- reject embedded credentials
+- reject localhost, private, loopback, link-local, multicast, reserved, and unspecified addresses
+- keep fetched response bodies bounded
+
+Notification tools must:
+
+- remain approval-gated by default
+- keep title/message lengths bounded
+- currently target macOS only through `osascript`
 
 Tool approval settings live in `config.json`:
 

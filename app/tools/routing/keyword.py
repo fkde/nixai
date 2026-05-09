@@ -68,7 +68,8 @@ class KeywordToolRouter:
 
         score = 0.0
         reasons = []
-        token_score = sum(1.0 for token in query_tokens if token in tool_text)
+        tool_tokens = set(self._tokens(tool_text))
+        token_score = sum(1.0 for token in query_tokens if token in tool_tokens)
         if token_score > 0:
             score += token_score
             reasons.append("tokens")
@@ -154,6 +155,8 @@ class KeywordToolRouter:
             "git.diff": ["diff", "changes", "review", "patch"],
             "command.run": ["test", "phpunit", "composer", "npm", "build", "run"],
             "tools.read": ["tool", "tools", "werkzeug"],
+            "notification.send": ["notify", "notification", "alert", "reminder", "mac", "macos", "benachrichtigung"],
+            "internet.fetch": ["web", "url", "http", "https", "internet", "website", "fetch", "read"],
         }
         score = 0.0
         for capability, needles in mapping.items():
