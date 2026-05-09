@@ -53,6 +53,22 @@ make build-cli
 make build-macos-app
 ```
 
+Platform binary scripts build on the target OS:
+
+```bash
+./scripts/build_linux_binary.sh --install-deps
+```
+
+```powershell
+.\scripts\build_windows_binary.ps1 -InstallDeps
+```
+
+or from Windows cmd:
+
+```cmd
+scripts\build_windows_binary.cmd -InstallDeps
+```
+
 For the native desktop window during development:
 
 ```bash

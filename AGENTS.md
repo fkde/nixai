@@ -110,6 +110,24 @@ Build the local binary:
 make build-cli
 ```
 
+Build the Linux binary on Linux:
+
+```bash
+./scripts/build_linux_binary.sh --install-deps
+```
+
+Build the Windows binary on Windows PowerShell:
+
+```powershell
+.\scripts\build_windows_binary.ps1 -InstallDeps
+```
+
+or from Windows cmd:
+
+```cmd
+scripts\build_windows_binary.cmd -InstallDeps
+```
+
 Check the built binary:
 
 ```bash
