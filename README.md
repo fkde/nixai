@@ -24,6 +24,22 @@ pip install -e .
 nixai serve
 ```
 
+For the native desktop window:
+
+```bash
+pip install -r requirements-desktop.txt
+python -m app.cli desktop
+```
+
+or, after editable installation:
+
+```bash
+pip install -e ".[desktop]"
+nixai desktop
+```
+
+Desktop mode uses `pywebview`, so use Python 3.12+ as declared by the project metadata. On macOS, older system Python versions can fail while building PyObjC.
+
 The package metadata lives in `pyproject.toml`; runtime files such as config and SQLite databases are intentionally not committed.
 
 ## Build
@@ -32,6 +48,13 @@ Later binary builds can use the checked-in application package:
 
 ```bash
 pyinstaller --onefile --name nixai app/cli.py
+```
+
+For a desktop-focused binary, include pywebview and start the native mode:
+
+```bash
+pyinstaller --onefile --name nixai app/cli.py
+./dist/nixai desktop
 ```
 
 or:

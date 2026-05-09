@@ -18,6 +18,11 @@ dependencies = [
   "platformdirs>=4.2.0",
 ]
 
+[project.optional-dependencies]
+desktop = [
+  "pywebview>=5.3",
+]
+
 [project.scripts]
 nixai = "app.cli:main"
 
