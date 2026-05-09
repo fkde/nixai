@@ -6,7 +6,7 @@ from rich.console import Console
 
 from app.config import config_path, database_path, load_settings
 from app.database import init_db
-from app.desktop import run_desktop
+from app.desktop import ensure_desktop_dependencies, run_desktop
 
 
 cli = typer.Typer(help="NixAI local agent runner")
@@ -31,9 +31,13 @@ def serve(host: str = "127.0.0.1", port: int = 8765, reload: bool = False) -> No
 
 
 @cli.command()
-def desktop(host: str = "127.0.0.1", port: int = 0) -> None:
+def desktop(host: str = "127.0.0.1", port: int = 0, check: bool = False) -> None:
     """Start NixAI in a native desktop window."""
     try:
+        if check:
+            ensure_desktop_dependencies()
+            console.print("Desktop dependencies are available.")
+            return
         run_desktop(host=host, port=port)
     except RuntimeError as exc:
         console.print(str(exc), style="red", markup=False)

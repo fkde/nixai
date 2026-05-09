@@ -10,6 +10,7 @@ NixAI is a local proof-of-concept AI agent runner for Ollama models. The current
 - SQLite chat persistence
 - Ollama chat adapter
 - simple single-agent orchestrator
+- settings UI for dynamic model roles
 - vanilla HTML/CSS/JS chat UI
 - optional native desktop window via `pywebview`
 - prepared read-only workspace tools for filesystem, Git, and allowlisted shell commands
@@ -98,6 +99,7 @@ Important files:
 - `app/database.py`: SQLite schema and chat/message persistence
 - `app/models.py`: Pydantic models
 - `app/agent.py`: current single-agent orchestrator
+- `app/api/settings.py`: settings and Ollama model discovery API
 - `app/llm/ollama.py`: Ollama adapter
 - `app/desktop.py`: native desktop wrapper using `pywebview`
 - `app/tools/workspace.py`: workspace path normalization and boundary checks
@@ -123,6 +125,8 @@ Current behavior:
 5. Send history to Ollama.
 6. Store assistant response.
 7. Return both persisted messages.
+
+The assistant model is selected through the `assistant` entry in `model_roles`, falling back to `default_model`.
 
 Not implemented yet:
 
@@ -213,12 +217,11 @@ Keep the frontend simple and app-like:
 
 Upcoming useful UI additions:
 
-- model indicator/select
+- model indicator in the chat header
 - workspace path/status panel
 - agent mode toggle
 - Git status/diff tool buttons
 - test command runner buttons
-- settings screen for Ollama URL, model names, and workspace path
 
 ## Git And Commit Hygiene
 

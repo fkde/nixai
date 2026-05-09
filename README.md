@@ -93,6 +93,7 @@ Example config:
 - Persistent local chats
 - Ollama chat adapter
 - Simple agent orchestrator
+- Configurable model roles through the settings UI
 - Workspace file listing, reading, and search
 - Git status and diff helpers
 - Strict shell command allowlist

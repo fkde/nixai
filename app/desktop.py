@@ -11,6 +11,16 @@ from app.config import config_path, database_path, load_settings
 from app.database import init_db
 
 
+def ensure_desktop_dependencies() -> None:
+    try:
+        import webview  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(
+            "Desktop mode requires pywebview. Install it with `pip install -r requirements-desktop.txt` "
+            "or `pip install -e \".[desktop]\"`."
+        ) from exc
+
+
 def _free_port(host: str) -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind((host, 0))
@@ -30,13 +40,8 @@ def _wait_until_ready(url: str, timeout: float = 10.0) -> None:
 
 
 def run_desktop(host: str = "127.0.0.1", port: int = 0) -> None:
-    try:
-        import webview
-    except ImportError as exc:
-        raise RuntimeError(
-            "Desktop mode requires pywebview. Install it with `pip install -r requirements-desktop.txt` "
-            "or `pip install -e \".[desktop]\"`."
-        ) from exc
+    ensure_desktop_dependencies()
+    import webview
 
     settings = load_settings()
     init_db()

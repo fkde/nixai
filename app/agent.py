@@ -21,6 +21,6 @@ class Agent:
         user = database.add_message(chat_id, "user", user_message)
         database.update_chat_title_if_default(chat_id, user_message)
         history = database.list_messages(chat_id)
-        answer = await self.ollama.chat(history)
+        answer = await self.ollama.chat(history, model=self.settings.model_for_role("assistant"))
         assistant = database.add_message(chat_id, "assistant", answer)
         return CreateMessageResponse(user_message=user, assistant_message=assistant)

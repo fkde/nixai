@@ -4,6 +4,20 @@ from PyInstaller.utils.hooks import collect_submodules
 hiddenimports = []
 hiddenimports += collect_submodules('app')
 
+for package in (
+    'webview',
+    'objc',
+    'Foundation',
+    'AppKit',
+    'WebKit',
+    'Quartz',
+    'Security',
+):
+    try:
+        hiddenimports += collect_submodules(package)
+    except Exception:
+        pass
+
 
 a = Analysis(
     ['app/cli.py'],

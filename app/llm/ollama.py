@@ -16,9 +16,23 @@ class OllamaClient:
         self.settings = settings
         self.timeout = timeout
 
+    async def list_models(self) -> list[str]:
+        url = self.settings.ollama_base_url.rstrip("/") + "/api/tags"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise OllamaError(f"Ollama model list request failed: {exc}") from exc
+
+        data = response.json()
+        models = data.get("models", [])
+        names = [model.get("name") for model in models if isinstance(model, dict)]
+        return sorted(name for name in names if isinstance(name, str))
+
     async def chat(self, messages: list[Message], model: Optional[str] = None) -> str:
         payload = {
-            "model": model or self.settings.default_model,
+            "model": model or self.settings.model_for_role("assistant"),
             "messages": [
                 {"role": message.role, "content": message.content}
                 for message in messages

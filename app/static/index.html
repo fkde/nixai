@@ -14,7 +14,10 @@
             <p class="app-kicker">Local Agent Runner</p>
             <h1>NixAI</h1>
           </div>
-          <button id="new-chat" type="button">+ Neuer Chat</button>
+          <div class="sidebar-actions">
+            <button id="new-chat" type="button">+ Neuer Chat</button>
+            <button id="settings-toggle" type="button">Einstellungen</button>
+          </div>
         </div>
         <nav id="chat-list" class="chat-list" aria-label="Chats"></nav>
       </aside>
@@ -35,6 +38,46 @@
           <button id="send-button" type="submit">Senden</button>
         </form>
       </section>
+
+      <aside id="settings-panel" class="settings-panel" aria-hidden="true">
+        <header class="settings-header">
+          <div>
+            <p class="eyebrow">Konfiguration</p>
+            <h2>Modelle & Rollen</h2>
+          </div>
+          <button id="settings-close" class="icon-button" type="button" aria-label="Einstellungen schließen">x</button>
+        </header>
+
+        <form id="settings-form" class="settings-form">
+          <label class="field">
+            <span>Ollama URL</span>
+            <input id="ollama-base-url" type="url" placeholder="http://localhost:11434" />
+          </label>
+
+          <label class="field">
+            <span>Workspace</span>
+            <input id="workspace-path" type="text" placeholder="/path/to/project" />
+          </label>
+
+          <section class="model-section">
+            <div class="model-section-header">
+              <div>
+                <h3>Rollen</h3>
+                <p id="models-hint">Modelle werden aus Ollama geladen, wenn verfügbar.</p>
+              </div>
+              <button id="refresh-models" type="button">Modelle laden</button>
+            </div>
+
+            <div id="model-role-list" class="model-role-list"></div>
+
+            <button id="add-model-role" class="secondary-button" type="button">+ Hinzufügen</button>
+          </section>
+
+          <footer class="settings-footer">
+            <button id="save-settings" type="submit">Speichern</button>
+          </footer>
+        </form>
+      </aside>
     </main>
     <script src="/static/app.js"></script>
   </body>

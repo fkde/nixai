@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import database
 from app.api.chats import router as chats_router
+from app.api.settings import router as settings_router
 
 
 def create_app() -> FastAPI:
@@ -16,6 +17,7 @@ def create_app() -> FastAPI:
     fastapi_app = FastAPI(title="NixAI", version="0.1.0")
     static_dir = Path(__file__).parent / "static"
     fastapi_app.include_router(chats_router)
+    fastapi_app.include_router(settings_router)
     fastapi_app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
     @fastapi_app.get("/")
