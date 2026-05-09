@@ -116,6 +116,18 @@ function formatContent(content) {
   return escaped.replace(/```([\s\S]*?)```/g, (_match, code) => `<pre><code>${code.trim()}</code></pre>`);
 }
 
+function thinkingIndicatorHtml() {
+  return `
+    <div class="thinking-state" aria-live="polite">
+      <div class="thinking-copy">
+        <span>Denke nach...</span>
+        <small>Ollama sortiert gerade seine Gedanken.</small>
+      </div>
+      <div class="thinking-scanner" aria-hidden="true"><span></span></div>
+    </div>
+  `;
+}
+
 function firstName() {
   return (state.settings?.user_name || "").trim().split(/\s+/)[0] || "";
 }
@@ -649,11 +661,13 @@ messagesEl.addEventListener("scroll", () => {
 function appendMessage(message, extraClass = "", scrollToBottom = true) {
   const mode = message.mode || state.activeMode || "chat";
   const item = document.createElement("article");
+  const isThinking = message.role === "assistant" && extraClass.includes("streaming") && !message.content;
   item.className = `message ${message.role} ${mode} ${extraClass}`.trim();
+  if (isThinking) item.classList.add("thinking");
   item.dataset.messageId = message.id || "";
   item.innerHTML = `
     <div class="message-role"><span>[${escapeHtml(mode)}]</span> ${escapeHtml(message.role)}</div>
-    <div class="bubble">${formatContent(message.content || "")}</div>
+    <div class="bubble">${isThinking ? thinkingIndicatorHtml() : formatContent(message.content || "")}</div>
     ${message.role === "assistant" && message.id ? `
       <div class="message-feedback" aria-label="Antwort bewerten">
         <button class="feedback-button" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="up" aria-label="Daumen hoch">${thumbIcon("up")}</button>
@@ -674,6 +688,7 @@ function appendMessage(message, extraClass = "", scrollToBottom = true) {
 function setMessageContent(element, content, followScroll = true) {
   const bubble = element?.querySelector(".bubble");
   if (!bubble) return;
+  element.classList.toggle("thinking", !content);
   bubble.innerHTML = formatContent(content);
   if (followScroll) {
     scrollMessagesToBottom();
@@ -683,7 +698,7 @@ function setMessageContent(element, content, followScroll = true) {
 function finalizeAssistantMessage(element, message) {
   if (!element || !message) return;
   element.dataset.messageId = message.id;
-  element.classList.remove("streaming");
+  element.classList.remove("streaming", "thinking");
   if (!element.querySelector(".message-feedback")) {
     element.insertAdjacentHTML("beforeend", `
       <div class="message-feedback" aria-label="Antwort bewerten">
