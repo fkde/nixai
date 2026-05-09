@@ -122,13 +122,36 @@ function thumbIcon(direction) {
 function renderChats() {
   chatList.innerHTML = "";
   for (const chat of state.chats) {
+    const item = document.createElement("div");
+    item.className = "chat-item-wrap";
+    item.classList.toggle("active", chat.id === state.activeChatId);
+
     const button = document.createElement("button");
     button.className = "chat-item";
-    button.classList.toggle("active", chat.id === state.activeChatId);
     button.type = "button";
     button.textContent = chat.title;
     button.addEventListener("click", () => selectChat(chat.id));
-    chatList.append(button);
+
+    const deleteButton = document.createElement("button");
+    deleteButton.className = "chat-delete-button";
+    deleteButton.type = "button";
+    deleteButton.setAttribute("aria-label", `${chat.title} löschen`);
+    deleteButton.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 6h18" />
+        <path d="M8 6V4h8v2" />
+        <path d="M6 6l1 14h10l1-14" />
+        <path d="M10 11v5" />
+        <path d="M14 11v5" />
+      </svg>
+    `;
+    deleteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteChat(chat.id, chat.title).catch((error) => setStatus(error.message, true));
+    });
+
+    item.append(button, deleteButton);
+    chatList.append(item);
   }
 }
 
@@ -693,6 +716,26 @@ async function createChat() {
   await selectChat(chat.id);
   input.focus();
   setStatus("bereit");
+}
+
+async function deleteChat(chatId, title) {
+  const confirmed = window.confirm(`Chat "${title}" wirklich löschen?`);
+  if (!confirmed) return;
+
+  await api(`/api/chats/${chatId}`, { method: "DELETE" });
+  if (state.activeChatId === chatId) {
+    state.activeChatId = null;
+  }
+  await loadChats();
+  if (state.activeChatId) {
+    await selectChat(state.activeChatId);
+  } else if (state.chats.length > 0) {
+    await selectChat(state.chats[0].id);
+  } else {
+    chatTitle.textContent = "Kein Chat ausgewählt";
+    renderMessages([]);
+  }
+  setStatus("Chat gelöscht");
 }
 
 function setLoading(loading) {
