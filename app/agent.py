@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Optional
 
@@ -25,14 +26,23 @@ class Agent:
         return CreateMessageResponse(user_message=user, assistant_message=assistant)
 
     async def stream(self, chat_id: str, user_message: str, mode: MessageMode = "chat") -> AsyncIterator[dict[str, object]]:
-        user, static_answer = await self._prepare_user_and_static_answer(chat_id, user_message, mode)
+        user = self._store_user_message(chat_id, user_message, mode)
         yield {"type": "user_message", "message": user.model_dump()}
 
+        static_answer = None
+        if mode == "agentic":
+            yield {"type": "status", "message": "TaskDiscovery prüft die Aufgabe..."}
+            static_answer = await self._agentic_static_answer(user_message)
+
         if static_answer is not None:
+            yield {"type": "status", "message": "Agentic Task wird vorbereitet..."}
+            streamed = ""
+            async for chunk in self._stream_static_text(static_answer):
+                streamed += chunk
+                yield {"type": "token", "content": chunk}
             assistant = database.add_message(chat_id, "assistant", static_answer, mode=mode)
-            yield {"type": "token", "content": static_answer}
             yield {"type": "assistant_message", "message": assistant.model_dump()}
-            yield {"type": "done", "stats": {}}
+            yield {"type": "done", "stats": {"eval_count": len(streamed.split())}}
             return
 
         content_parts: list[str] = []
@@ -49,27 +59,25 @@ class Agent:
                 yield {"type": "done", "stats": self._stream_stats(event)}
 
     async def _answer(self, chat_id: str, user_message: str, mode: MessageMode) -> tuple[Message, str]:
-        user, static_answer = await self._prepare_user_and_static_answer(chat_id, user_message, mode)
+        user = self._store_user_message(chat_id, user_message, mode)
+        static_answer = await self._agentic_static_answer(user_message) if mode == "agentic" else None
         if static_answer is not None:
             return user, static_answer
         history = self._history_with_mode_context(chat_id, mode, user_message)
         answer = await self.ollama.chat(history, model=self.settings.model_for_role(self._model_role_for_mode(mode)))
         return user, answer
 
-    async def _prepare_user_and_static_answer(
-        self,
-        chat_id: str,
-        user_message: str,
-        mode: MessageMode,
-    ) -> tuple[Message, str | None]:
+    def _store_user_message(self, chat_id: str, user_message: str, mode: MessageMode) -> Message:
         chat = database.get_chat(chat_id)
         if chat is None:
             raise ValueError("Chat not found")
 
         user = database.add_message(chat_id, "user", user_message, mode=mode)
         database.update_chat_title_if_default(chat_id, user_message)
+        return user
 
-        discovery = await TaskDiscovery(self.settings, self.ollama).discover(user_message) if mode == "agentic" else None
+    async def _agentic_static_answer(self, user_message: str) -> str | None:
+        discovery = await TaskDiscovery(self.settings, self.ollama).discover(user_message)
         task = self._create_agentic_task(discovery) if discovery and discovery.is_recurring_task else None
         if task is not None:
             answer = (
@@ -87,7 +95,14 @@ class Agent:
             )
         else:
             answer = None
-        return user, answer
+        return answer
+
+    async def _stream_static_text(self, text: str) -> AsyncIterator[str]:
+        parts = text.split(" ")
+        for index, part in enumerate(parts):
+            suffix = "" if index == len(parts) - 1 else " "
+            yield part + suffix
+            await asyncio.sleep(0.012)
 
     def _history_with_mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> list[Message]:
         history = database.list_messages(chat_id, mode=mode)

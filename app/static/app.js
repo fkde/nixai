@@ -989,6 +989,8 @@ async function sendMessage(content) {
           appendMessage(event.message);
           input.value = "";
           assistantEl = appendMessage({ role: "assistant", mode: state.activeMode, content: "" }, "streaming");
+        } else if (event.type === "status") {
+          setStatus(event.message || `${state.activeMode} arbeitet...`);
         } else if (event.type === "token") {
           if (!state.streamingAssistant) {
             state.streamingAssistant = true;
