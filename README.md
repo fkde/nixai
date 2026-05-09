@@ -91,9 +91,10 @@ Example config:
 ## POC Scope
 
 - Persistent local chats
-- Ollama chat adapter
+- Ollama chat adapter with streaming responses
 - Simple agent orchestrator
 - Chat, Code, and Agentic message modes in one history
+- Live assistant output with tokens-per-second status
 - Code mode gathers bounded read-only workspace context through NixAI tools
 - Configurable model roles through the settings UI
 - Markdown role prompts for Orchestrator, Worker, Reviewer, Judge, and custom roles

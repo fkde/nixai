@@ -467,6 +467,50 @@ function renderMessages(messages) {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+function appendMessage(message, extraClass = "") {
+  const mode = message.mode || state.activeMode || "chat";
+  const item = document.createElement("article");
+  item.className = `message ${message.role} ${mode} ${extraClass}`.trim();
+  item.dataset.messageId = message.id || "";
+  item.innerHTML = `
+    <div class="message-role"><span>[${escapeHtml(mode)}]</span> ${escapeHtml(message.role)}</div>
+    <div class="bubble">${formatContent(message.content || "")}</div>
+    ${message.role === "assistant" && message.id ? `
+      <div class="message-feedback" aria-label="Antwort bewerten">
+        <button class="feedback-button" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="up" aria-label="Daumen hoch">${thumbIcon("up")}</button>
+        <button class="feedback-button" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="down" aria-label="Daumen runter">${thumbIcon("down")}</button>
+      </div>
+    ` : ""}
+  `;
+  if (messagesEl.querySelector(".empty")) {
+    messagesEl.innerHTML = "";
+  }
+  messagesEl.append(item);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return item;
+}
+
+function setMessageContent(element, content) {
+  const bubble = element?.querySelector(".bubble");
+  if (!bubble) return;
+  bubble.innerHTML = formatContent(content);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function finalizeAssistantMessage(element, message) {
+  if (!element || !message) return;
+  element.dataset.messageId = message.id;
+  element.classList.remove("streaming");
+  if (!element.querySelector(".message-feedback")) {
+    element.insertAdjacentHTML("beforeend", `
+      <div class="message-feedback" aria-label="Antwort bewerten">
+        <button class="feedback-button" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="up" aria-label="Daumen hoch">${thumbIcon("up")}</button>
+        <button class="feedback-button" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="down" aria-label="Daumen runter">${thumbIcon("down")}</button>
+      </div>
+    `);
+  }
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -592,21 +636,83 @@ async function sendMessage(content) {
     await createChat();
   }
   setLoading(true);
+  const streamStartedAt = performance.now();
+  let tokenChunks = 0;
+  let streamedContent = "";
+  let assistantEl = null;
+  let pendingRender = false;
+  let finalStatus = "";
+
+  const scheduleRender = () => {
+    if (pendingRender) return;
+    pendingRender = true;
+    requestAnimationFrame(() => {
+      pendingRender = false;
+      setMessageContent(assistantEl, streamedContent);
+    });
+  };
+
   try {
-    await api(`/api/chats/${state.activeChatId}/messages`, {
+    const response = await fetch(`/api/chats/${state.activeChatId}/messages/stream`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content, mode: state.activeMode }),
     });
+    if (!response.ok || !response.body) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || `HTTP ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() || "";
+
+      for (const frame of frames) {
+        const line = frame.split("\n").find((item) => item.startsWith("data: "));
+        if (!line) continue;
+        const event = JSON.parse(line.slice(6));
+        if (event.type === "user_message") {
+          appendMessage(event.message);
+          input.value = "";
+          assistantEl = appendMessage({ role: "assistant", mode: state.activeMode, content: "" }, "streaming");
+        } else if (event.type === "token") {
+          streamedContent += event.content || "";
+          tokenChunks += 1;
+          const elapsed = Math.max((performance.now() - streamStartedAt) / 1000, 0.1);
+          setStatus(`${state.activeMode} streamt · ${(tokenChunks / elapsed).toFixed(1)} tok/s`);
+          scheduleRender();
+        } else if (event.type === "assistant_message") {
+          finalizeAssistantMessage(assistantEl, event.message);
+        } else if (event.type === "done") {
+          const exact = event.stats?.tokens_per_second;
+          finalStatus = exact ? `fertig · ${exact} tok/s` : "bereit";
+          setStatus(finalStatus);
+        } else if (event.type === "error") {
+          throw new Error(event.message || "Stream fehlgeschlagen");
+        }
+      }
+    }
+
     await loadChats();
-    await selectChat(state.activeChatId);
+    renderChats();
     if (state.activeMode === "agentic") {
       await loadAgenticTasks();
     }
-    input.value = "";
   } catch (error) {
     setStatus(error.message, true);
+    if (assistantEl && !streamedContent) {
+      assistantEl.remove();
+    }
   } finally {
     setLoading(false);
+    if (finalStatus) setStatus(finalStatus);
   }
 }
 

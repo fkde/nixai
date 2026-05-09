@@ -11,7 +11,8 @@ Implemented:
 - FastAPI backend with vanilla HTML/CSS/JS UI
 - optional native desktop window through `pywebview`
 - SQLite persistence for chats, messages, feedback, Agentic Tasks, and Agentic Task runs
-- Ollama chat adapter using `/api/chat`
+- Ollama chat adapter using `/api/chat`, including streamed responses
+- live assistant output with tokens-per-second status in the UI
 - shared `chat`, `code`, and `agentic` message modes in one chat history
 - configurable model-role mapping in settings
 - editable Markdown role prompts for built-in and custom roles
@@ -31,7 +32,6 @@ Repository:
 ```text
 origin git@github.com:fkde/nixai.git
 branch main
-latest known commit a54ab7c Add tool call approval controls
 ```
 
 Runtime target:
@@ -110,6 +110,7 @@ UI
   -> Agent
   -> OllamaClient
   -> Ollama /api/chat
+  -> streamed SSE token events
   -> SQLite persisted messages
 ```
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Optional
 
 from app import database
@@ -19,6 +20,48 @@ class Agent:
         self.ollama = ollama or OllamaClient(self.settings)
 
     async def run(self, chat_id: str, user_message: str, mode: MessageMode = "chat") -> CreateMessageResponse:
+        user, answer = await self._answer(chat_id, user_message, mode)
+        assistant = database.add_message(chat_id, "assistant", answer, mode=mode)
+        return CreateMessageResponse(user_message=user, assistant_message=assistant)
+
+    async def stream(self, chat_id: str, user_message: str, mode: MessageMode = "chat") -> AsyncIterator[dict[str, object]]:
+        user, static_answer = await self._prepare_user_and_static_answer(chat_id, user_message, mode)
+        yield {"type": "user_message", "message": user.model_dump()}
+
+        if static_answer is not None:
+            assistant = database.add_message(chat_id, "assistant", static_answer, mode=mode)
+            yield {"type": "token", "content": static_answer}
+            yield {"type": "assistant_message", "message": assistant.model_dump()}
+            yield {"type": "done", "stats": {}}
+            return
+
+        content_parts: list[str] = []
+        history = self._history_with_mode_context(chat_id, mode, user_message)
+        async for event in self.ollama.stream_chat(history, model=self.settings.model_for_role(self._model_role_for_mode(mode))):
+            if event.get("type") == "token":
+                content = str(event.get("content") or "")
+                content_parts.append(content)
+                yield {"type": "token", "content": content}
+            elif event.get("type") == "done":
+                answer = "".join(content_parts)
+                assistant = database.add_message(chat_id, "assistant", answer, mode=mode)
+                yield {"type": "assistant_message", "message": assistant.model_dump()}
+                yield {"type": "done", "stats": self._stream_stats(event)}
+
+    async def _answer(self, chat_id: str, user_message: str, mode: MessageMode) -> tuple[Message, str]:
+        user, static_answer = await self._prepare_user_and_static_answer(chat_id, user_message, mode)
+        if static_answer is not None:
+            return user, static_answer
+        history = self._history_with_mode_context(chat_id, mode, user_message)
+        answer = await self.ollama.chat(history, model=self.settings.model_for_role(self._model_role_for_mode(mode)))
+        return user, answer
+
+    async def _prepare_user_and_static_answer(
+        self,
+        chat_id: str,
+        user_message: str,
+        mode: MessageMode,
+    ) -> tuple[Message, str | None]:
         chat = database.get_chat(chat_id)
         if chat is None:
             raise ValueError("Chat not found")
@@ -34,8 +77,8 @@ class Agent:
                 f"Schedule: {task.schedule}\n"
                 f"Status: {task.status}\n\n"
                 f"TaskDiscovery: {discovery.reason or 'recurring_task'}\n\n"
-                "Die Ausfuehrung ist in dieser ersten Version noch nicht aktiv. "
-                "Du kannst den Task in den Einstellungen bearbeiten, pausieren oder loeschen."
+                "Der Scheduler kann den Task ausfuehren, solange NixAI laeuft. "
+                "Du kannst ihn in den Einstellungen bearbeiten, pausieren, loeschen oder manuell starten."
             )
         elif discovery and discovery.missing_info:
             answer = (
@@ -43,10 +86,8 @@ class Agent:
                 + "\n".join(f"- {item}" for item in discovery.missing_info)
             )
         else:
-            history = self._history_with_mode_context(chat_id, mode, user_message)
-            answer = await self.ollama.chat(history, model=self.settings.model_for_role(self._model_role_for_mode(mode)))
-        assistant = database.add_message(chat_id, "assistant", answer, mode=mode)
-        return CreateMessageResponse(user_message=user, assistant_message=assistant)
+            answer = None
+        return user, answer
 
     def _history_with_mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> list[Message]:
         history = database.list_messages(chat_id)
@@ -71,7 +112,7 @@ class Agent:
                 "NixAI mode: AGENTIC.\n"
                 "Guide the user through a controlled agent workflow. If the request sounds recurring, "
                 "ask for missing schedule details or confirm the recurring task plan. "
-                "The current POC can store agentic task definitions, but does not execute them yet."
+                "The current POC can store and run scheduled Agentic Tasks with approved tools."
             )
         return (
             f"{role_prompt('ASSISTANT')}\n\n"
@@ -101,3 +142,16 @@ class Agent:
             task.id,
             next_run_at=compute_next_run(task.schedule, utc_now_dt()),
         ) or task
+
+    def _stream_stats(self, event: dict[str, object]) -> dict[str, object]:
+        stats = {
+            "eval_count": event.get("eval_count"),
+            "eval_duration": event.get("eval_duration"),
+            "prompt_eval_count": event.get("prompt_eval_count"),
+            "prompt_eval_duration": event.get("prompt_eval_duration"),
+        }
+        eval_count = stats["eval_count"]
+        eval_duration = stats["eval_duration"]
+        if isinstance(eval_count, (int, float)) and isinstance(eval_duration, (int, float)) and eval_duration > 0:
+            stats["tokens_per_second"] = round(float(eval_count) / (float(eval_duration) / 1_000_000_000), 2)
+        return stats

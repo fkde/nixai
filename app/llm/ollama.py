@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import httpx
+from collections.abc import AsyncIterator
 from typing import Optional
 
 from app.config import Settings
@@ -60,3 +62,42 @@ class OllamaClient:
         if not isinstance(content, str):
             raise OllamaError("Ollama response did not contain message.content")
         return content
+
+    async def stream_chat(self, messages: list[Message], model: Optional[str] = None) -> AsyncIterator[dict[str, object]]:
+        payload = [
+            {"role": message.role, "content": message.content}
+            for message in messages
+            if message.role in {"user", "assistant", "system"}
+        ]
+        async for event in self.stream_payload(payload, model=model):
+            yield event
+
+    async def stream_payload(self, messages: list[dict[str, str]], model: Optional[str] = None) -> AsyncIterator[dict[str, object]]:
+        payload = {
+            "model": model or self.settings.model_for_role("assistant"),
+            "messages": messages,
+            "stream": True,
+        }
+
+        url = self.settings.ollama_base_url.rstrip("/") + "/api/chat"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with client.stream("POST", url, json=payload) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.strip():
+                            continue
+                        data = json.loads(line)
+                        content = data.get("message", {}).get("content")
+                        if isinstance(content, str) and content:
+                            yield {"type": "token", "content": content}
+                        if data.get("done"):
+                            yield {
+                                "type": "done",
+                                "eval_count": data.get("eval_count"),
+                                "eval_duration": data.get("eval_duration"),
+                                "prompt_eval_count": data.get("prompt_eval_count"),
+                                "prompt_eval_duration": data.get("prompt_eval_duration"),
+                            }
+        except (httpx.HTTPError, json.JSONDecodeError) as exc:
+            raise OllamaError(f"Ollama stream failed: {exc}") from exc

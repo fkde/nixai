@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 from fastapi import BackgroundTasks
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 from app import database
 from app.agent import Agent
@@ -51,6 +53,20 @@ async def post_message(chat_id: str, request: CreateMessageRequest) -> CreateMes
         return await Agent().run(chat_id, request.content, mode=request.mode)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/{chat_id}/messages/stream")
+async def post_message_stream(chat_id: str, request: CreateMessageRequest) -> StreamingResponse:
+    async def events():
+        try:
+            async for event in Agent().stream(chat_id, request.content, mode=request.mode):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except ValueError as exc:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)}, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Response stream failed: {exc}'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @router.post("/messages/{message_id}/feedback", response_model=MessageFeedbackResponse)
