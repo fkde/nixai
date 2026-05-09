@@ -7,6 +7,9 @@ const state = {
   roles: [],
   activeRoleName: null,
   mistakes: null,
+  mistakeEntries: [],
+  activeMistakeId: null,
+  suggestedMistakeSolution: null,
   activeMode: "chat",
   agenticTasks: [],
   activeTaskId: null,
@@ -43,8 +46,17 @@ const roleNameInput = document.querySelector("#role-name");
 const roleContentInput = document.querySelector("#role-content");
 const rolePreview = document.querySelector("#role-preview");
 const saveMistakesButton = document.querySelector("#save-mistakes");
+const analyzeMistakesButton = document.querySelector("#analyze-mistakes");
 const mistakesContent = document.querySelector("#mistakes-content");
 const mistakesPreview = document.querySelector("#mistakes-preview");
+const mistakesModal = document.querySelector("#mistakes-modal");
+const closeMistakesModalButton = document.querySelector("#close-mistakes-modal");
+const mistakeEntryList = document.querySelector("#mistake-entry-list");
+const mistakeEntryDetail = document.querySelector("#mistake-entry-detail");
+const suggestMistakeSolutionButton = document.querySelector("#suggest-mistake-solution");
+const acceptMistakeSolutionButton = document.querySelector("#accept-mistake-solution");
+const mistakeSolution = document.querySelector("#mistake-solution");
+const mistakeSolutionHint = document.querySelector("#mistake-solution-hint");
 const agenticTaskList = document.querySelector("#agentic-task-list");
 const newAgenticTaskButton = document.querySelector("#new-agentic-task");
 const saveAgenticTaskButton = document.querySelector("#save-agentic-task");
@@ -258,6 +270,45 @@ function renderMistakes() {
   mistakesPreview.innerHTML = markdownPreview(state.mistakes.content || "");
 }
 
+function renderMistakeAnalyzeButton() {
+  analyzeMistakesButton.disabled = state.mistakeEntries.length === 0;
+}
+
+function activeMistakeEntry() {
+  return state.mistakeEntries.find((entry) => entry.id === state.activeMistakeId) || null;
+}
+
+function renderMistakeWizard() {
+  renderMistakeAnalyzeButton();
+  mistakeEntryList.innerHTML = "";
+  if (state.mistakeEntries.length === 0) {
+    mistakeEntryList.innerHTML = '<p class="settings-empty">Keine Fehler-Eintraege gefunden.</p>';
+  }
+  state.mistakeEntries.forEach((entry) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mistake-entry-item";
+    button.classList.toggle("active", entry.id === state.activeMistakeId);
+    button.innerHTML = `
+      <span>${escapeHtml(entry.title || "Untitled mistake")}</span>
+      <small>${escapeHtml(entry.timestamp || "ohne Timestamp")}</small>
+    `;
+    button.addEventListener("click", () => {
+      state.activeMistakeId = entry.id;
+      state.suggestedMistakeSolution = null;
+      renderMistakeWizard();
+    });
+    mistakeEntryList.append(button);
+  });
+
+  const entry = activeMistakeEntry();
+  mistakeEntryDetail.innerHTML = entry ? markdownPreview(entry.content) : "<p>Waehle einen Fehler aus.</p>";
+  mistakeSolution.value = state.suggestedMistakeSolution?.instruction || "";
+  mistakeSolutionHint.textContent = state.suggestedMistakeSolution?.rationale || "Waehle einen Fehler aus und lass dir eine Lösung vorschlagen.";
+  suggestMistakeSolutionButton.disabled = !entry;
+  acceptMistakeSolutionButton.disabled = !entry || !mistakeSolution.value.trim();
+}
+
 function activeAgenticTask() {
   return state.agenticTasks.find((task) => task.id === state.activeTaskId) || null;
 }
@@ -421,7 +472,12 @@ async function loadRoles() {
 
 async function loadMistakes() {
   state.mistakes = await api("/api/mistakes");
+  state.mistakeEntries = await api("/api/mistakes/entries");
+  if (state.activeMistakeId && !state.mistakeEntries.some((entry) => entry.id === state.activeMistakeId)) {
+    state.activeMistakeId = null;
+  }
   renderMistakes();
+  renderMistakeWizard();
 }
 
 async function loadAgenticTasks() {
@@ -634,8 +690,67 @@ saveMistakesButton.addEventListener("click", async () => {
       method: "PUT",
       body: JSON.stringify({ content: mistakesContent.value }),
     });
+    state.mistakeEntries = await api("/api/mistakes/entries");
     renderMistakes();
+    renderMistakeWizard();
     setStatus("Mistakes gespeichert");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+});
+
+analyzeMistakesButton.addEventListener("click", async () => {
+  await loadMistakes();
+  if (!state.activeMistakeId && state.mistakeEntries.length > 0) {
+    state.activeMistakeId = state.mistakeEntries[0].id;
+  }
+  mistakesModal.classList.add("open");
+  mistakesModal.setAttribute("aria-hidden", "false");
+  renderMistakeWizard();
+});
+
+closeMistakesModalButton.addEventListener("click", () => {
+  mistakesModal.classList.remove("open");
+  mistakesModal.setAttribute("aria-hidden", "true");
+});
+
+suggestMistakeSolutionButton.addEventListener("click", async () => {
+  const entry = activeMistakeEntry();
+  if (!entry) return;
+  suggestMistakeSolutionButton.disabled = true;
+  mistakeSolutionHint.textContent = "Lösung wird destilliert...";
+  try {
+    const solution = await api(`/api/mistakes/entries/${entry.id}/suggest-solution`, { method: "POST" });
+    state.suggestedMistakeSolution = solution;
+    mistakeSolution.value = solution.instruction || "";
+    mistakeSolutionHint.textContent = solution.rationale || "Lösungsvorschlag bereit.";
+    acceptMistakeSolutionButton.disabled = !mistakeSolution.value.trim();
+  } catch (error) {
+    mistakeSolutionHint.textContent = error.message;
+  } finally {
+    suggestMistakeSolutionButton.disabled = false;
+  }
+});
+
+mistakeSolution.addEventListener("input", () => {
+  acceptMistakeSolutionButton.disabled = !activeMistakeEntry() || !mistakeSolution.value.trim();
+});
+
+acceptMistakeSolutionButton.addEventListener("click", async () => {
+  const entry = activeMistakeEntry();
+  if (!entry) return;
+  try {
+    const payload = {
+      title: state.suggestedMistakeSolution?.title || entry.title || "Reviewed mistake",
+      instruction: mistakeSolution.value.trim(),
+      rationale: state.suggestedMistakeSolution?.rationale || "",
+    };
+    await api(`/api/mistakes/entries/${entry.id}/accept-solution`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    setStatus("Lösung in MEMORY.md übernommen");
+    mistakeSolutionHint.textContent = "In MEMORY.md übernommen.";
   } catch (error) {
     setStatus(error.message, true);
   }

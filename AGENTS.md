@@ -16,7 +16,7 @@ NixAI is a local proof-of-concept AI agent runner for Ollama models. The current
 - first Agentic Task definitions with API and settings UI management
 - local Agentic scheduler with run history and bounded failover
 - TaskDiscovery role for distilling Agentic requests into structured JSON
-- central editable `MISTAKES.md` learning document
+- central editable `MISTAKES.md` review source and accepted `MEMORY.md` model context
 - RAG-style tool routing with optional Ollama embeddings
 - vanilla HTML/CSS/JS chat UI
 - optional native desktop window via `pywebview`
@@ -110,7 +110,9 @@ Important files:
 - `app/agentic_schedule.py`: small parser for recurring schedules such as `daily at 18:00`
 - `app/agentic_scheduler.py`: background loop and manual run entrypoint
 - `app/code_context.py`: safe read-only code-mode context builder using NixAI tools
-- `app/mistakes.py`: central `MISTAKES.md` storage and context helper
+- `app/mistakes.py`: central `MISTAKES.md` storage and review-entry parser
+- `app/memory.py`: accepted `MEMORY.md` storage and model context helper
+- `app/mistake_review.py`: converts reviewed mistakes into future-facing memory instructions
 - `app/api/settings.py`: settings and Ollama model discovery API
 - `app/api/agentic_tasks.py`: Agentic Task create/list/update/delete API
 - `app/api/roles.py`: Markdown role prompt API
@@ -147,7 +149,7 @@ Current behavior:
 7. Return both persisted messages.
 
 The assistant model is selected through the `assistant` entry in `model_roles`, falling back to `default_model`.
-Code mode injects `WORKER.md`, `MISTAKES.md`, the configured workspace path, and bounded read-only tool results from `app/code_context.py`. The model does not get native shell access; all gathered context goes through `app/tools/*` so workspace boundaries and allowlists still apply. Agentic mode first runs TaskDiscovery using the `task_discovery` model role and `TASK_DISCOVERY.md`, then either creates an Agentic Task definition, asks for missing task information, or falls back to the Orchestrator chat path. Scheduled Agentic runs also receive `MISTAKES.md`.
+Code mode injects `WORKER.md`, reviewed `MEMORY.md`, the configured workspace path, and bounded read-only tool results from `app/code_context.py`. The model does not get native shell access; all gathered context goes through `app/tools/*` so workspace boundaries and allowlists still apply. Agentic mode first runs TaskDiscovery using the `task_discovery` model role and `TASK_DISCOVERY.md`, then either creates an Agentic Task definition, asks for missing task information, or falls back to the Orchestrator chat path. Scheduled Agentic runs also receive reviewed `MEMORY.md`. `MISTAKES.md` is a review source only and must not be injected into model context.
 
 Agentic Task execution is active while the FastAPI app is running. The scheduler checks due active tasks, runs the Orchestrator through structured JSON, executes only approved autonomous tools, stores run logs, and pauses tasks after repeated failures. Unsupported capabilities, invalid model JSON, and unexpected tool requests are marked `needs_review` instead of being treated as success.
 
@@ -214,6 +216,7 @@ macOS/Linux:
 ```text
 ~/.config/nixai/config.json
 ~/.config/nixai/MISTAKES.md
+~/.config/nixai/MEMORY.md
 ~/.config/nixai/roles/*.md
 ~/.local/share/nixai/nixai.sqlite
 ```
@@ -223,6 +226,7 @@ Windows:
 ```text
 %APPDATA%/NixAI/config.json
 %APPDATA%/NixAI/MISTAKES.md
+%APPDATA%/NixAI/MEMORY.md
 %APPDATA%/NixAI/roles/*.md
 %LOCALAPPDATA%/NixAI/nixai.sqlite
 ```

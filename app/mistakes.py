@@ -35,6 +35,13 @@ class MistakesDocument(BaseModel):
     updated_at: str
 
 
+class MistakeEntry(BaseModel):
+    id: str
+    title: str
+    timestamp: str
+    content: str
+
+
 def mistakes_path() -> Path:
     return config_dir() / "MISTAKES.md"
 
@@ -65,5 +72,55 @@ def append_mistake_entry(entry: str) -> MistakesDocument:
     return save_mistakes(f"{content}\n\n{entry.strip()}\n")
 
 
-def mistakes_context() -> str:
-    return load_mistakes().content
+def list_mistake_entries() -> list[MistakeEntry]:
+    content = load_mistakes().content
+    entries: list[MistakeEntry] = []
+    current_title = ""
+    current_timestamp = ""
+    current_lines: list[str] = []
+    current_id = 0
+
+    for line in content.splitlines():
+        if line.startswith("### "):
+            if current_lines:
+                entries.append(
+                    MistakeEntry(
+                        id=str(current_id),
+                        title=current_title,
+                        timestamp=current_timestamp,
+                        content="\n".join(current_lines).strip(),
+                    )
+                )
+            current_id += 1
+            heading = line[4:].strip()
+            timestamp, title = _split_heading(heading)
+            current_timestamp = timestamp
+            current_title = title
+            current_lines = [line]
+        elif current_lines:
+            current_lines.append(line)
+
+    if current_lines:
+        entries.append(
+            MistakeEntry(
+                id=str(current_id),
+                title=current_title,
+                timestamp=current_timestamp,
+                content="\n".join(current_lines).strip(),
+            )
+        )
+    return entries
+
+
+def get_mistake_entry(entry_id: str) -> MistakeEntry | None:
+    for entry in list_mistake_entries():
+        if entry.id == entry_id:
+            return entry
+    return None
+
+
+def _split_heading(heading: str) -> tuple[str, str]:
+    if " - " not in heading:
+        return "", heading
+    timestamp, title = heading.split(" - ", 1)
+    return timestamp.strip(), title.strip()

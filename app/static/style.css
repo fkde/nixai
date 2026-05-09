@@ -709,6 +709,13 @@ textarea:disabled {
   gap: 10px;
 }
 
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .danger-button {
   padding: 10px 12px;
   border-color: rgba(225, 111, 111, 0.55);
@@ -732,6 +739,84 @@ textarea:disabled {
   border-color: var(--accent);
   color: #061312;
   font-weight: 700;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: none;
+  place-items: center;
+  padding: 22px;
+  background: rgba(3, 5, 10, 0.72);
+  backdrop-filter: blur(14px);
+}
+
+.modal-backdrop.open {
+  display: grid;
+}
+
+.mistakes-modal {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(1120px, 96vw);
+  max-height: min(820px, 92vh);
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--panel-deep);
+  box-shadow: var(--shadow);
+}
+
+.mistakes-wizard {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.mistake-entry-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  border-right: 1px solid var(--border);
+}
+
+.mistake-entry-item {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  padding: 12px;
+  text-align: left;
+}
+
+.mistake-entry-item.active {
+  border-color: var(--accent);
+  background: #251a45;
+}
+
+.mistake-entry-item span {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mistake-entry-item small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mistake-review-panel {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
 }
 
 @media (max-width: 760px) {
@@ -792,5 +877,15 @@ textarea:disabled {
 
   .messages {
     padding: 18px 16px;
+  }
+
+  .mistakes-wizard {
+    grid-template-columns: 1fr;
+  }
+
+  .mistake-entry-list {
+    max-height: 220px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
   }
 }

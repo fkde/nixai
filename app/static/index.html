@@ -127,7 +127,10 @@
                 <h3>Mistakes</h3>
                 <p>Zentrales Lernjournal fuer Fehler, Korrekturen und Safety-Hinweise.</p>
               </div>
-              <button id="save-mistakes" class="secondary-button" type="button">Speichern</button>
+              <div class="inline-actions">
+                <button id="analyze-mistakes" type="button" disabled>Fehler analysieren</button>
+                <button id="save-mistakes" class="secondary-button" type="button">Speichern</button>
+              </div>
             </div>
 
             <div class="role-editor-card">
@@ -196,6 +199,33 @@
           </footer>
         </form>
       </aside>
+
+      <div id="mistakes-modal" class="modal-backdrop" aria-hidden="true">
+        <section class="mistakes-modal" role="dialog" aria-modal="true" aria-labelledby="mistakes-modal-title">
+          <header class="settings-header">
+            <div>
+              <p class="eyebrow">Review Wizard</p>
+              <h2 id="mistakes-modal-title">Fehler analysieren</h2>
+            </div>
+            <button id="close-mistakes-modal" class="icon-button" type="button" aria-label="Fehleranalyse schließen">x</button>
+          </header>
+          <div class="mistakes-wizard">
+            <aside id="mistake-entry-list" class="mistake-entry-list"></aside>
+            <section class="mistake-review-panel">
+              <div id="mistake-entry-detail" class="markdown-preview"></div>
+              <div class="role-editor-actions">
+                <button id="suggest-mistake-solution" type="button">Lösung vorschlagen</button>
+                <button id="accept-mistake-solution" class="secondary-button" type="button" disabled>Das ist die Lösung</button>
+              </div>
+              <label class="field">
+                <span>Vorgeschlagene MEMORY.md Anweisung</span>
+                <textarea id="mistake-solution" class="markdown-editor" rows="8" spellcheck="false"></textarea>
+              </label>
+              <p id="mistake-solution-hint" class="settings-empty">Waehle einen Fehler aus und lass dir eine Lösung vorschlagen.</p>
+            </section>
+          </div>
+        </section>
+      </div>
     </main>
     <script src="/static/app.js"></script>
   </body>
