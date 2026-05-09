@@ -38,7 +38,7 @@ pip install -e ".[desktop]"
 nixai desktop
 ```
 
-Desktop mode uses `pywebview`, so use Python 3.12+ as declared by the project metadata. On macOS, older system Python versions can fail while building PyObjC.
+NixAI supports Python 3.9+. Desktop mode uses `pywebview`; on Linux you may need GTK or Qt WebKit/WebEngine system packages, and on Windows you may need the Microsoft Edge WebView2 Runtime.
 
 The package metadata lives in `pyproject.toml`; runtime files such as config and SQLite databases are intentionally not committed.
 
