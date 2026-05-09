@@ -99,6 +99,7 @@ Example config:
 - Markdown role prompts for Orchestrator, Worker, Reviewer, Judge, and custom roles
 - TaskDiscovery role for extracting recurring Agentic task definitions from user requests
 - First Agentic Task definitions with create/edit/pause/delete API and UI
+- Local Agentic scheduler with run history, approved tool calls, and failover to review
 - RAG-style tool routing with optional Ollama embeddings
 - Workspace file listing, reading, and search
 - Git status and diff helpers

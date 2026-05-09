@@ -125,7 +125,7 @@
             <div class="model-section-header">
               <div>
                 <h3>Agentic Tasks</h3>
-                <p>Wiederkehrende Aufgaben als kontrollierte Definitionen.</p>
+                <p id="agentic-scheduler-status">Scheduler wird geladen...</p>
               </div>
               <button id="new-agentic-task" type="button">Neu</button>
             </div>
@@ -154,8 +154,19 @@
               </label>
               <div class="role-editor-actions">
                 <button id="delete-agentic-task" class="danger-button" type="button">Loeschen</button>
+                <button id="run-agentic-task" type="button">Jetzt ausfuehren</button>
                 <button id="save-agentic-task" class="secondary-button" type="button">Task speichern</button>
               </div>
+            </div>
+
+            <div class="agentic-run-panel">
+              <div class="model-section-header compact">
+                <div>
+                  <h3>Runs</h3>
+                  <p>Letzte Ausfuehrungen und Failover-Status.</p>
+                </div>
+              </div>
+              <div id="agentic-run-list" class="agentic-run-list"></div>
             </div>
           </section>
 

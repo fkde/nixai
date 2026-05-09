@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from app import database
+from app.agentic_schedule import compute_next_run, utc_now_dt
 from app.code_context import CodeContextBuilder
 from app.config import load_settings
 from app.llm.ollama import OllamaClient
@@ -85,8 +86,12 @@ class Agent:
         return "assistant"
 
     def _create_agentic_task(self, discovery):
-        return database.create_agentic_task(
+        task = database.create_agentic_task(
             title=discovery.title,
             prompt=discovery.prompt,
             schedule=discovery.schedule,
         )
+        return database.update_agentic_task_schedule_state(
+            task.id,
+            next_run_at=compute_next_run(task.schedule, utc_now_dt()),
+        ) or task

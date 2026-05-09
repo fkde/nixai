@@ -12,6 +12,7 @@ from app.api.chats import router as chats_router
 from app.api.roles import router as roles_router
 from app.api.settings import router as settings_router
 from app.api.tools import router as tools_router
+from app.agentic_scheduler import scheduler
 
 
 def create_app() -> FastAPI:
@@ -25,6 +26,14 @@ def create_app() -> FastAPI:
     fastapi_app.include_router(settings_router)
     fastapi_app.include_router(tools_router)
     fastapi_app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+    @fastapi_app.on_event("startup")
+    async def start_agentic_scheduler() -> None:
+        scheduler.start()
+
+    @fastapi_app.on_event("shutdown")
+    async def stop_agentic_scheduler() -> None:
+        await scheduler.stop()
 
     @fastapi_app.get("/")
     def index() -> FileResponse:

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.config import database_path
-from app.models import AgenticTask, Chat, Message, MessageMode, MessageRole, TaskStatus, new_id, utc_now
+from app.models import AgenticTask, AgenticTaskRun, Chat, Message, MessageMode, MessageRole, TaskRunStatus, TaskStatus, new_id, utc_now
 
 
 def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
@@ -54,8 +54,24 @@ def init_db() -> None:
               prompt TEXT NOT NULL,
               schedule TEXT NOT NULL,
               status TEXT NOT NULL CHECK(status IN ('active', 'paused')),
+              next_run_at TEXT,
+              last_run_at TEXT,
+              failure_count INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS agentic_task_runs (
+              id TEXT PRIMARY KEY,
+              task_id TEXT NOT NULL,
+              status TEXT NOT NULL CHECK(status IN ('running', 'success', 'failed', 'needs_review')),
+              summary TEXT NOT NULL DEFAULT '',
+              tool_results TEXT NOT NULL DEFAULT '[]',
+              error TEXT NOT NULL DEFAULT '',
+              attempt INTEGER NOT NULL DEFAULT 1,
+              started_at TEXT NOT NULL,
+              finished_at TEXT,
+              FOREIGN KEY (task_id) REFERENCES agentic_tasks(id) ON DELETE CASCADE
             );
 
             CREATE INDEX IF NOT EXISTS idx_messages_chat_created
@@ -66,16 +82,27 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_agentic_tasks_status_updated
               ON agentic_tasks(status, updated_at);
+
+            CREATE INDEX IF NOT EXISTS idx_agentic_tasks_due
+              ON agentic_tasks(status, next_run_at);
+
+            CREATE INDEX IF NOT EXISTS idx_agentic_task_runs_task_started
+              ON agentic_task_runs(task_id, started_at);
             """
         )
-        columns = {
-            row["name"]
-            for row in db.execute("PRAGMA table_info(messages)").fetchall()
-        }
-        if "mode" not in columns:
+        message_columns = {row["name"] for row in db.execute("PRAGMA table_info(messages)").fetchall()}
+        if "mode" not in message_columns:
             db.execute(
                 "ALTER TABLE messages ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat' CHECK(mode IN ('chat', 'code', 'agentic'))"
             )
+        task_columns = {row["name"] for row in db.execute("PRAGMA table_info(agentic_tasks)").fetchall()}
+        for column, ddl in {
+            "next_run_at": "ALTER TABLE agentic_tasks ADD COLUMN next_run_at TEXT",
+            "last_run_at": "ALTER TABLE agentic_tasks ADD COLUMN last_run_at TEXT",
+            "failure_count": "ALTER TABLE agentic_tasks ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0",
+        }.items():
+            if column not in task_columns:
+                db.execute(ddl)
 
 
 def row_to_chat(row: sqlite3.Row) -> Chat:
@@ -88,6 +115,10 @@ def row_to_message(row: sqlite3.Row) -> Message:
 
 def row_to_agentic_task(row: sqlite3.Row) -> AgenticTask:
     return AgenticTask(**dict(row))
+
+
+def row_to_agentic_task_run(row: sqlite3.Row) -> AgenticTaskRun:
+    return AgenticTaskRun(**dict(row))
 
 
 def list_chats() -> list[Chat]:
@@ -169,7 +200,7 @@ def list_agentic_tasks() -> list[AgenticTask]:
     with get_connection() as db:
         rows = db.execute(
             """
-            SELECT id, title, prompt, schedule, status, created_at, updated_at
+            SELECT id, title, prompt, schedule, status, next_run_at, last_run_at, failure_count, created_at, updated_at
             FROM agentic_tasks
             ORDER BY updated_at DESC
             """
@@ -181,7 +212,7 @@ def get_agentic_task(task_id: str) -> Optional[AgenticTask]:
     with get_connection() as db:
         row = db.execute(
             """
-            SELECT id, title, prompt, schedule, status, created_at, updated_at
+            SELECT id, title, prompt, schedule, status, next_run_at, last_run_at, failure_count, created_at, updated_at
             FROM agentic_tasks
             WHERE id = ?
             """,
@@ -198,16 +229,30 @@ def create_agentic_task(title: str, prompt: str, schedule: str, status: TaskStat
         prompt=prompt.strip(),
         schedule=schedule.strip(),
         status=status,
+        next_run_at=None,
+        last_run_at=None,
+        failure_count=0,
         created_at=now,
         updated_at=now,
     )
     with get_connection() as db:
         db.execute(
             """
-            INSERT INTO agentic_tasks (id, title, prompt, schedule, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO agentic_tasks (id, title, prompt, schedule, status, next_run_at, last_run_at, failure_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (task.id, task.title, task.prompt, task.schedule, task.status, task.created_at, task.updated_at),
+            (
+                task.id,
+                task.title,
+                task.prompt,
+                task.schedule,
+                task.status,
+                task.next_run_at,
+                task.last_run_at,
+                task.failure_count,
+                task.created_at,
+                task.updated_at,
+            ),
         )
     return task
 
@@ -218,7 +263,7 @@ def update_agentic_task(task_id: str, title: str, prompt: str, schedule: str, st
         result = db.execute(
             """
             UPDATE agentic_tasks
-            SET title = ?, prompt = ?, schedule = ?, status = ?, updated_at = ?
+            SET title = ?, prompt = ?, schedule = ?, status = ?, next_run_at = NULL, updated_at = ?
             WHERE id = ?
             """,
             (" ".join(title.strip().split())[:120], prompt.strip(), schedule.strip(), status, now, task_id),
@@ -232,3 +277,133 @@ def delete_agentic_task(task_id: str) -> bool:
     with get_connection() as db:
         result = db.execute("DELETE FROM agentic_tasks WHERE id = ?", (task_id,))
     return result.rowcount > 0
+
+
+def list_due_agentic_tasks(now: str, limit: int = 10) -> list[AgenticTask]:
+    with get_connection() as db:
+        rows = db.execute(
+            """
+            SELECT id, title, prompt, schedule, status, next_run_at, last_run_at, failure_count, created_at, updated_at
+            FROM agentic_tasks
+            WHERE status = 'active'
+              AND (next_run_at IS NULL OR next_run_at <= ?)
+            ORDER BY COALESCE(next_run_at, created_at) ASC
+            LIMIT ?
+            """,
+            (now, limit),
+        ).fetchall()
+    return [row_to_agentic_task(row) for row in rows]
+
+
+def update_agentic_task_schedule_state(
+    task_id: str,
+    *,
+    next_run_at: str | None,
+    last_run_at: str | None = None,
+    failure_count: int | None = None,
+    status: TaskStatus | None = None,
+) -> Optional[AgenticTask]:
+    now = utc_now()
+    assignments = ["next_run_at = ?", "updated_at = ?"]
+    values: list[object] = [next_run_at, now]
+    if last_run_at is not None:
+        assignments.append("last_run_at = ?")
+        values.append(last_run_at)
+    if failure_count is not None:
+        assignments.append("failure_count = ?")
+        values.append(failure_count)
+    if status is not None:
+        assignments.append("status = ?")
+        values.append(status)
+    values.append(task_id)
+    with get_connection() as db:
+        result = db.execute(
+            f"UPDATE agentic_tasks SET {', '.join(assignments)} WHERE id = ?",
+            values,
+        )
+    if result.rowcount == 0:
+        return None
+    return get_agentic_task(task_id)
+
+
+def create_agentic_task_run(task_id: str, attempt: int = 1) -> AgenticTaskRun:
+    run = AgenticTaskRun(
+        id=new_id(),
+        task_id=task_id,
+        status="running",
+        summary="",
+        tool_results="[]",
+        error="",
+        attempt=attempt,
+        started_at=utc_now(),
+        finished_at=None,
+    )
+    with get_connection() as db:
+        db.execute(
+            """
+            INSERT INTO agentic_task_runs (id, task_id, status, summary, tool_results, error, attempt, started_at, finished_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run.id,
+                run.task_id,
+                run.status,
+                run.summary,
+                run.tool_results,
+                run.error,
+                run.attempt,
+                run.started_at,
+                run.finished_at,
+            ),
+        )
+    return run
+
+
+def finish_agentic_task_run(
+    run_id: str,
+    *,
+    status: TaskRunStatus,
+    summary: str = "",
+    tool_results: str = "[]",
+    error: str = "",
+) -> Optional[AgenticTaskRun]:
+    with get_connection() as db:
+        result = db.execute(
+            """
+            UPDATE agentic_task_runs
+            SET status = ?, summary = ?, tool_results = ?, error = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (status, summary, tool_results, error, utc_now(), run_id),
+        )
+    if result.rowcount == 0:
+        return None
+    return get_agentic_task_run(run_id)
+
+
+def get_agentic_task_run(run_id: str) -> Optional[AgenticTaskRun]:
+    with get_connection() as db:
+        row = db.execute(
+            """
+            SELECT id, task_id, status, summary, tool_results, error, attempt, started_at, finished_at
+            FROM agentic_task_runs
+            WHERE id = ?
+            """,
+            (run_id,),
+        ).fetchone()
+    return row_to_agentic_task_run(row) if row else None
+
+
+def list_agentic_task_runs(task_id: str, limit: int = 20) -> list[AgenticTaskRun]:
+    with get_connection() as db:
+        rows = db.execute(
+            """
+            SELECT id, task_id, status, summary, tool_results, error, attempt, started_at, finished_at
+            FROM agentic_task_runs
+            WHERE task_id = ?
+            ORDER BY started_at DESC
+            LIMIT ?
+            """,
+            (task_id, limit),
+        ).fetchall()
+    return [row_to_agentic_task_run(row) for row in rows]

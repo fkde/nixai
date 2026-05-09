@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 MessageRole = Literal["user", "assistant", "system", "tool"]
 MessageMode = Literal["chat", "code", "agentic"]
 TaskStatus = Literal["active", "paused"]
+TaskRunStatus = Literal["running", "success", "failed", "needs_review"]
 
 
 def utc_now() -> str:
@@ -42,8 +43,23 @@ class AgenticTask(BaseModel):
     prompt: str
     schedule: str
     status: TaskStatus = "active"
+    next_run_at: Optional[str] = None
+    last_run_at: Optional[str] = None
+    failure_count: int = 0
     created_at: str
     updated_at: str
+
+
+class AgenticTaskRun(BaseModel):
+    id: str
+    task_id: str
+    status: TaskRunStatus
+    summary: str = ""
+    tool_results: str = "[]"
+    error: str = ""
+    attempt: int = 1
+    started_at: str
+    finished_at: Optional[str] = None
 
 
 class CreateChatRequest(BaseModel):
@@ -72,3 +88,7 @@ class UpdateAgenticTaskRequest(BaseModel):
     prompt: str = Field(min_length=1)
     schedule: str = Field(min_length=1)
     status: TaskStatus = "active"
+
+
+class RunAgenticTaskResponse(BaseModel):
+    run: AgenticTaskRun

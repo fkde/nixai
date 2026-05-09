@@ -9,6 +9,7 @@ const state = {
   activeMode: "chat",
   agenticTasks: [],
   activeTaskId: null,
+  agenticRuns: [],
 };
 
 const shell = document.querySelector(".shell");
@@ -44,6 +45,9 @@ const agenticTaskList = document.querySelector("#agentic-task-list");
 const newAgenticTaskButton = document.querySelector("#new-agentic-task");
 const saveAgenticTaskButton = document.querySelector("#save-agentic-task");
 const deleteAgenticTaskButton = document.querySelector("#delete-agentic-task");
+const runAgenticTaskButton = document.querySelector("#run-agentic-task");
+const agenticSchedulerStatus = document.querySelector("#agentic-scheduler-status");
+const agenticRunList = document.querySelector("#agentic-run-list");
 const agenticTaskTitle = document.querySelector("#agentic-task-title");
 const agenticTaskSchedule = document.querySelector("#agentic-task-schedule");
 const agenticTaskStatus = document.querySelector("#agentic-task-status");
@@ -250,12 +254,13 @@ function renderAgenticTasks() {
     button.type = "button";
     button.innerHTML = `
       <span>${escapeHtml(task.title)}</span>
-      <small>${escapeHtml(task.schedule)} · ${escapeHtml(task.status)}</small>
+      <small>${escapeHtml(task.schedule)} · ${escapeHtml(task.status)} · next ${escapeHtml(task.next_run_at || "pending")}</small>
     `;
     button.addEventListener("click", () => {
       state.activeTaskId = task.id;
       renderAgenticTasks();
       renderAgenticTaskEditor();
+      loadAgenticRuns(task.id).catch((error) => setStatus(error.message, true));
     });
     agenticTaskList.append(button);
   });
@@ -265,10 +270,35 @@ function renderAgenticTasks() {
 function renderAgenticTaskEditor() {
   const task = activeAgenticTask();
   deleteAgenticTaskButton.disabled = !task;
+  runAgenticTaskButton.disabled = !task;
   agenticTaskTitle.value = task?.title || "";
   agenticTaskSchedule.value = task?.schedule || "daily at 18:00";
   agenticTaskStatus.value = task?.status || "active";
   agenticTaskPrompt.value = task?.prompt || "";
+}
+
+function renderAgenticRuns() {
+  agenticRunList.innerHTML = "";
+  if (!state.activeTaskId) {
+    agenticRunList.innerHTML = '<p class="settings-empty">Waehle einen Task aus.</p>';
+    return;
+  }
+  if (state.agenticRuns.length === 0) {
+    agenticRunList.innerHTML = '<p class="settings-empty">Noch keine Runs.</p>';
+    return;
+  }
+  state.agenticRuns.forEach((run) => {
+    const item = document.createElement("article");
+    item.className = `agentic-run-item ${run.status}`;
+    item.innerHTML = `
+      <div>
+        <strong>${escapeHtml(run.status)}</strong>
+        <small>${escapeHtml(run.started_at)} · attempt ${escapeHtml(run.attempt)}</small>
+      </div>
+      <p>${escapeHtml(run.summary || run.error || "Kein Ergebnistext.")}</p>
+    `;
+    agenticRunList.append(item);
+  });
 }
 
 function collectModelRoles() {
@@ -365,6 +395,29 @@ async function loadAgenticTasks() {
     state.activeTaskId = null;
   }
   renderAgenticTasks();
+  if (state.activeTaskId) {
+    await loadAgenticRuns(state.activeTaskId);
+  } else {
+    state.agenticRuns = [];
+    renderAgenticRuns();
+  }
+}
+
+async function loadAgenticRuns(taskId) {
+  if (!taskId) {
+    state.agenticRuns = [];
+    renderAgenticRuns();
+    return;
+  }
+  state.agenticRuns = await api(`/api/agentic-tasks/${taskId}/runs`);
+  renderAgenticRuns();
+}
+
+async function loadSchedulerStatus() {
+  const status = await api("/api/agentic-tasks/scheduler/status");
+  agenticSchedulerStatus.textContent = status.running
+    ? `Scheduler aktiv · ${status.active_runs.length} aktive Run(s)`
+    : "Scheduler pausiert";
 }
 
 async function refreshModels() {
@@ -557,10 +610,29 @@ deleteAgenticTaskButton.addEventListener("click", async () => {
   try {
     await api(`/api/agentic-tasks/${task.id}`, { method: "DELETE" });
     state.activeTaskId = null;
+    state.agenticRuns = [];
     await loadAgenticTasks();
     setStatus("Agentic Task geloescht");
   } catch (error) {
     setStatus(error.message, true);
+  }
+});
+
+runAgenticTaskButton.addEventListener("click", async () => {
+  const task = activeAgenticTask();
+  if (!task) return;
+  runAgenticTaskButton.disabled = true;
+  setStatus("Agentic Task laeuft...");
+  try {
+    await api(`/api/agentic-tasks/${task.id}/run-now`, { method: "POST" });
+    await loadAgenticTasks();
+    await loadAgenticRuns(task.id);
+    await loadSchedulerStatus();
+    setStatus("Agentic Run abgeschlossen");
+  } catch (error) {
+    setStatus(error.message, true);
+  } finally {
+    runAgenticTaskButton.disabled = !activeAgenticTask();
   }
 });
 
@@ -608,7 +680,7 @@ input.addEventListener("keydown", (event) => {
 
 renderModeSwitch();
 
-Promise.all([loadRoles(), loadAgenticTasks(), loadSettings(), loadChats()])
+Promise.all([loadRoles(), loadAgenticTasks(), loadSchedulerStatus(), loadSettings(), loadChats()])
   .then(() => {
     if (state.activeChatId) return selectChat(state.activeChatId);
     renderMessages([]);

@@ -408,6 +408,10 @@ textarea:disabled {
   gap: 12px;
 }
 
+.model-section-header.compact {
+  align-items: start;
+}
+
 .model-section-header p {
   margin: 6px 0 0;
   color: var(--muted);
@@ -530,6 +534,61 @@ textarea:disabled {
 
 .settings-empty {
   margin: 0;
+}
+
+.agentic-run-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #101522;
+}
+
+.agentic-run-list {
+  display: grid;
+  gap: 8px;
+}
+
+.agentic-run-item {
+  display: grid;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0f121b;
+}
+
+.agentic-run-item.success {
+  border-color: rgba(139, 92, 246, 0.52);
+}
+
+.agentic-run-item.failed,
+.agentic-run-item.needs_review {
+  border-color: rgba(225, 111, 111, 0.52);
+}
+
+.agentic-run-item div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.agentic-run-item strong {
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.agentic-run-item small,
+.agentic-run-item p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.agentic-run-item p {
+  margin: 0;
+  line-height: 1.45;
 }
 
 .role-editor-grid {

@@ -14,6 +14,7 @@ NixAI is a local proof-of-concept AI agent runner for Ollama models. The current
 - settings UI for dynamic model roles
 - Markdown role prompt library for Orchestrator/Worker/Reviewer-style contexts
 - first Agentic Task definitions with API and settings UI management
+- local Agentic scheduler with run history and bounded failover
 - TaskDiscovery role for distilling Agentic requests into structured JSON
 - RAG-style tool routing with optional Ollama embeddings
 - vanilla HTML/CSS/JS chat UI
@@ -104,6 +105,9 @@ Important files:
 - `app/database.py`: SQLite schema and chat/message persistence
 - `app/models.py`: Pydantic models
 - `app/agent.py`: current single-agent orchestrator
+- `app/agentic_runner.py`: scheduled Agentic Task execution, tool calls, failover, and run summaries
+- `app/agentic_schedule.py`: small parser for recurring schedules such as `daily at 18:00`
+- `app/agentic_scheduler.py`: background loop and manual run entrypoint
 - `app/code_context.py`: safe read-only code-mode context builder using NixAI tools
 - `app/api/settings.py`: settings and Ollama model discovery API
 - `app/api/agentic_tasks.py`: Agentic Task create/list/update/delete API
@@ -143,7 +147,7 @@ Current behavior:
 The assistant model is selected through the `assistant` entry in `model_roles`, falling back to `default_model`.
 Code mode injects `WORKER.md`, the configured workspace path, and bounded read-only tool results from `app/code_context.py`. The model does not get native shell access; all gathered context goes through `app/tools/*` so workspace boundaries and allowlists still apply. Agentic mode first runs TaskDiscovery using the `task_discovery` model role and `TASK_DISCOVERY.md`, then either creates an Agentic Task definition, asks for missing task information, or falls back to the Orchestrator chat path.
 
-Agentic Task execution is not active yet. Tasks are stored definitions only, with `active` / `paused` status for the future scheduler.
+Agentic Task execution is active while the FastAPI app is running. The scheduler checks due active tasks, runs the Orchestrator through structured JSON, executes only approved autonomous tools, stores run logs, and pauses tasks after repeated failures. Unsupported capabilities, invalid model JSON, and unexpected tool requests are marked `needs_review` instead of being treated as success.
 
 Default role prompt files are created on demand:
 
@@ -160,14 +164,13 @@ Not implemented yet:
 
 - Planner / Worker / Reviewer / Judge loop
 - model-routed roles
-- model-driven tool calling from structured output
-- actual scheduled Agentic Task execution
+- broader model-driven tool calling from structured output
 - automatic test execution in the agent loop
 - patch creation or file editing
 - judge/retry/done decision logic
 - acceptance criteria verification
 
-Preferred next step: replace deterministic code context gathering with a model-planned tool pass that returns structured tool calls, then execute only approved/read-only calls automatically and keep tests/builds behind explicit intent.
+Preferred next step: add concrete external connectors/tools, such as email or calendar, then expand Agentic Tasks from workspace-only tools to those approved integrations with per-tool risk controls.
 
 ## Safety Rules
 
