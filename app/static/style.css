@@ -975,10 +975,48 @@ textarea:disabled {
   padding: 10px 12px;
 }
 
+.model-settings-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.model-embedding-card {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 420px);
+  align-items: end;
+}
+
+.model-embedding-card p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.model-assignment-card {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.model-assignment-head,
+.model-role-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.72fr) minmax(260px, 1fr) 44px;
+  gap: 12px;
+  align-items: center;
+}
+
+.model-assignment-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .model-role-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
 }
 
 .tool-chip-list {
@@ -1098,14 +1136,17 @@ textarea:disabled {
 }
 
 .model-role-row {
-  display: grid;
-  grid-template-columns: minmax(110px, 0.8fr) minmax(150px, 1.2fr) auto;
-  gap: 8px;
-  align-items: end;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #12161b;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(38, 53, 80, 0.82);
+  background: rgba(15, 19, 28, 0.42);
+}
+
+.model-role-row:nth-child(even) {
+  background: rgba(20, 27, 45, 0.36);
+}
+
+.model-role-row:last-child {
+  border-bottom: 0;
 }
 
 .model-role-field {
@@ -1113,9 +1154,13 @@ textarea:disabled {
   gap: 7px;
 }
 
+.model-assignment-card .model-role-field .model-role-label {
+  display: none;
+}
+
 .remove-role {
-  width: 38px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   color: var(--danger);
 }
@@ -1563,15 +1608,23 @@ textarea:disabled {
 
   .settings-grid.two,
   .settings-grid.agentic-grid,
+  .model-embedding-card,
   .provider-grid,
   .available-tool-item,
-  .model-role-list,
   .role-editor-grid {
     grid-template-columns: 1fr;
   }
 
+  .model-assignment-head {
+    display: none;
+  }
+
   .model-role-row {
     grid-template-columns: 1fr;
+  }
+
+  .model-assignment-card .model-role-field .model-role-label {
+    display: block;
   }
 
   .remove-role {

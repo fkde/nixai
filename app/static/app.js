@@ -281,7 +281,7 @@ async function loadActiveModeMessages(mode = state.activeMode) {
   renderMessages(messages);
 }
 
-function modelOptionsHtml(selectedModel) {
+function modelOptionsHtml(selectedModel, placeholder = "Modell auswählen") {
   const options = state.availableModels
     .map((model) => `<option value="${escapeHtml(model)}"${model === selectedModel ? " selected" : ""}>${escapeHtml(model)}</option>`)
     .join("");
@@ -289,7 +289,8 @@ function modelOptionsHtml(selectedModel) {
   const customOption = selectedModel && !selectedExists
     ? `<option value="${escapeHtml(selectedModel)}" selected>${escapeHtml(selectedModel)}</option>`
     : "";
-  return `${customOption}${options}`;
+  const emptySelected = selectedModel ? "" : " selected";
+  return `<option value=""${emptySelected}>${escapeHtml(placeholder)}</option>${customOption}${options}`;
 }
 
 function normalizeModelRoles(modelRoles) {
@@ -315,6 +316,18 @@ function roleOptionsHtml() {
     .join("");
 }
 
+function roleSelectOptionsHtml(selectedRole) {
+  const options = state.roles
+    .map((role) => `<option value="${escapeHtml(role.name)}"${role.name.toLowerCase() === selectedRole.toLowerCase() ? " selected" : ""}>${escapeHtml(role.name)}</option>`)
+    .join("");
+  const selectedExists = state.roles.some((role) => role.name.toLowerCase() === selectedRole.toLowerCase());
+  const customOption = selectedRole && !selectedExists
+    ? `<option value="${escapeHtml(selectedRole)}" selected>${escapeHtml(selectedRole)}</option>`
+    : "";
+  const emptySelected = selectedRole ? "" : " selected";
+  return `<option value=""${emptySelected}>Rolle auswählen</option>${customOption}${options}`;
+}
+
 function renderModelRoles() {
   const roles = normalizeModelRoles(state.settings?.model_roles);
   modelRoleList.innerHTML = "";
@@ -325,31 +338,29 @@ function renderModelRoles() {
     row.innerHTML = `
       <label class="model-role-field">
         <span class="model-role-label">Rolle</span>
-        <input class="role-input" type="text" value="${escapeHtml(roleConfig.role)}" placeholder="ASSISTANT" list="role-name-options" />
+        <select class="role-select">
+          ${roleSelectOptionsHtml(roleConfig.role)}
+        </select>
       </label>
       <label class="model-role-field">
         <span class="model-role-label">Modell</span>
         <select class="model-select">
           ${modelOptionsHtml(roleConfig.model)}
-          <option value="">Manuell eintragen...</option>
         </select>
-        <input class="model-input" type="text" value="${escapeHtml(roleConfig.model)}" placeholder="llama3.1:8b" />
       </label>
       <button class="remove-role" type="button" aria-label="Rolle entfernen">-</button>
     `;
 
-    const select = row.querySelector(".model-select");
-    const modelInput = row.querySelector(".model-input");
-    select.addEventListener("change", () => {
-      if (select.value) {
-        modelInput.value = select.value;
-      }
-    });
     row.querySelector(".remove-role").addEventListener("click", () => {
       row.remove();
     });
     modelRoleList.append(row);
   });
+}
+
+function renderEmbeddingModel() {
+  if (!embeddingModel) return;
+  embeddingModel.innerHTML = modelOptionsHtml(state.settings?.embedding_model || "", "Kein Embedding-Modell");
 }
 
 function activeRole() {
@@ -533,8 +544,8 @@ function renderAgenticRuns() {
 function collectModelRoles() {
   return [...modelRoleList.querySelectorAll(".model-role-row")]
     .map((row) => ({
-      role: row.querySelector(".role-input").value.trim(),
-      model: row.querySelector(".model-input").value.trim(),
+      role: row.querySelector(".role-select").value.trim(),
+      model: row.querySelector(".model-select").value.trim(),
     }))
     .filter((item) => item.role && item.model);
 }
@@ -544,7 +555,7 @@ function renderSettings() {
   userName.value = state.settings.user_name || "";
   ollamaBaseUrl.value = state.settings.ollama_base_url || "";
   workspacePath.value = state.settings.workspace_path || "";
-  embeddingModel.value = state.settings.embedding_model || "";
+  renderEmbeddingModel();
   requireToolConfirmation.checked = state.settings.require_tool_confirmation !== false;
   emailProvider.value = state.settings.email_provider?.provider || "";
   renderEmailProvider();
@@ -827,6 +838,7 @@ async function refreshModels() {
       ? `${state.availableModels.length} Modell(e) aus Ollama geladen.`
       : "Ollama hat keine Modelle gemeldet.";
     renderModelRoles();
+    renderEmbeddingModel();
   } catch (error) {
     modelsHint.textContent = error.message;
   }
@@ -1171,7 +1183,7 @@ addModelRoleButton.addEventListener("click", () => {
   state.settings = { ...state.settings, model_roles: roles };
   renderModelRoles();
   const rows = modelRoleList.querySelectorAll(".model-role-row");
-  rows[rows.length - 1]?.querySelector(".role-input")?.focus();
+  rows[rows.length - 1]?.querySelector(".role-select")?.focus();
 });
 
 refreshModelsButton.addEventListener("click", () => {

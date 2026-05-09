@@ -73,7 +73,7 @@
           <nav class="settings-nav" aria-label="Einstellungsgruppen">
             <button class="settings-nav-button active" type="button" data-settings-section="basis">
               <span>Basis</span>
-              <small>Ollama, Workspace, Embeddings</small>
+              <small>Ollama, Workspace, Profil</small>
             </button>
             <button class="settings-nav-button" type="button" data-settings-section="models">
               <span>Modelle</span>
@@ -102,7 +102,7 @@
               <div class="settings-section-title">
                 <p class="eyebrow">Basis</p>
                 <h3>Lokale Laufzeit</h3>
-                <p>Verbindung zu Ollama, Projektordner und optionales Embedding-Modell.</p>
+                <p>Verbindung zu Ollama, Nutzername und globaler Workspace-Fallback.</p>
               </div>
 
               <div class="settings-grid two">
@@ -120,11 +120,6 @@
                   <span>Fallback Workspace</span>
                   <input id="workspace-path" type="text" placeholder="/path/to/project" />
                 </label>
-
-                <label class="field settings-card">
-                  <span>Embedding-Modell</span>
-                  <input id="embedding-model" type="text" placeholder="nomic-embed-text" />
-                </label>
               </div>
             </section>
 
@@ -138,8 +133,25 @@
                 <button id="refresh-models" type="button">Modelle laden</button>
               </div>
 
-              <div id="model-role-list" class="model-role-list"></div>
-              <datalist id="role-name-options"></datalist>
+              <div class="model-settings-grid">
+                <section class="settings-card model-embedding-card">
+                  <div>
+                    <span class="model-role-label">Embedding-Modell</span>
+                    <p>Wird für Tool-Routing und spätere Kontextsuche genutzt.</p>
+                  </div>
+                  <select id="embedding-model"></select>
+                </section>
+
+                <section class="settings-card model-assignment-card">
+                  <div class="model-assignment-head">
+                    <span>Rolle</span>
+                    <span>Modell</span>
+                    <span></span>
+                  </div>
+                  <div id="model-role-list" class="model-role-list"></div>
+                  <datalist id="role-name-options"></datalist>
+                </section>
+              </div>
 
               <button id="add-model-role" class="secondary-button" type="button">+ Hinzufügen</button>
             </section>
