@@ -1,0 +1,28 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+
+.venv/
+venv/
+env/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+dist/
+build/
+*.egg-info/
+
+.DS_Store
+
+# Runtime data is stored through platformdirs, not in the repository.
+data/
+*.sqlite
+*.sqlite3
+
+# Local editor metadata.
+.idea/

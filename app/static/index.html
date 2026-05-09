@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NixAI</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <h1>NixAI</h1>
+          <button id="new-chat" type="button">+ Neuer Chat</button>
+        </div>
+        <nav id="chat-list" class="chat-list" aria-label="Chats"></nav>
+      </aside>
+
+      <section class="chat">
+        <header class="chat-header">
+          <div>
+            <p class="eyebrow">Lokaler Ollama-Agent</p>
+            <h2 id="chat-title">Kein Chat ausgewählt</h2>
+          </div>
+          <span id="status" class="status">bereit</span>
+        </header>
+
+        <div id="messages" class="messages"></div>
+
+        <form id="message-form" class="composer">
+          <textarea id="message-input" rows="3" placeholder="Nachricht schreiben..."></textarea>
+          <button id="send-button" type="submit">Senden</button>
+        </form>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
