@@ -17,13 +17,15 @@ const state = {
   agenticRuns: [],
   pendingToolApproval: null,
   activeSettingsSection: "basis",
+  streamingAssistant: false,
+  streamDocked: false,
+  streamDockEnabled: false,
 };
 
 const shell = document.querySelector(".shell");
 const chatList = document.querySelector("#chat-list");
 const messagesEl = document.querySelector("#messages");
 const chatTitle = document.querySelector("#chat-title");
-const statusEl = document.querySelector("#status");
 const form = document.querySelector("#message-form");
 const input = document.querySelector("#message-input");
 const sendButton = document.querySelector("#send-button");
@@ -91,8 +93,9 @@ const alwaysAllowToolCallButton = document.querySelector("#always-allow-tool-cal
 const denyToolCallButton = document.querySelector("#deny-tool-call");
 
 function setStatus(text, isError = false) {
-  statusEl.textContent = text;
-  statusEl.classList.toggle("error", isError);
+  if (text && isError) {
+    console.warn(text);
+  }
 }
 
 function escapeHtml(value) {
@@ -555,7 +558,21 @@ function renderMessages(messages) {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function appendMessage(message, extraClass = "") {
+function isMessagesNearBottom() {
+  return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 48;
+}
+
+function scrollMessagesToBottom() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+messagesEl.addEventListener("scroll", () => {
+  if (state.streamingAssistant && state.streamDockEnabled) {
+    state.streamDocked = isMessagesNearBottom();
+  }
+});
+
+function appendMessage(message, extraClass = "", scrollToBottom = true) {
   const mode = message.mode || state.activeMode || "chat";
   const item = document.createElement("article");
   item.className = `message ${message.role} ${mode} ${extraClass}`.trim();
@@ -574,15 +591,19 @@ function appendMessage(message, extraClass = "") {
     messagesEl.innerHTML = "";
   }
   messagesEl.append(item);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  if (scrollToBottom) {
+    scrollMessagesToBottom();
+  }
   return item;
 }
 
-function setMessageContent(element, content) {
+function setMessageContent(element, content, followScroll = true) {
   const bubble = element?.querySelector(".bubble");
   if (!bubble) return;
   bubble.innerHTML = formatContent(content);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  if (followScroll) {
+    scrollMessagesToBottom();
+  }
 }
 
 function finalizeAssistantMessage(element, message) {
@@ -762,7 +783,8 @@ async function sendMessage(content) {
     pendingRender = true;
     requestAnimationFrame(() => {
       pendingRender = false;
-      setMessageContent(assistantEl, streamedContent);
+      setMessageContent(assistantEl, streamedContent, state.streamDocked && isMessagesNearBottom());
+      state.streamDockEnabled = true;
     });
   };
 
@@ -797,6 +819,11 @@ async function sendMessage(content) {
           input.value = "";
           assistantEl = appendMessage({ role: "assistant", mode: state.activeMode, content: "" }, "streaming");
         } else if (event.type === "token") {
+          if (!state.streamingAssistant) {
+            state.streamingAssistant = true;
+            state.streamDocked = false;
+            state.streamDockEnabled = false;
+          }
           streamedContent += event.content || "";
           tokenChunks += 1;
           const elapsed = Math.max((performance.now() - streamStartedAt) / 1000, 0.1);
@@ -825,6 +852,9 @@ async function sendMessage(content) {
       assistantEl.remove();
     }
   } finally {
+    state.streamingAssistant = false;
+    state.streamDocked = false;
+    state.streamDockEnabled = false;
     setLoading(false);
     if (finalStatus) setStatus(finalStatus);
   }
