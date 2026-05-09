@@ -331,7 +331,10 @@ button:hover {
 
 .messages {
   overflow-y: auto;
-  padding: 30px;
+  padding: 34px 44px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(139, 92, 246, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(10, 13, 24, 0.72), rgba(8, 12, 22, 0.86));
 }
 
 .messages.mode-shift-forward {
@@ -429,7 +432,8 @@ button:hover {
 }
 
 .message {
-  max-width: 920px;
+  width: fit-content;
+  max-width: min(760px, 72%);
   margin: 0 0 20px;
   animation: messageEnter 220ms ease-out;
 }
@@ -439,6 +443,7 @@ button:hover {
 }
 
 .message.assistant {
+  max-width: min(860px, 78%);
   margin-right: auto;
 }
 
@@ -449,11 +454,12 @@ button:hover {
 .message-role {
   display: flex;
   gap: 7px;
-  margin-bottom: 6px;
+  margin-bottom: 5px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
+  opacity: 0.72;
   text-transform: uppercase;
 }
 
@@ -464,14 +470,14 @@ button:hover {
 .bubble {
   position: relative;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px 18px;
+  border: 1px solid rgba(43, 50, 68, 0.72);
+  border-radius: 18px;
+  padding: 13px 16px;
   line-height: 1.55;
   font-size: 13px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.22);
 }
 
 .bubble::before {
@@ -484,30 +490,53 @@ button:hover {
 }
 
 .message.user .bubble {
-  background: linear-gradient(135deg, rgba(31, 28, 55, 0.96), rgba(23, 26, 43, 0.96));
-  border-color: rgba(139, 92, 246, 0.52);
+  border-color: rgba(139, 92, 246, 0.34);
+  border-bottom-right-radius: 7px;
+  background:
+    linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(43, 38, 62, 0.84)),
+    rgba(35, 35, 42, 0.98);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.24), 0 0 0 1px rgba(196, 181, 253, 0.04);
 }
 
 .message.assistant .bubble {
-  background: linear-gradient(180deg, rgba(17, 24, 39, 0.98), rgba(13, 18, 31, 0.98));
-  border-color: var(--border-strong);
+  border-color: transparent;
+  border-bottom-left-radius: 7px;
+  padding: 6px 2px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.message.assistant .bubble::before {
+  opacity: 0;
 }
 
 .message.streaming .bubble {
   min-height: 58px;
   border-color: rgba(139, 92, 246, 0.42);
+  border-radius: 18px;
+  padding: 14px 16px;
   background:
     radial-gradient(circle at 12% 50%, rgba(139, 92, 246, 0.18), transparent 34%),
     linear-gradient(180deg, rgba(17, 24, 39, 0.98), rgba(11, 16, 28, 0.98));
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.22);
 }
 
-.message.code .bubble {
+.message.streaming .bubble::before {
+  opacity: 0.72;
+}
+
+.message.assistant.code .bubble {
   border-color: rgba(167, 139, 250, 0.46);
+  padding: 14px 16px;
+  background: rgba(13, 18, 31, 0.9);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.18);
 }
 
-.message.agentic .bubble {
+.message.assistant.agentic .bubble {
   border-color: rgba(139, 92, 246, 0.54);
-  background: #141729;
+  padding: 14px 16px;
+  background: rgba(20, 23, 41, 0.92);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.18);
 }
 
 .thinking-state {
@@ -579,14 +608,18 @@ button:hover {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 6px;
+}
+
+.message.assistant .message-feedback {
+  justify-content: flex-start;
 }
 
 .feedback-button {
   display: inline-grid;
   place-items: center;
-  width: 34px;
-  height: 30px;
+  width: 30px;
+  height: 28px;
   padding: 0;
   border-color: transparent;
   background: transparent;
@@ -595,8 +628,8 @@ button:hover {
 
 .feedback-button:hover,
 .feedback-button.active {
-  border-color: var(--border);
-  background: #151d31;
+  border-color: rgba(139, 92, 246, 0.28);
+  background: rgba(139, 92, 246, 0.12);
   color: var(--accent-strong);
 }
 
@@ -630,28 +663,31 @@ button:hover {
 .composer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
   gap: 12px;
-  padding: 18px 28px 24px;
-  border-top: 1px solid var(--border);
-  background: rgba(11, 16, 28, 0.86);
-  backdrop-filter: blur(16px);
+  padding: 18px 44px 26px;
+  border-top: 1px solid rgba(38, 53, 80, 0.72);
+  background:
+    linear-gradient(180deg, rgba(8, 12, 22, 0.2), rgba(8, 12, 22, 0.95) 34%),
+    rgba(8, 12, 22, 0.86);
+  backdrop-filter: blur(18px);
 }
 
 .field input,
 textarea,
 select {
   width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid rgba(43, 50, 68, 0.86);
+  border-radius: 14px;
   padding: 12px 14px;
-  background: #0f1216;
+  background: rgba(18, 20, 27, 0.9);
   color: var(--text);
   outline: none;
 }
 
 textarea {
   resize: vertical;
-  min-height: 74px;
+  min-height: 68px;
   max-height: 220px;
 }
 
@@ -663,11 +699,14 @@ textarea:focus {
 
 #send-button {
   align-self: end;
-  padding: 12px 18px;
-  background: linear-gradient(135deg, var(--accent-strong), var(--accent));
-  border-color: var(--accent);
-  color: #090d17;
-  font-weight: 700;
+  min-height: 50px;
+  padding: 12px 20px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #d8ccff, var(--accent));
+  border-color: rgba(196, 181, 253, 0.5);
+  color: #080b12;
+  font-weight: 800;
+  box-shadow: 0 16px 34px rgba(91, 33, 182, 0.26);
 }
 
 #send-button:disabled,
