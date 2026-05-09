@@ -25,6 +25,7 @@ def default_model_roles() -> list[ModelRole]:
         ModelRole(role="worker", model="llama3.1:8b"),
         ModelRole(role="reviewer", model="gemma4:e4b"),
         ModelRole(role="judge", model="llama3.1:8b"),
+        ModelRole(role="task_discovery", model="llama3.1:8b"),
     ]
 
 
@@ -92,7 +93,11 @@ def load_settings() -> Settings:
             ModelRole(role="worker", model=settings.worker_model),
             ModelRole(role="reviewer", model=settings.reviewer_model),
             ModelRole(role="judge", model=settings.judge_model),
+            ModelRole(role="task_discovery", model=settings.default_model),
         ]
+        save_settings(settings)
+    elif not any(role.role.strip().casefold() == "task_discovery" for role in settings.model_roles):
+        settings.model_roles.append(ModelRole(role="task_discovery", model=settings.default_model))
         save_settings(settings)
     return settings
 

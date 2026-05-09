@@ -96,6 +96,7 @@ Example config:
 - Chat, Code, and Agentic message modes in one history
 - Configurable model roles through the settings UI
 - Markdown role prompts for Orchestrator, Worker, Reviewer, Judge, and custom roles
+- TaskDiscovery role for extracting recurring Agentic task definitions from user requests
 - First Agentic Task definitions with create/edit/pause/delete API and UI
 - RAG-style tool routing with optional Ollama embeddings
 - Workspace file listing, reading, and search

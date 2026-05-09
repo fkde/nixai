@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Optional
 
 from app import database
@@ -8,6 +7,7 @@ from app.config import load_settings
 from app.llm.ollama import OllamaClient
 from app.models import CreateMessageResponse, Message, MessageMode, new_id, utc_now
 from app.roles import role_prompt
+from app.task_discovery import TaskDiscovery
 
 
 class Agent:
@@ -23,14 +23,21 @@ class Agent:
         user = database.add_message(chat_id, "user", user_message, mode=mode)
         database.update_chat_title_if_default(chat_id, user_message)
 
-        task = self._maybe_create_agentic_task(user_message) if mode == "agentic" else None
+        discovery = await TaskDiscovery(self.settings, self.ollama).discover(user_message) if mode == "agentic" else None
+        task = self._create_agentic_task(discovery) if discovery and discovery.is_recurring_task else None
         if task is not None:
             answer = (
                 f"[agentic] Ich habe einen wiederkehrenden Task angelegt: {task.title}\n\n"
                 f"Schedule: {task.schedule}\n"
                 f"Status: {task.status}\n\n"
+                f"TaskDiscovery: {discovery.reason or 'recurring_task'}\n\n"
                 "Die Ausfuehrung ist in dieser ersten Version noch nicht aktiv. "
                 "Du kannst den Task in den Einstellungen bearbeiten, pausieren oder loeschen."
+            )
+        elif discovery and discovery.missing_info:
+            answer = (
+                "[agentic] Ich brauche noch ein paar Angaben, bevor ich daraus einen wiederkehrenden Task mache:\n\n"
+                + "\n".join(f"- {item}" for item in discovery.missing_info)
             )
         else:
             history = self._history_with_mode_context(chat_id, mode)
@@ -75,43 +82,9 @@ class Agent:
             return "orchestrator"
         return "assistant"
 
-    def _maybe_create_agentic_task(self, user_message: str):
-        schedule = self._extract_schedule(user_message)
-        if schedule is None:
-            return None
-        title = self._title_from_prompt(user_message)
-        return database.create_agentic_task(title=title, prompt=user_message, schedule=schedule)
-
-    def _extract_schedule(self, text: str) -> Optional[str]:
-        lower = text.casefold()
-        recurring_markers = [
-            "jeden ",
-            "jede ",
-            "taeglich",
-            "täglich",
-            "woechentlich",
-            "wöchentlich",
-            "monatlich",
-            "every ",
-            "daily",
-            "weekly",
-            "monthly",
-        ]
-        if not any(marker in lower for marker in recurring_markers):
-            return None
-        time_match = re.search(r"\b(?:um\s*)?([01]?\d|2[0-3])[:.]?([0-5]\d)?\s*(?:uhr)?\b", lower)
-        time_text = "18:00"
-        if time_match:
-            hour = int(time_match.group(1))
-            minute = int(time_match.group(2) or "0")
-            time_text = f"{hour:02d}:{minute:02d}"
-        if any(marker in lower for marker in ["woechentlich", "wöchentlich", "weekly"]):
-            return f"weekly at {time_text}"
-        if any(marker in lower for marker in ["monatlich", "monthly"]):
-            return f"monthly at {time_text}"
-        return f"daily at {time_text}"
-
-    def _title_from_prompt(self, prompt: str) -> str:
-        clean = " ".join(prompt.strip().split())
-        clean = re.sub(r"^(bitte|please)\s+", "", clean, flags=re.IGNORECASE)
-        return clean[:80] or "Agentic Task"
+    def _create_agentic_task(self, discovery):
+        return database.create_agentic_task(
+            title=discovery.title,
+            prompt=discovery.prompt,
+            schedule=discovery.schedule,
+        )

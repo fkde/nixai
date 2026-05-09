@@ -14,6 +14,7 @@ NixAI is a local proof-of-concept AI agent runner for Ollama models. The current
 - settings UI for dynamic model roles
 - Markdown role prompt library for Orchestrator/Worker/Reviewer-style contexts
 - first Agentic Task definitions with API and settings UI management
+- TaskDiscovery role for distilling Agentic requests into structured JSON
 - RAG-style tool routing with optional Ollama embeddings
 - vanilla HTML/CSS/JS chat UI
 - optional native desktop window via `pywebview`
@@ -110,6 +111,7 @@ Important files:
 - `app/llm/ollama.py`: Ollama adapter
 - `app/desktop.py`: native desktop wrapper using `pywebview`
 - `app/roles.py`: role prompt storage, defaults, and filename safety
+- `app/task_discovery.py`: TaskDiscovery adapter for extracting task intent from user requests
 - `app/tools/workspace.py`: workspace path normalization and boundary checks
 - `app/tools/filesystem.py`: read-only file list/read/search helpers
 - `app/tools/git.py`: read-only Git status/diff helpers
@@ -138,7 +140,7 @@ Current behavior:
 7. Return both persisted messages.
 
 The assistant model is selected through the `assistant` entry in `model_roles`, falling back to `default_model`.
-Code mode currently injects the `WORKER` role prompt and configured workspace path. Agentic mode injects the `ORCHESTRATOR` role prompt. Recurring requests with obvious schedule wording create an Agentic Task definition instead of calling Ollama.
+Code mode currently injects the `WORKER` role prompt and configured workspace path. Agentic mode first runs TaskDiscovery using the `task_discovery` model role and `TASK_DISCOVERY.md`, then either creates an Agentic Task definition, asks for missing task information, or falls back to the Orchestrator chat path.
 
 Agentic Task execution is not active yet. Tasks are stored definitions only, with `active` / `paused` status for the future scheduler.
 
@@ -147,6 +149,7 @@ Role prompt files are prepared, but not yet injected into the agent loop. Defaul
 ```text
 ASSISTANT.md
 ORCHESTRATOR.md
+TASK_DISCOVERY.md
 WORKER.md
 REVIEWER.md
 JUDGE.md

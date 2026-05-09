@@ -113,6 +113,7 @@ function normalizeModelRoles(modelRoles) {
       { role: "worker", model: "" },
       { role: "reviewer", model: "" },
       { role: "judge", model: "" },
+      { role: "task_discovery", model: "" },
     ];
   }
   return modelRoles.map((item) => ({

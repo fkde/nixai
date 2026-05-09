@@ -31,13 +31,19 @@ class OllamaClient:
         return sorted(name for name in names if isinstance(name, str))
 
     async def chat(self, messages: list[Message], model: Optional[str] = None) -> str:
-        payload = {
-            "model": model or self.settings.model_for_role("assistant"),
-            "messages": [
+        return await self.chat_payload(
+            [
                 {"role": message.role, "content": message.content}
                 for message in messages
                 if message.role in {"user", "assistant", "system"}
             ],
+            model=model,
+        )
+
+    async def chat_payload(self, messages: list[dict[str, str]], model: Optional[str] = None) -> str:
+        payload = {
+            "model": model or self.settings.model_for_role("assistant"),
+            "messages": messages,
             "stream": False,
         }
 
