@@ -1,34 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_submodules
+from _pyinstaller_common import collect_hiddenimports, common_datas, common_excludes
 
-hiddenimports = []
-hiddenimports += collect_submodules('app')
 
-for package in (
-    'webview',
-    'objc',
-    'Foundation',
-    'AppKit',
-    'WebKit',
-    'Quartz',
-    'Security',
-):
-    try:
-        hiddenimports += collect_submodules(package)
-    except Exception:
-        pass
+hiddenimports = collect_hiddenimports()
 
 
 a = Analysis(
     ['app/cli.py'],
     pathex=[],
     binaries=[],
-    datas=[('app/static', 'app/static'), ('app/workflows/presets', 'app/workflows/presets')],
+    datas=common_datas(),
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=common_excludes(),
     noarchive=False,
     optimize=0,
 )

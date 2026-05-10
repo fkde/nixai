@@ -8,7 +8,8 @@ from pydantic import BaseModel
 from app.config import Settings, load_settings, save_settings
 from app.llm.ollama import OllamaClient, OllamaError
 from app.models import OllamaModelInfo
-from app.workflows.presets import list_workflow_summaries
+from app.workflows.models import WorkflowDefinition
+from app.workflows.presets import delete_custom_workflow, list_custom_workflow_ids, list_workflow_summaries, save_custom_workflow
 
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -50,8 +51,31 @@ def get_workflows() -> dict[str, object]:
     return {
         "success": True,
         "selected": settings.workflow_presets,
+        "custom_ids": list_custom_workflow_ids(),
         "workflows": [workflow.model_dump(by_alias=True) for workflow in list_workflow_summaries()],
     }
+
+
+@router.put("/workflows/{workflow_id}")
+def put_workflow(workflow_id: str, workflow: WorkflowDefinition) -> dict[str, object]:
+    if workflow.id != workflow_id:
+        workflow = workflow.model_copy(update={"id": workflow_id})
+    try:
+        saved = save_custom_workflow(workflow)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "workflow": saved.model_dump(by_alias=True)}
+
+
+@router.delete("/workflows/{workflow_id}")
+def remove_workflow(workflow_id: str) -> dict[str, object]:
+    try:
+        deleted = delete_custom_workflow(workflow_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Custom workflow not found.")
+    return {"success": True}
 
 
 @router.post("/email-provider/auth", response_model=EmailProviderAuthResponse)

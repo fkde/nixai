@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NixAI Startup Error</title>
+    <style>
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: grid;
+        place-items: center;
+        background: #090c11;
+        color: #f5f8ff;
+        font-family: ui-monospace, Menlo, monospace;
+      }
+      .card {
+        width: min(680px, calc(100vw - 32px));
+        padding: 22px 24px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 127, 145, 0.44);
+        background: rgba(40, 15, 24, 0.56);
+      }
+      h1 { margin: 0 0 10px; font-size: 20px; }
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #ffcad3;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="card">
+      <h1>NixAI konnte nicht starten</h1>
+      <pre>{{ message }}</pre>
+    </section>
+  </body>
+</html>

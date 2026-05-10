@@ -145,7 +145,7 @@
             </button>
           </nav>
 
-          <form id="settings-form" class="settings-form">
+          <form id="settings-form" class="settings-form" data-dirty-track="settings">
             <section class="settings-section active" data-settings-panel="basis">
               <div class="settings-section-title">
                 <p class="eyebrow">General</p>
@@ -236,6 +236,79 @@
                   </div>
                 </div>
                 <div id="workflow-preset-list" class="workflow-preset-list"></div>
+              </div>
+
+              <div class="settings-card workflow-builder-card">
+                <div class="model-section-header compact">
+                  <div>
+                    <h3>Visual Workflow Builder</h3>
+                    <p>Create or edit custom workflows with node links. Worker nodes support multiple instances.</p>
+                  </div>
+                </div>
+
+                <div class="workflow-builder-toolbar">
+                  <label class="field">
+                    <span>Workflow</span>
+                    <select id="workflow-editor-target"></select>
+                  </label>
+                  <button id="workflow-editor-new" class="secondary-button" type="button">New Custom</button>
+                  <button id="workflow-editor-delete" class="danger-button" type="button">Delete Custom</button>
+                  <button id="workflow-editor-save" type="button">Save Custom Workflow</button>
+                </div>
+
+                <div class="settings-grid two">
+                  <label class="field settings-card">
+                    <span>Workflow ID</span>
+                    <input id="workflow-editor-id" type="text" placeholder="my_custom_loop" />
+                  </label>
+                  <label class="field settings-card">
+                    <span>Name</span>
+                    <input id="workflow-editor-name" type="text" placeholder="My Custom Loop" />
+                  </label>
+                </div>
+
+                <label class="field">
+                  <span>Description</span>
+                  <textarea id="workflow-editor-description" rows="2" placeholder="What is this workflow for?"></textarea>
+                </label>
+
+                <div class="settings-grid two">
+                  <label class="field settings-card">
+                    <span>Execution</span>
+                    <select id="workflow-editor-execution">
+                      <option value="direct">direct</option>
+                      <option value="loop">loop</option>
+                    </select>
+                  </label>
+                  <label class="field settings-card">
+                    <span>Max Iterations</span>
+                    <input id="workflow-editor-max-iterations" type="number" min="1" max="8" value="1" />
+                  </label>
+                </div>
+
+                <div class="workflow-mode-chips">
+                  <label><input id="workflow-editor-mode-chat" type="checkbox" checked /> Chat</label>
+                  <label><input id="workflow-editor-mode-code" type="checkbox" checked /> Code</label>
+                  <label><input id="workflow-editor-mode-agentic" type="checkbox" checked /> Agentic</label>
+                </div>
+
+                <div class="workflow-mode-chips">
+                  <label><input id="workflow-editor-assign-chat" type="checkbox" /> Assign to Chat</label>
+                  <label><input id="workflow-editor-assign-code" type="checkbox" /> Assign to Code</label>
+                  <label><input id="workflow-editor-assign-agentic" type="checkbox" /> Assign to Agentic</label>
+                  <button id="workflow-editor-save-assign" class="secondary-button" type="button">Save + Assign</button>
+                </div>
+
+                <div class="workflow-builder-nodes-head">
+                  <h4>Nodes</h4>
+                  <button id="workflow-editor-add-node" class="secondary-button" type="button">+ Add Node</button>
+                </div>
+                <div id="workflow-editor-node-list" class="workflow-editor-node-list"></div>
+
+                <div class="workflow-graph-wrap">
+                  <span class="model-role-label">Flow Preview</span>
+                  <div id="workflow-graph-preview" class="workflow-graph-preview"></div>
+                </div>
               </div>
             </section>
 
@@ -417,7 +490,7 @@
             </section>
 
             <footer class="settings-footer">
-              <button id="save-settings" type="submit">Save</button>
+              <button id="save-settings" class="is-hidden" type="submit" aria-hidden="true">Save Changes</button>
             </footer>
           </form>
         </div>
@@ -487,6 +560,6 @@
         </section>
       </div>
     </main>
-    <script src="/static/app.js"></script>
+    <script type="module" src="/static/app.js"></script>
   </body>
 </html>

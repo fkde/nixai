@@ -226,21 +226,33 @@ class WorkflowRunner:
             state["user_message"],
             effort_max_items(node.max_items, state.get("effort")),
         )
-        limit = max(1, min(effort_max_parallel(node.max_parallel, state.get("effort")), len(work_items)))
+        pool_size = max(1, node.worker_instances)
+        concurrency_cap = max(1, node.max_parallel)
+        configured_parallel = min(pool_size, concurrency_cap)
+        limit = max(1, min(effort_max_parallel(configured_parallel, state.get("effort")), len(work_items)))
         semaphore = asyncio.Semaphore(limit)
-        self._event(events, node.id, "status", f"Orchestrator spawned {len(work_items)} worker item(s), max parallel {limit}.")
+        self._event(
+            events,
+            node.id,
+            "status",
+            (
+                f"Orchestrator spawned {len(work_items)} worker item(s), "
+                f"worker pool {pool_size}, concurrency cap {concurrency_cap}, active parallel {limit}."
+            ),
+        )
 
-        async def run_item(item: dict[str, Any]) -> dict[str, Any]:
+        async def run_item(item: dict[str, Any], item_index: int) -> dict[str, Any]:
             async with semaphore:
                 item_id = str(item.get("id") or "work-item")
                 title = str(item.get("title") or item_id)
-                self._event(events, item_id, "status", f"Worker started: {title}.")
+                worker_label = f"worker-{(item_index % limit) + 1}"
+                self._event(events, item_id, "status", f"{worker_label} started: {title}.")
                 prompt = self._worker_prompt(node, item, state)
                 content = await self._role_call(node, prompt, self._state_payload(state))
-                self._event(events, item_id, "done", f"Worker completed: {title}.")
-                return {"id": item_id, "title": title, "content": content.strip()}
+                self._event(events, item_id, "done", f"{worker_label} completed: {title}.")
+                return {"id": item_id, "title": title, "worker": worker_label, "content": content.strip()}
 
-        reports = await asyncio.gather(*(run_item(item) for item in work_items))
+        reports = await asyncio.gather(*(run_item(item, index) for index, item in enumerate(work_items)))
         self._event(events, node.id, "done", f"Worker pool completed {len(reports)} report(s).")
         return reports
 

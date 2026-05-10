@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
+import re
 from collections.abc import AsyncIterator
-from typing import Optional
+from typing import Any, Optional
 
 from app import database
 from app.agentic_context import AgenticContextBuilder
@@ -22,6 +25,8 @@ from app.workflows.runner import WorkflowRunner
 
 TITLE_GENERATION_RUNNING: set[str] = set()
 DEFAULT_CHAT_TITLES = {"Neuer Chat", "New Chat"}
+AGENTIC_WORKFLOW_TOOL = "run_agentic_workflow"
+logger = logging.getLogger(__name__)
 
 
 class Agent:
@@ -59,7 +64,24 @@ class Agent:
             return
 
         workflow = selected_workflow(self.settings, mode)
-        if workflow is not None and not workflow.is_direct():
+        run_agentic_workflow = False
+        agentic_workflow_route: tuple[bool, str] | None = None
+        if mode == "agentic" and workflow is not None and not workflow.is_direct():
+            yield {"type": "status", "message": "Choosing response path..."}
+            run_agentic_workflow, route_reason = await self._should_run_agentic_workflow(chat_id, user_message)
+            agentic_workflow_route = (run_agentic_workflow, route_reason)
+            yield {
+                "type": "agentic_route",
+                "path": "workflow" if run_agentic_workflow else "direct",
+                "reason": route_reason,
+                "tool": AGENTIC_WORKFLOW_TOOL,
+            }
+            if run_agentic_workflow:
+                yield {"type": "status", "message": f"Using {AGENTIC_WORKFLOW_TOOL}: {route_reason}"}
+            else:
+                yield {"type": "status", "message": "Answering directly from conversation context."}
+
+        if workflow is not None and not workflow.is_direct() and (mode != "agentic" or run_agentic_workflow):
             yield {"type": "status", "message": f"Running workflow: {workflow.name}"}
             queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
 
@@ -98,7 +120,12 @@ class Agent:
             yield {"type": "done", "stats": {"eval_count": len(streamed.split())}}
             return
 
-        workflow_answer = await self._workflow_answer(chat_id, user_message, mode)
+        workflow_answer = await self._workflow_answer(
+            chat_id,
+            user_message,
+            mode,
+            agentic_workflow_route=agentic_workflow_route,
+        )
         if workflow_answer is not None:
             streamed = ""
             async for chunk in self._stream_static_text(workflow_answer):
@@ -221,12 +248,113 @@ class Agent:
             yield part + suffix
             await asyncio.sleep(0.012)
 
-    async def _workflow_answer(self, chat_id: str, user_message: str, mode: MessageMode) -> str | None:
+    async def _workflow_answer(
+        self,
+        chat_id: str,
+        user_message: str,
+        mode: MessageMode,
+        agentic_workflow_route: tuple[bool, str] | None = None,
+    ) -> str | None:
         workflow = selected_workflow(self.settings, mode)
         if workflow is None or workflow.is_direct():
             return None
+        if mode == "agentic":
+            run_workflow, _reason = agentic_workflow_route or await self._should_run_agentic_workflow(
+                chat_id,
+                user_message,
+            )
+            if not run_workflow:
+                return None
         result = await WorkflowRunner(self.settings, self.ollama).run(workflow, chat_id, user_message, mode)
         return result.answer
+
+    async def _should_run_agentic_workflow(self, chat_id: str, user_message: str) -> tuple[bool, str]:
+        workflow = selected_workflow(self.settings, "agentic")
+        if workflow is None or workflow.is_direct():
+            return False, "No non-direct workflow configured."
+        default_reason = "Model chose direct reply."
+        try:
+            payload = {
+                "user_message": user_message,
+                "recent_messages": self._agentic_router_history(chat_id),
+                "workflow_name": workflow.name,
+                "tool_name": AGENTIC_WORKFLOW_TOOL,
+            }
+            content = await self.ollama.chat_payload(
+                [
+                    {"role": "system", "content": self._agentic_router_prompt()},
+                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                ],
+                model=self.settings.model_for_role("orchestrator"),
+            )
+            parsed = self._parse_json_object(content)
+            action = str(parsed.get("action") or "").strip().lower()
+            reason = str(parsed.get("reason") or default_reason).strip() or default_reason
+            if action == "run_agentic_workflow":
+                return True, reason
+            return False, reason
+        except Exception as exc:
+            logger.warning("agentic router failed", exc_info=exc)
+            if self._agentic_workflow_fallback(user_message):
+                return True, "Fallback matched workflow-style request."
+            return False, default_reason
+
+    def _agentic_router_prompt(self) -> str:
+        return (
+            "You route an AGENTIC-mode request in NixAI.\n"
+            f"You may either call the internal tool '{AGENTIC_WORKFLOW_TOOL}' or answer directly without workflow.\n\n"
+            "Return strict JSON only with schema:\n"
+            "{\"action\":\"answer_direct|run_agentic_workflow\",\"reason\":\"short reason\"}\n\n"
+            "Decision rules:\n"
+            "- Prefer answer_direct for simple follow-up questions, clarifications, yes/no checks, rewrites, or short conversational replies.\n"
+            f"- Choose run_agentic_workflow only when the answer likely needs multi-step reasoning, tool usage, workflow evidence, or you are materially uncertain.\n"
+            "- If the user references previous assistant output and asks a small follow-up, keep answer_direct.\n"
+            "- Keep reason under 140 characters."
+        )
+
+    def _agentic_router_history(self, chat_id: str, limit: int = 8) -> list[dict[str, str]]:
+        messages = database.list_messages(chat_id, mode="agentic")
+        selected = messages[-limit:]
+        compact: list[dict[str, str]] = []
+        for message in selected:
+            text = " ".join((message.content or "").split())
+            compact.append(
+                {
+                    "role": message.role,
+                    "content": text[:360],
+                }
+            )
+        return compact
+
+    def _agentic_workflow_fallback(self, user_message: str) -> bool:
+        text = str(user_message or "").strip().lower()
+        keywords = [
+            "analyse",
+            "analysiere",
+            "research",
+            "recherche",
+            "vergleich",
+            "workflow",
+            "workspace",
+        ]
+        return any(re.search(rf"\b{re.escape(keyword)}\b", text) for keyword in keywords)
+
+    def _parse_json_object(self, content: str) -> dict[str, Any]:
+        clean = str(content or "").strip()
+        if clean.startswith("```"):
+            clean = re.sub(r"^```(?:json)?", "", clean, flags=re.IGNORECASE).strip()
+            clean = re.sub(r"```$", "", clean).strip()
+        try:
+            parsed = json.loads(clean)
+        except json.JSONDecodeError:
+            match = re.search(r"\{[\s\S]*\}", clean)
+            if not match:
+                return {}
+            try:
+                parsed = json.loads(match.group(0))
+            except json.JSONDecodeError:
+                return {}
+        return parsed if isinstance(parsed, dict) else {}
 
     async def _history_with_mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> list[Message]:
         history = database.list_messages(chat_id, mode=mode)

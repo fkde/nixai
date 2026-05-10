@@ -33,6 +33,9 @@
   --focus: 0 0 0 3px rgba(69, 230, 242, 0.16), 0 0 26px rgba(69, 230, 242, 0.18);
   --control-height: 42px;
   --button-height: 40px;
+  --footer-strip-top: 17px;
+  --footer-strip-bottom: 21px;
+  --footer-action-size: 50px;
   --radius: 8px;
   --font-ui: "JetBrains Mono", "Ubuntu Sans Mono", "Ubuntu Sans", "SF Pro Text", "Inter", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --font-display: "JetBrains Mono", "Ubuntu Sans", "SF Pro Display", "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -235,6 +238,11 @@ body.desktop-shell {
   background: #08090d;
 }
 
+body.desktop-shell::before,
+body.desktop-shell::after {
+  display: none;
+}
+
 body.desktop-shell .shell {
   height: 100vh;
   margin: 0;
@@ -247,12 +255,43 @@ body.desktop-shell .shell::before {
   display: none;
 }
 
+body.desktop-shell .shell::after {
+  display: none;
+}
+
+body.desktop-shell .sidebar::before,
+body.desktop-shell .chat::before,
+body.desktop-shell .chat::after {
+  opacity: 0.2;
+}
+
+body.desktop-shell .chat-header,
+body.desktop-shell .composer,
+body.desktop-shell .settings-header,
+body.desktop-shell .settings-footer,
+body.desktop-shell .composer-plus-menu,
+body.desktop-shell .toast,
+body.desktop-shell .modal-backdrop {
+  backdrop-filter: none;
+}
+
+body.desktop-shell .message {
+  animation: none;
+}
+
+body.desktop-shell .thinking-dot {
+  animation: none;
+  box-shadow: none;
+  opacity: 0.85;
+  transform: none;
+}
+
 body.desktop-macos.native-traffic-lights .brand {
   padding-top: 54px;
 }
 
 body.desktop-macos.native-traffic-lights .chat-header {
-  padding-top: 28px;
+  padding-top: 25px;
 }
 
 .shell::before {
@@ -445,11 +484,11 @@ button > svg {
 }
 
 .sidebar-tool-button {
-  width: 44px;
-  height: 44px;
-  min-height: 44px;
+  width: 46px;
+  height: 46px;
+  min-height: 46px;
   padding: 0;
-  border-radius: 9px;
+  border-radius: 12px;
   border-color: rgba(69, 230, 242, 0.2);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0)),
@@ -541,9 +580,11 @@ button > svg {
   position: relative;
   z-index: 1;
   display: flex;
+  align-items: center;
   justify-content: flex-start;
   margin-top: auto;
-  padding: 13px 23px 23px;
+  min-height: calc(var(--footer-action-size) + var(--footer-strip-top) + var(--footer-strip-bottom));
+  padding: var(--footer-strip-top) 23px var(--footer-strip-bottom);
   border-top: 1px solid rgba(69, 230, 242, 0.14);
 }
 
@@ -559,9 +600,9 @@ button > svg {
 }
 
 .sidebar-footer .sidebar-tool-button {
-  width: 42px;
-  height: 42px;
-  min-height: 42px;
+  width: var(--footer-action-size);
+  height: var(--footer-action-size);
+  min-height: var(--footer-action-size);
 }
 
 .chat-item-wrap {
@@ -1014,7 +1055,7 @@ button > svg {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 38px 48px;
+  padding: 40px 58px 52px;
   background:
     radial-gradient(circle at 76% 0%, rgba(69, 230, 242, 0.075), transparent 30%),
     linear-gradient(180deg, rgba(5, 9, 14, 0.52), rgba(3, 5, 9, 0.94)),
@@ -1037,7 +1078,7 @@ button > svg {
 .messages::after {
   content: "";
   position: absolute;
-  inset: 34px 38px;
+  inset: 34px 48px;
   pointer-events: none;
   z-index: 0;
   background:
@@ -1184,6 +1225,8 @@ button > svg {
 
 .message-role {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
   width: 100%;
   margin-bottom: 7px;
@@ -1211,15 +1254,42 @@ button > svg {
   background: linear-gradient(90deg, transparent, rgba(155, 114, 255, 0.82));
 }
 
+.message-route-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 7px;
+  border: 1px solid rgba(69, 230, 242, 0.28);
+  border-radius: 999px;
+  background: rgba(8, 20, 28, 0.8);
+  color: #b8dce6;
+  font-size: 10px;
+  font-weight: 820;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.message-route-badge[data-path="workflow"] {
+  border-color: rgba(155, 114, 255, 0.42);
+  background: rgba(37, 24, 62, 0.76);
+  color: #dfd0ff;
+}
+
+.message-route-badge[data-path="direct"] {
+  border-color: rgba(69, 230, 242, 0.34);
+  background: rgba(11, 32, 39, 0.78);
+  color: #bef4f8;
+}
+
 .bubble {
   position: relative;
   width: auto;
   min-width: 0;
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid rgba(69, 230, 242, 0.15);
   border-radius: 10px;
-  padding: 15px 17px;
+  padding: 15px 17px 18px;
   background:
     linear-gradient(135deg, rgba(69, 230, 242, 0.055), transparent 34%),
     rgba(6, 11, 17, 0.82);
@@ -1232,8 +1302,12 @@ button > svg {
   white-space: normal;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.04) inset,
-    0 18px 42px rgba(0, 0, 0, 0.24),
-    0 0 28px rgba(69, 230, 242, 0.035);
+    0 12px 30px rgba(0, 0, 0, 0.2),
+    0 0 22px rgba(69, 230, 242, 0.03);
+}
+
+.bubble.streaming-plain {
+  white-space: pre-wrap;
 }
 
 .bubble::before,
@@ -1271,8 +1345,8 @@ button > svg {
   color: #ffffff;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.06) inset,
-    0 18px 42px rgba(0, 0, 0, 0.26),
-    0 0 28px rgba(155, 114, 255, 0.055);
+    0 12px 30px rgba(0, 0, 0, 0.22),
+    0 0 22px rgba(155, 114, 255, 0.05);
 }
 
 .message.assistant .bubble {
@@ -1283,9 +1357,10 @@ button > svg {
     rgba(5, 10, 16, 0.78);
 }
 
-.message.streaming .bubble,
+.message.assistant.chat .bubble,
 .message.assistant.code .bubble,
-.message.assistant.agentic .bubble {
+.message.assistant.agentic .bubble,
+.message.streaming .bubble {
   border-color: rgba(69, 230, 242, 0.22);
   background:
     linear-gradient(90deg, rgba(69, 230, 242, 0.08), rgba(155, 114, 255, 0.035)),
@@ -1596,10 +1671,11 @@ button > svg {
   position: relative;
   z-index: 2;
   display: grid;
-  grid-template-columns: 50px minmax(0, 1fr) 134px;
+  grid-template-columns: var(--footer-action-size) minmax(0, 1fr) 134px;
   align-items: center;
   gap: 11px;
-  padding: 17px 48px 21px;
+  min-height: calc(var(--footer-action-size) + var(--footer-strip-top) + var(--footer-strip-bottom));
+  padding: var(--footer-strip-top) 48px var(--footer-strip-bottom);
   border-top: 1px solid rgba(69, 230, 242, 0.16);
   background:
     linear-gradient(90deg, rgba(216, 76, 91, 0.045), transparent 24%, transparent 76%, rgba(69, 230, 242, 0.055)),
@@ -1625,11 +1701,11 @@ button > svg {
 .composer-plus-button {
   display: grid;
   place-items: center;
-  width: 50px;
-  height: 50px;
-  min-height: 50px;
+  width: 46px;
+  height: 46px;
+  min-height: 46px;
   padding: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   border-color: rgba(69, 230, 242, 0.2);
   color: var(--cyan-soft);
   background:
@@ -1639,6 +1715,19 @@ button > svg {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.065),
     0 0 22px rgba(69, 230, 242, 0.065);
+}
+
+.composer-plus-button:hover {
+  border-color: rgba(157, 250, 255, 0.62);
+  color: #e8fdff;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.01)),
+    linear-gradient(135deg, rgba(69, 230, 242, 0.2), rgba(155, 114, 255, 0.18)),
+    rgba(10, 21, 31, 0.95);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 0 28px rgba(69, 230, 242, 0.12),
+    0 14px 30px rgba(35, 31, 66, 0.24);
 }
 
 .composer-plus-button svg {
@@ -1745,8 +1834,8 @@ textarea::placeholder {
 }
 
 #message-input {
-  min-height: 50px;
-  height: 50px;
+  min-height: var(--footer-action-size);
+  height: var(--footer-action-size);
   max-height: 150px;
   padding: 14px 17px;
   border-radius: 8px;
@@ -1767,9 +1856,9 @@ textarea::placeholder {
   align-self: center;
   justify-content: center;
   width: 100%;
-  min-height: 50px;
+  min-height: var(--footer-action-size);
   padding: 0 17px;
-  border-radius: 8px;
+  border-radius: 12px;
   border-color: rgba(69, 230, 242, 0.42);
   background:
     radial-gradient(circle at 18% 20%, rgba(255, 255, 255, 0.18), transparent 22%),
@@ -1783,6 +1872,18 @@ textarea::placeholder {
     0 0 30px rgba(69, 230, 242, 0.16),
     0 14px 28px rgba(53, 35, 112, 0.24),
     inset 0 1px 0 rgba(255, 255, 255, 0.13);
+}
+
+#send-button:hover {
+  border-color: rgba(157, 250, 255, 0.72);
+  background:
+    radial-gradient(circle at 16% 18%, rgba(255, 255, 255, 0.22), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.02)),
+    linear-gradient(135deg, rgba(69, 230, 242, 0.42), rgba(155, 114, 255, 0.76) 58%, rgba(216, 76, 91, 0.3));
+  box-shadow:
+    0 0 38px rgba(69, 230, 242, 0.24),
+    0 18px 34px rgba(53, 35, 112, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
 #send-button .button-icon {
@@ -2322,6 +2423,150 @@ textarea::placeholder {
   font-weight: 760;
 }
 
+.workflow-preset-item .workflow-graph-preview {
+  min-height: 122px;
+}
+
+.workflow-builder-card {
+  gap: 14px;
+}
+
+.workflow-builder-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.workflow-mode-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.workflow-mode-chips label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid rgba(69, 230, 242, 0.2);
+  border-radius: 999px;
+  background: rgba(69, 230, 242, 0.08);
+  color: var(--cyan-soft);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.workflow-builder-nodes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-builder-nodes-head h4 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+
+.workflow-editor-node-list {
+  display: grid;
+  gap: 10px;
+}
+
+.workflow-editor-node {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(128, 142, 170, 0.2);
+  border-radius: 10px;
+  background: rgba(8, 12, 20, 0.6);
+}
+
+.workflow-editor-node-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.workflow-editor-node-head strong {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.workflow-editor-node-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.workflow-editor-node-io {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.workflow-editor-node-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.workflow-graph-wrap {
+  display: grid;
+  gap: 8px;
+}
+
+.workflow-graph-preview {
+  min-height: 170px;
+  border: 1px solid rgba(128, 142, 170, 0.2);
+  border-radius: 10px;
+  background:
+    linear-gradient(rgba(69, 230, 242, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(69, 230, 242, 0.03) 1px, transparent 1px),
+    rgba(6, 10, 16, 0.62);
+  background-size: 28px 28px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.workflow-graph-svg {
+  display: block;
+  width: 100%;
+  min-height: 160px;
+}
+
+.workflow-graph-node rect {
+  fill: rgba(12, 20, 29, 0.95);
+  stroke: rgba(69, 230, 242, 0.36);
+  stroke-width: 1.4;
+  rx: 12;
+}
+
+.workflow-graph-node.worker rect {
+  stroke: rgba(155, 114, 255, 0.6);
+}
+
+.workflow-graph-node text {
+  fill: var(--text-soft);
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+
+.workflow-graph-edge {
+  stroke: rgba(157, 250, 255, 0.55);
+  stroke-width: 1.5;
+  fill: none;
+  marker-end: url(#wf-arrow);
+}
+
+.workflow-graph-edge.loop {
+  stroke: rgba(155, 114, 255, 0.62);
+}
+
 .tool-meta {
   display: flex;
   flex-wrap: wrap;
@@ -2665,6 +2910,8 @@ textarea::placeholder {
 .settings-footer {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  min-height: 84px;
   margin: 0 -38px;
   padding: 15px 38px 18px;
   border-top: 1px solid rgba(69, 230, 242, 0.16);
@@ -2676,14 +2923,71 @@ textarea::placeholder {
 }
 
 #save-settings {
-  min-height: 48px;
-  min-width: 128px;
-  border-color: rgba(69, 230, 242, 0.62);
+  position: relative;
+  min-height: 52px;
+  min-width: 160px;
+  border: 1px solid rgba(164, 248, 255, 0.76);
+  border-radius: 15px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0)),
-    linear-gradient(135deg, #a9fbff, #9b72ff);
-  color: #03060a;
-  font-weight: 840;
+    radial-gradient(circle at 14% 0%, rgba(255, 255, 255, 0.34), transparent 42%),
+    linear-gradient(135deg, #8eeaff 0%, #97cdfd 44%, #9e9bff 100%);
+  color: #05070d;
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.22) inset,
+    0 22px 36px rgba(25, 38, 75, 0.4),
+    0 0 44px rgba(121, 208, 255, 0.3);
+  transition:
+    opacity 180ms var(--ease-snap),
+    transform 180ms var(--ease-snap),
+    box-shadow 200ms var(--ease-snap),
+    filter 200ms var(--ease-snap),
+    min-width 160ms var(--ease-snap),
+    padding 160ms var(--ease-snap),
+    border-width 160ms var(--ease-snap);
+}
+
+#save-settings::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 12px;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0.02) 52%, rgba(255, 255, 255, 0.18));
+  opacity: 0.7;
+}
+
+#save-settings:hover {
+  border-color: rgba(184, 253, 255, 0.98);
+  transform: translateY(-2px) scale(1.01);
+  filter: saturate(1.05);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.32) inset,
+    0 28px 44px rgba(25, 38, 75, 0.5),
+    0 0 52px rgba(121, 208, 255, 0.42);
+}
+
+#save-settings:focus-visible {
+  box-shadow:
+    var(--focus),
+    0 0 0 1px rgba(255, 255, 255, 0.35) inset,
+    0 28px 44px rgba(25, 38, 75, 0.5),
+    0 0 52px rgba(121, 208, 255, 0.42);
+}
+
+#save-settings.is-hidden {
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-width: 0;
+  opacity: 0;
+  transform: translateY(9px) scale(0.94);
+  pointer-events: none;
+  visibility: hidden;
+  box-shadow: none;
 }
 
 .modal-backdrop {
@@ -2796,6 +3100,13 @@ textarea::placeholder {
   .role-editor-grid {
     grid-template-columns: 1fr;
   }
+
+  .workflow-builder-toolbar,
+  .workflow-editor-node-meta,
+  .workflow-editor-node-io,
+  .workflow-editor-node-links {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 760px) {
@@ -2824,7 +3135,7 @@ textarea::placeholder {
   }
 
   .sidebar-footer {
-    padding: 10px 16px 16px;
+    padding: var(--footer-strip-top) 16px var(--footer-strip-bottom);
   }
 
   .sidebar-footer::before {
@@ -2865,7 +3176,7 @@ textarea::placeholder {
   }
 
   .messages {
-    padding: 20px 16px;
+    padding: 24px 22px 34px;
   }
 
   .message,

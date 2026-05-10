@@ -1,3 +1,12 @@
+import {
+  dirtyStorageKey,
+  hasDirtyTracker,
+  registerDirtyTracker,
+  safeLocalStorageGet,
+} from "./dirty-tracker.js";
+import { parseFrameEvent } from "./stream.js";
+import { cloneWorkflowDraft, dedupeList, parseCsvList } from "./workflow-editor.js";
+
 const state = {
   chats: [],
   activeChatId: null,
@@ -5,6 +14,8 @@ const state = {
   settings: null,
   availableTools: [],
   workflowPresets: [],
+  customWorkflowIds: [],
+  workflowEditorDraft: null,
   availableModels: [],
   modelCatalog: [],
   modelsLoaded: false,
@@ -23,6 +34,7 @@ const state = {
   activeSettingsSection: "basis",
   streamingAssistant: false,
   activeStream: null,
+  messageRequestInFlight: false,
   autoScrollLocked: true,
   toastTimer: null,
   titleWatchers: new Map(),
@@ -48,6 +60,8 @@ const effortButtons = document.querySelectorAll(".effort-button");
 const settingsClose = document.querySelector("#settings-close");
 const settingsPanel = document.querySelector("#settings-panel");
 const settingsForm = document.querySelector("#settings-form");
+const settingsFooter = document.querySelector(".settings-footer");
+const saveSettingsButton = document.querySelector("#save-settings");
 const settingsNavButtons = document.querySelectorAll(".settings-nav-button");
 const settingsSections = document.querySelectorAll(".settings-section");
 const userName = document.querySelector("#user-name");
@@ -60,6 +74,25 @@ const workflowChat = document.querySelector("#workflow-chat");
 const workflowCode = document.querySelector("#workflow-code");
 const workflowAgentic = document.querySelector("#workflow-agentic");
 const workflowPresetList = document.querySelector("#workflow-preset-list");
+const workflowEditorTarget = document.querySelector("#workflow-editor-target");
+const workflowEditorNew = document.querySelector("#workflow-editor-new");
+const workflowEditorDelete = document.querySelector("#workflow-editor-delete");
+const workflowEditorSave = document.querySelector("#workflow-editor-save");
+const workflowEditorId = document.querySelector("#workflow-editor-id");
+const workflowEditorName = document.querySelector("#workflow-editor-name");
+const workflowEditorDescription = document.querySelector("#workflow-editor-description");
+const workflowEditorExecution = document.querySelector("#workflow-editor-execution");
+const workflowEditorMaxIterations = document.querySelector("#workflow-editor-max-iterations");
+const workflowEditorModeChat = document.querySelector("#workflow-editor-mode-chat");
+const workflowEditorModeCode = document.querySelector("#workflow-editor-mode-code");
+const workflowEditorModeAgentic = document.querySelector("#workflow-editor-mode-agentic");
+const workflowEditorAssignChat = document.querySelector("#workflow-editor-assign-chat");
+const workflowEditorAssignCode = document.querySelector("#workflow-editor-assign-code");
+const workflowEditorAssignAgentic = document.querySelector("#workflow-editor-assign-agentic");
+const workflowEditorSaveAssign = document.querySelector("#workflow-editor-save-assign");
+const workflowEditorAddNode = document.querySelector("#workflow-editor-add-node");
+const workflowEditorNodeList = document.querySelector("#workflow-editor-node-list");
+const workflowGraphPreview = document.querySelector("#workflow-graph-preview");
 const emailProvider = document.querySelector("#email-provider");
 const emailProviderStatus = document.querySelector("#email-provider-status");
 const emailProviderAccount = document.querySelector("#email-provider-account");
@@ -113,6 +146,8 @@ const modeOrder = ["chat", "code", "agentic"];
 const effortOrder = ["minimum", "medium", "high", "max"];
 const runtimeStatusHistoryLimit = 16;
 const runtimeStatusStoreLimit = 64;
+// Throttle token DOM writes enough to keep PyWebView smooth while still feeling live.
+const streamRenderIntervalMs = 120;
 const embeddingModelMarkers = ["embed", "embedding", "nomic-bert", "sentence-transformer", "bge-", "all-minilm", "e5-", "gte-"];
 const toastRegion = document.createElement("div");
 toastRegion.className = "toast-region";
@@ -121,19 +156,48 @@ toastRegion.setAttribute("aria-atomic", "true");
 document.body.append(toastRegion);
 
 async function initDesktopChrome() {
+  const addDesktopClasses = (info = null) => {
+    if (!window.pywebview && !info) return false;
+    const rawPlatform = String(info?.platform || window.pywebview?.platform || navigator.platform || "desktop")
+      .replace(/[^a-z0-9_-]/gi, "-")
+      .toLowerCase();
+    const isMac = /darwin|mac|cocoa/.test(rawPlatform);
+    document.body.classList.add("desktop-shell");
+    document.body.classList.add(`desktop-${rawPlatform}`);
+    if (isMac) {
+      document.body.classList.add("desktop-macos");
+    }
+    document.body.classList.toggle("native-chrome", Boolean(info?.native_chrome ?? isMac));
+    document.body.classList.toggle("native-traffic-lights", Boolean(info?.native_traffic_lights ?? isMac));
+    return true;
+  };
+
   const api = window.pywebview?.api;
   if (!api?.desktop_info) {
-    window.addEventListener("pywebviewready", initDesktopChrome, { once: true });
+    const applied = addDesktopClasses();
+    if (!applied) {
+      window.addEventListener("pywebviewready", initDesktopChrome, { once: true });
+    } else {
+      stabilizeMessagesBottomScroll();
+    }
+    if (window.pywebview) {
+      window.setTimeout(() => {
+        if (!document.body.classList.contains("desktop-shell")) {
+          initDesktopChrome();
+        }
+      }, 180);
+    }
     return;
   }
   try {
     const info = await api.desktop_info();
-    const platform = String(info.platform || "desktop").replace(/[^a-z0-9_-]/gi, "-").toLowerCase();
-    document.body.classList.add("desktop-shell", `desktop-${platform}`);
-    document.body.classList.toggle("native-chrome", Boolean(info.native_chrome));
-    document.body.classList.toggle("native-traffic-lights", Boolean(info.native_traffic_lights));
+    addDesktopClasses(info);
+    stabilizeMessagesBottomScroll();
   } catch (error) {
     console.warn(error);
+    if (addDesktopClasses()) {
+      stabilizeMessagesBottomScroll();
+    }
   }
 }
 
@@ -171,6 +235,20 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+let settingsDirtyTracker = null;
+
+function initGenericDirtyTracking() {
+  const trackedForms = [...document.querySelectorAll("form[data-dirty-track]")];
+  trackedForms.forEach((trackedForm) => {
+    if (trackedForm === settingsForm) return;
+    if (hasDirtyTracker(trackedForm)) return;
+    const tracker = registerDirtyTracker(trackedForm);
+    if (!tracker) return;
+    tracker.captureBaseline();
+    tracker.restoreDraftIfAny();
+  });
 }
 
 function formatInlineMarkdown(value) {
@@ -281,6 +359,43 @@ function formatContent(content) {
     blocks.push(`<pre><code>${escapeHtml(codeBlock.join("\n"))}</code></pre>`);
   }
   return blocks.join("");
+}
+
+function plainTextContent(content) {
+  return escapeHtml(String(content ?? "")).replace(/\n/g, "<br>");
+}
+
+function shouldRenderMarkdown(message) {
+  return message?.role === "assistant";
+}
+
+function normalizeAgenticRoute(path) {
+  const clean = String(path || "").trim().toLowerCase();
+  if (clean === "workflow") return "workflow";
+  if (clean === "direct") return "direct";
+  return "";
+}
+
+function applyAgenticRouteBadge(element, routePath, routeReason = "") {
+  if (!element) return;
+  const path = normalizeAgenticRoute(routePath);
+  if (!path) return;
+  const role = element.querySelector(".message-role");
+  if (!role) return;
+  let badge = role.querySelector(".message-route-badge");
+  if (!badge) {
+    badge = document.createElement("span");
+    badge.className = "message-route-badge";
+    role.append(badge);
+  }
+  badge.dataset.path = path;
+  badge.textContent = `path: ${path}`;
+  const reason = String(routeReason || "").trim();
+  if (reason) {
+    badge.title = reason;
+  } else {
+    badge.removeAttribute("title");
+  }
 }
 
 function thinkingIndicatorHtml() {
@@ -768,6 +883,113 @@ function workflowPresetsForMode(mode) {
   });
 }
 
+function workflowById(workflowId) {
+  return state.workflowPresets.find((workflow) => workflow.id === workflowId) || null;
+}
+
+function isCustomWorkflow(workflowId) {
+  return state.customWorkflowIds.includes(workflowId);
+}
+
+function normalizeWorkflowNodes(workflow) {
+  const nodes = (Array.isArray(workflow?.nodes) ? workflow.nodes : []).map((node, index) => {
+    const inputValues = Array.isArray(node.input)
+      ? node.input.map((item) => String(item).trim()).filter(Boolean)
+      : String(node.input || "").trim()
+        ? [String(node.input || "").trim()]
+        : [];
+    return {
+      id: String(node.id || `node_${index + 1}`),
+      type: String(node.type || "role"),
+      role: String(node.role || ""),
+      title: String(node.title || ""),
+      input: inputValues,
+      output: String(node.output || ""),
+      max_parallel: Math.min(8, Math.max(1, Number(node.max_parallel || 1))),
+      max_items: Math.min(12, Math.max(1, Number(node.max_items || 4))),
+      expects_json: Boolean(node.expects_json),
+      receive_from: dedupeList(
+        Array.isArray(node.receive_from) ? node.receive_from : parseCsvList(node.receive_from || ""),
+      ),
+      reports_to: dedupeList(
+        Array.isArray(node.reports_to) ? node.reports_to : parseCsvList(node.reports_to || ""),
+      ),
+      worker_instances: Math.min(8, Math.max(1, Number(node.worker_instances || node.max_parallel || 1))),
+      config: typeof node.config === "object" && node.config ? node.config : {},
+    };
+  });
+
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const edges = Array.isArray(workflow?.edges) ? workflow.edges : [];
+  edges.forEach((edge) => {
+    const source = String(edge.from || edge.from_node || "").trim();
+    const target = String(edge.to || "").trim();
+    if (!source || !target || !nodeIds.has(source) || !nodeIds.has(target)) return;
+    const targetNode = nodes.find((node) => node.id === target);
+    const sourceNode = nodes.find((node) => node.id === source);
+    if (targetNode) targetNode.receive_from = dedupeList([...targetNode.receive_from, source]);
+    if (sourceNode) sourceNode.reports_to = dedupeList([...sourceNode.reports_to, target]);
+  });
+  return nodes;
+}
+
+function normalizeWorkflowDraft(workflow) {
+  const modes = Array.isArray(workflow?.modes) && workflow.modes.length > 0
+    ? workflow.modes
+    : [workflow?.mode || "chat"];
+  const uniqueModes = dedupeList(modes.map((mode) => String(mode || "").toLowerCase())).filter((mode) => modeOrder.includes(mode));
+  return {
+    id: String(workflow?.id || ""),
+    name: String(workflow?.name || ""),
+    description: String(workflow?.description || ""),
+    mode: uniqueModes[0] || "chat",
+    modes: uniqueModes.length > 0 ? uniqueModes : ["chat"],
+    execution: workflow?.execution === "direct" ? "direct" : "loop",
+    max_iterations: Math.min(8, Math.max(1, Number(workflow?.max_iterations || 1))),
+    nodes: normalizeWorkflowNodes(workflow || {}),
+  };
+}
+
+function defaultRoleForNodeType(type) {
+  const wanted = String(type || "").toLowerCase();
+  if (wanted === "worker_pool") return "worker";
+  if (wanted === "reviewer") return "reviewer";
+  if (wanted === "judge") return "judge";
+  return "orchestrator";
+}
+
+function newWorkflowDraftFrom(workflow) {
+  const draft = normalizeWorkflowDraft(workflow || {});
+  if (draft.nodes.length > 0) return draft;
+  return {
+    ...draft,
+    nodes: [{
+      id: "orchestrator",
+      type: "role",
+      role: "orchestrator",
+      title: "Plan",
+      input: [],
+      output: "plan",
+      max_parallel: 1,
+      max_items: 4,
+      expects_json: true,
+      receive_from: [],
+      reports_to: [],
+      worker_instances: 1,
+      config: {},
+    }],
+  };
+}
+
+function slugifyWorkflowId(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+}
+
 function workflowOptionsHtml(mode, selected) {
   const workflows = workflowPresetsForMode(mode);
   const options = workflows
@@ -787,6 +1009,22 @@ function renderWorkflowSettings() {
   workflowCode.innerHTML = workflowOptionsHtml("code", selected.code || "simple");
   workflowAgentic.innerHTML = workflowOptionsHtml("agentic", selected.agentic || "simple");
   renderWorkflowPresetList();
+  renderWorkflowEditor();
+  updateSettingsDirtyState();
+}
+
+function workflowEditorTargetOptionsHtml(selectedId) {
+  const options = state.workflowPresets
+    .map((workflow) => {
+      const marker = isCustomWorkflow(workflow.id) ? "custom" : "preset";
+      return `<option value="${escapeHtml(workflow.id)}"${workflow.id === selectedId ? " selected" : ""}>${escapeHtml(workflow.name)} (${marker})</option>`;
+    })
+    .join("");
+  const selectedExists = state.workflowPresets.some((workflow) => workflow.id === selectedId);
+  const customOption = selectedId && !selectedExists
+    ? `<option value="${escapeHtml(selectedId)}" selected>${escapeHtml(selectedId)} (draft)</option>`
+    : "";
+  return `${customOption}${options}`;
 }
 
 function renderWorkflowPresetList() {
@@ -799,20 +1037,294 @@ function renderWorkflowPresetList() {
   state.workflowPresets.forEach((workflow) => {
     const item = document.createElement("article");
     item.className = "workflow-preset-item";
-    const nodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
+    const nodes = normalizeWorkflowNodes(workflow);
     const modes = Array.isArray(workflow.modes) && workflow.modes.length > 0 ? workflow.modes : [workflow.mode];
+    const customBadge = isCustomWorkflow(workflow.id) ? " · custom" : "";
     item.innerHTML = `
       <div>
         <strong>${escapeHtml(workflow.name)}</strong>
-        <small>${escapeHtml(modes.join(", "))} · ${escapeHtml(workflow.execution)} · ${escapeHtml(workflow.max_iterations || 1)} iteration(s)</small>
+        <small>${escapeHtml(modes.join(", "))} · ${escapeHtml(workflow.execution)} · ${escapeHtml(workflow.max_iterations || 1)} iteration(s)${customBadge}</small>
       </div>
       <p>${escapeHtml(workflow.description || "")}</p>
       <div class="workflow-node-list">
         ${nodes.map((node) => `<span>${escapeHtml(node.title || node.role || node.type || node.id)}</span>`).join("")}
       </div>
+      <div class="workflow-graph-preview">
+        ${workflowGraphMarkup(normalizeWorkflowDraft(workflow), true)}
+      </div>
     `;
     workflowPresetList.append(item);
   });
+}
+
+function workflowGraphMarkup(workflow, compact = false) {
+  const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
+  if (nodes.length === 0) {
+    return '<p class="settings-empty">No nodes to display.</p>';
+  }
+  const nodeWidth = compact ? 150 : 176;
+  const nodeHeight = compact ? 58 : 68;
+  const gapX = compact ? 34 : 44;
+  const gapY = compact ? 24 : 30;
+  const pad = 18;
+  const cols = compact ? Math.min(3, Math.max(1, nodes.length)) : Math.min(4, Math.max(1, nodes.length));
+  const rows = Math.ceil(nodes.length / cols);
+  const width = pad * 2 + (cols * nodeWidth) + ((cols - 1) * gapX);
+  const height = pad * 2 + (rows * nodeHeight) + ((rows - 1) * gapY);
+  const positions = {};
+  nodes.forEach((node, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    positions[node.id] = {
+      x: pad + col * (nodeWidth + gapX),
+      y: pad + row * (nodeHeight + gapY),
+    };
+  });
+
+  const edges = deriveWorkflowEdgesFromNodes(nodes);
+  const edgeSvg = edges
+    .map((edge) => {
+      const source = positions[edge.from];
+      const target = positions[edge.to];
+      if (!source || !target) return "";
+      if (target.x > source.x) {
+        const sx = source.x + nodeWidth;
+        const sy = source.y + nodeHeight / 2;
+        const tx = target.x;
+        const ty = target.y + nodeHeight / 2;
+        return `<path class="workflow-graph-edge" d="M ${sx} ${sy} C ${sx + 30} ${sy}, ${tx - 30} ${ty}, ${tx} ${ty}" />`;
+      }
+      const sx = source.x + nodeWidth / 2;
+      const sy = source.y + nodeHeight;
+      const tx = target.x + nodeWidth / 2;
+      const ty = target.y;
+      return `<path class="workflow-graph-edge loop" d="M ${sx} ${sy} C ${sx} ${sy + 30}, ${tx} ${ty - 30}, ${tx} ${ty}" />`;
+    })
+    .join("");
+
+  const nodeSvg = nodes
+    .map((node) => {
+      const pos = positions[node.id];
+      const isWorker = String(node.type || "").toLowerCase() === "worker_pool";
+      const title = escapeHtml(String(node.title || node.role || node.id || "node"));
+      const metaParts = [String(node.type || "role")];
+      if (isWorker) {
+        metaParts.push(`x${Math.max(1, Number(node.worker_instances || node.max_parallel || 1))}`);
+      }
+      const meta = escapeHtml(metaParts.join(" · "));
+      return `
+        <g class="workflow-graph-node${isWorker ? " worker" : ""}">
+          <rect x="${pos.x}" y="${pos.y}" width="${nodeWidth}" height="${nodeHeight}"></rect>
+          <text x="${pos.x + 10}" y="${pos.y + 24}">
+            <tspan>${title}</tspan>
+            <tspan x="${pos.x + 10}" dy="18">${meta}</tspan>
+          </text>
+        </g>
+      `;
+    })
+    .join("");
+
+  return `
+    <svg class="workflow-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Workflow graph">
+      <defs>
+        <marker id="wf-arrow" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+          <path d="M0,0 L9,3.5 L0,7 z" fill="rgba(157, 250, 255, 0.7)"></path>
+        </marker>
+      </defs>
+      ${edgeSvg}
+      ${nodeSvg}
+    </svg>
+  `;
+}
+
+function deriveWorkflowEdgesFromNodes(nodes) {
+  const available = new Set((nodes || []).map((node) => node.id));
+  const dedupe = new Set();
+  const edges = [];
+  (nodes || []).forEach((node) => {
+    const source = String(node.id || "").trim();
+    if (!source) return;
+    const reports = dedupeList(Array.isArray(node.reports_to) ? node.reports_to : parseCsvList(node.reports_to || ""));
+    reports.forEach((target) => {
+      const to = String(target || "").trim();
+      if (!to || !available.has(to)) return;
+      const key = `${source}->${to}`;
+      if (dedupe.has(key)) return;
+      dedupe.add(key);
+      edges.push({ from: source, to });
+    });
+    const incoming = dedupeList(Array.isArray(node.receive_from) ? node.receive_from : parseCsvList(node.receive_from || ""));
+    incoming.forEach((from) => {
+      const cleanFrom = String(from || "").trim();
+      if (!cleanFrom || !available.has(cleanFrom)) return;
+      const key = `${cleanFrom}->${source}`;
+      if (dedupe.has(key)) return;
+      dedupe.add(key);
+      edges.push({ from: cleanFrom, to: source });
+    });
+  });
+  return edges;
+}
+
+function activeWorkflowDraft() {
+  if (state.workflowEditorDraft) return state.workflowEditorDraft;
+  const first = state.workflowPresets[0] || null;
+  state.workflowEditorDraft = first ? newWorkflowDraftFrom(first) : null;
+  return state.workflowEditorDraft;
+}
+
+function renderWorkflowEditorNodes() {
+  const draft = activeWorkflowDraft();
+  if (!workflowEditorNodeList || !draft) return;
+  workflowEditorNodeList.innerHTML = "";
+  draft.nodes.forEach((node, index) => {
+    const isWorker = String(node.type || "").toLowerCase() === "worker_pool";
+    const article = document.createElement("article");
+    article.className = "workflow-editor-node";
+    article.dataset.index = String(index);
+    article.innerHTML = `
+      <div class="workflow-editor-node-head">
+        <strong>Node ${index + 1}</strong>
+        <button class="danger-button remove-workflow-node" type="button">Remove</button>
+      </div>
+      <div class="workflow-editor-node-meta">
+        <label class="field">
+          <span>ID</span>
+          <input class="wf-node-id" type="text" value="${escapeHtml(node.id)}" />
+        </label>
+        <label class="field">
+          <span>Title</span>
+          <input class="wf-node-title" type="text" value="${escapeHtml(node.title || "")}" />
+        </label>
+        <label class="field">
+          <span>Type</span>
+          <select class="wf-node-type">
+            <option value="role"${node.type === "role" ? " selected" : ""}>role</option>
+            <option value="worker_pool"${node.type === "worker_pool" ? " selected" : ""}>worker_pool</option>
+            <option value="reviewer"${node.type === "reviewer" ? " selected" : ""}>reviewer</option>
+            <option value="judge"${node.type === "judge" ? " selected" : ""}>judge</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Role</span>
+          <input class="wf-node-role" type="text" value="${escapeHtml(node.role || "")}" placeholder="${escapeHtml(defaultRoleForNodeType(node.type))}" />
+        </label>
+      </div>
+      <div class="workflow-editor-node-links">
+        <label class="field">
+          <span>receiveFrom (comma separated node ids)</span>
+          <input class="wf-node-receive" type="text" value="${escapeHtml((node.receive_from || []).join(", "))}" />
+        </label>
+        <label class="field">
+          <span>reportsTo (comma separated node ids)</span>
+          <input class="wf-node-reports" type="text" value="${escapeHtml((node.reports_to || []).join(", "))}" />
+        </label>
+      </div>
+      <div class="workflow-editor-node-io">
+        <label class="field">
+          <span>Input Fields</span>
+          <input class="wf-node-input" type="text" value="${escapeHtml((node.input || []).join(", "))}" placeholder="plan, worker_reports" />
+        </label>
+        <label class="field">
+          <span>Output Field</span>
+          <input class="wf-node-output" type="text" value="${escapeHtml(node.output || "")}" placeholder="plan" />
+        </label>
+        <label class="field">
+          <span>Worker Instances</span>
+          <input class="wf-node-workers" type="number" min="1" max="8" value="${Math.max(1, Number(node.worker_instances || node.max_parallel || 1))}" ${isWorker ? "" : "disabled"} />
+        </label>
+        <label class="field">
+          <span>Max Work Items</span>
+          <input class="wf-node-max-items" type="number" min="1" max="12" value="${Math.max(1, Number(node.max_items || 4))}" />
+        </label>
+        <label class="toggle-field">
+          <input class="wf-node-json" type="checkbox" ${node.expects_json ? "checked" : ""} />
+          <span>expects_json</span>
+        </label>
+      </div>
+    `;
+    workflowEditorNodeList.append(article);
+  });
+}
+
+function updateWorkflowNodeTypeControls(row, type) {
+  if (!row) return;
+  const isWorker = String(type || "").toLowerCase() === "worker_pool";
+  const roleInput = row.querySelector(".wf-node-role");
+  const workerInput = row.querySelector(".wf-node-workers");
+  if (roleInput) {
+    roleInput.placeholder = defaultRoleForNodeType(type);
+  }
+  if (workerInput) {
+    workerInput.disabled = !isWorker;
+  }
+}
+
+function renderWorkflowEditor() {
+  const draft = activeWorkflowDraft();
+  if (!workflowEditorTarget || !draft) return;
+  workflowEditorTarget.innerHTML = workflowEditorTargetOptionsHtml(draft.id);
+  workflowEditorDelete.disabled = !isCustomWorkflow(draft.id);
+  workflowEditorId.value = draft.id || "";
+  workflowEditorName.value = draft.name || "";
+  workflowEditorDescription.value = draft.description || "";
+  workflowEditorExecution.value = draft.execution || "loop";
+  workflowEditorMaxIterations.value = String(Math.max(1, Number(draft.max_iterations || 1)));
+  workflowEditorModeChat.checked = draft.modes.includes("chat");
+  workflowEditorModeCode.checked = draft.modes.includes("code");
+  workflowEditorModeAgentic.checked = draft.modes.includes("agentic");
+  const selected = state.settings?.workflow_presets || {};
+  workflowEditorAssignChat.checked = selected.chat === draft.id;
+  workflowEditorAssignCode.checked = selected.code === draft.id;
+  workflowEditorAssignAgentic.checked = selected.agentic === draft.id;
+  renderWorkflowEditorNodes();
+  workflowGraphPreview.innerHTML = workflowGraphMarkup(draft, false);
+}
+
+function collectWorkflowDraftFromEditor() {
+  const previous = activeWorkflowDraft();
+  if (!previous) return null;
+  const nodes = [...workflowEditorNodeList.querySelectorAll(".workflow-editor-node")]
+    .map((row, index) => {
+      const type = row.querySelector(".wf-node-type")?.value || "role";
+      const isWorker = type === "worker_pool";
+      const role = row.querySelector(".wf-node-role")?.value.trim() || defaultRoleForNodeType(type);
+      const workerInstances = Math.min(8, Math.max(1, Number(row.querySelector(".wf-node-workers")?.value || "1")));
+      return {
+        id: row.querySelector(".wf-node-id")?.value.trim() || `node_${index + 1}`,
+        type,
+        role,
+        title: row.querySelector(".wf-node-title")?.value.trim() || "",
+        input: parseCsvList(row.querySelector(".wf-node-input")?.value || ""),
+        output: row.querySelector(".wf-node-output")?.value.trim() || "",
+        max_parallel: workerInstances,
+        max_items: Math.min(12, Math.max(1, Number(row.querySelector(".wf-node-max-items")?.value || "4"))),
+        expects_json: Boolean(row.querySelector(".wf-node-json")?.checked),
+        receive_from: dedupeList(parseCsvList(row.querySelector(".wf-node-receive")?.value || "")),
+        reports_to: dedupeList(parseCsvList(row.querySelector(".wf-node-reports")?.value || "")),
+        worker_instances: isWorker ? workerInstances : 1,
+        config: {},
+      };
+    });
+  const modes = [];
+  if (workflowEditorModeChat.checked) modes.push("chat");
+  if (workflowEditorModeCode.checked) modes.push("code");
+  if (workflowEditorModeAgentic.checked) modes.push("agentic");
+  const normalizedModes = modes.length > 0 ? modes : ["chat"];
+  const draft = {
+    id: slugifyWorkflowId(workflowEditorId.value || previous.id || workflowEditorName.value) || previous.id || "custom_workflow",
+    name: workflowEditorName.value.trim() || "Custom Workflow",
+    description: workflowEditorDescription.value.trim(),
+    mode: normalizedModes[0],
+    modes: normalizedModes,
+    execution: workflowEditorExecution.value === "direct" ? "direct" : "loop",
+    max_iterations: Math.min(8, Math.max(1, Number(workflowEditorMaxIterations.value || "1"))),
+    nodes,
+  };
+  state.workflowEditorDraft = draft;
+  workflowEditorId.value = draft.id;
+  workflowGraphPreview.innerHTML = workflowGraphMarkup(draft, false);
+  return draft;
 }
 
 function renderEmbeddingModel() {
@@ -1034,6 +1546,111 @@ function collectModelRoles() {
   return collectModelRoleDrafts().filter((item) => item.role && item.model);
 }
 
+function buildSettingsPayload(includeIncompleteRoles = false) {
+  if (!state.settings) return null;
+  const roleDrafts = collectModelRoleDrafts()
+    .map((item) => ({
+      role: item.role.trim(),
+      model: item.model.trim(),
+    }))
+    .filter((item) => includeIncompleteRoles ? (item.role || item.model) : (item.role && item.model));
+  if (!includeIncompleteRoles && roleDrafts.length === 0) {
+    return null;
+  }
+  const assistantRole = roleDrafts.find((item) => item.role.toLowerCase() === "assistant" && item.model)
+    || roleDrafts.find((item) => item.model)
+    || { model: state.settings.default_model || "" };
+  return {
+    ...state.settings,
+    user_name: userName.value.trim(),
+    ollama_base_url: ollamaBaseUrl.value.trim(),
+    workspace_path: workspacePath.value.trim(),
+    embedding_model: embeddingModel.value.trim(),
+    require_tool_confirmation: requireToolConfirmation.checked,
+    always_allowed_tools: [...new Set(
+      (Array.isArray(state.settings?.always_allowed_tools) ? state.settings.always_allowed_tools : [])
+        .map((item) => String(item).trim())
+        .filter(Boolean),
+    )].sort(),
+    effort: currentEffort(),
+    workflow_presets: {
+      chat: workflowChat?.value || "simple",
+      code: workflowCode?.value || "simple",
+      agentic: workflowAgentic?.value || "simple",
+    },
+    email_provider: {
+      ...(state.settings.email_provider || {}),
+      provider: emailProvider.value,
+    },
+    default_model: assistantRole.model || state.settings.default_model || "",
+    model_roles: roleDrafts,
+  };
+}
+
+function mergeSettingsSnapshot(current, snapshot) {
+  const base = current || {};
+  const incoming = snapshot || {};
+  const emailProviderSnapshot = incoming.email_provider || {};
+  const next = {
+    ...base,
+    ...incoming,
+    workflow_presets: {
+      ...(base.workflow_presets || {}),
+      ...(incoming.workflow_presets || {}),
+    },
+    email_provider: {
+      ...(base.email_provider || {}),
+      provider: typeof emailProviderSnapshot.provider === "string"
+        ? emailProviderSnapshot.provider
+        : (base.email_provider?.provider || ""),
+    },
+  };
+  return next;
+}
+
+function ensureSettingsDirtyTracker() {
+  if (settingsDirtyTracker || !settingsForm) return settingsDirtyTracker;
+  settingsDirtyTracker = registerDirtyTracker(settingsForm, {
+    storageKey: "settings",
+    getSnapshot: () => buildSettingsPayload(true),
+    applySnapshot: (snapshot) => {
+      if (!snapshot || typeof snapshot !== "object") return;
+      state.settings = mergeSettingsSnapshot(state.settings, snapshot);
+      renderSettings();
+      syncHeaderWorkspace();
+      if (messagesEl.querySelector(".empty")) {
+        renderMessages([]);
+      }
+    },
+    onDirtyChange: (dirty) => {
+      if (!saveSettingsButton || !settingsFooter) return;
+      saveSettingsButton.classList.toggle("is-hidden", !dirty);
+      saveSettingsButton.disabled = !dirty;
+      saveSettingsButton.setAttribute("aria-hidden", dirty ? "false" : "true");
+      settingsFooter.classList.toggle("has-changes", dirty);
+    },
+  });
+  return settingsDirtyTracker;
+}
+
+function updateSettingsDirtyState() {
+  const tracker = ensureSettingsDirtyTracker();
+  if (!tracker || !state.settings) return;
+  tracker.refresh();
+}
+
+function captureSettingsBaselineFromForm() {
+  const tracker = ensureSettingsDirtyTracker();
+  if (!tracker || !state.settings) return;
+  tracker.captureBaseline();
+}
+
+function restoreSettingsDraftFromStorage() {
+  const tracker = ensureSettingsDirtyTracker();
+  if (!tracker || !state.settings) return false;
+  return tracker.restoreDraftIfAny();
+}
+
 function syncModelSelectionState() {
   if (!state.settings) return;
   const draftRoles = collectModelRoleDrafts();
@@ -1062,6 +1679,7 @@ function renderSettings() {
   renderModelRoles();
   renderSettingsSections();
   renderEffortSwitch();
+  updateSettingsDirtyState();
 }
 
 async function ensureModelsLoaded(force = false) {
@@ -1115,6 +1733,7 @@ function renderAlwaysAllowedTools() {
     });
     alwaysAllowedTools.append(chip);
   });
+  updateSettingsDirtyState();
 }
 
 function renderAvailableTools() {
@@ -1146,6 +1765,7 @@ function openSettings() {
   shell.classList.add("settings-open");
   settingsPanel.setAttribute("aria-hidden", "false");
   renderSettings();
+  loadStartupDeferred();
   ensureModelsLoaded().catch((error) => {
     modelsHint.textContent = error.message;
   });
@@ -1179,9 +1799,12 @@ function renderMessages(messages) {
         </div>
       `
       : "";
+    const bubbleContent = shouldRenderMarkdown(message)
+      ? formatContent(message.content)
+      : plainTextContent(message.content);
     item.innerHTML = `
       <div class="message-role">${escapeHtml(message.role)}</div>
-      <div class="bubble">${formatContent(message.content)}</div>
+      <div class="bubble">${bubbleContent}</div>
       ${feedbackActions}
     `;
     messagesEl.append(item);
@@ -1189,6 +1812,7 @@ function renderMessages(messages) {
   renderActiveStream();
   messagesEl.scrollTop = messagesEl.scrollHeight;
   state.autoScrollLocked = true;
+  stabilizeMessagesBottomScroll();
 }
 
 function isMessagesNearBottom() {
@@ -1199,6 +1823,25 @@ function scrollMessagesToBottom() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
   if (!state.streamingAssistant) {
     state.autoScrollLocked = true;
+  }
+}
+
+function stabilizeMessagesBottomScroll() {
+  const applyBottomScroll = () => {
+    if (!state.activeChatId) return;
+    scrollMessagesToBottom();
+  };
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(applyBottomScroll);
+  });
+
+  if (document.fonts?.ready) {
+    document.fonts.ready
+      .then(() => {
+        requestAnimationFrame(applyBottomScroll);
+      })
+      .catch(() => {});
   }
 }
 
@@ -1214,10 +1857,15 @@ function appendMessage(message, extraClass = "", scrollToBottom = state.autoScro
   item.className = `message ${message.role} ${mode} ${extraClass}`.trim();
   if (isThinking) item.classList.add("thinking");
   item.dataset.messageId = message.id || "";
+  const bubbleContent = isThinking
+    ? ""
+    : shouldRenderMarkdown(message)
+      ? formatContent(message.content || "")
+      : plainTextContent(message.content || "");
   item.innerHTML = `
     <div class="message-role">${escapeHtml(message.role)}</div>
     ${isThinking ? thinkingIndicatorHtml() : ""}
-    <div class="bubble">${isThinking ? "" : formatContent(message.content || "")}</div>
+    <div class="bubble">${bubbleContent}</div>
     ${message.role === "assistant" && message.id ? `
       <div class="message-feedback" aria-label="Rate response">
         <button class="feedback-button" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="up" aria-label="Thumbs up">${thumbIcon("up")}</button>
@@ -1241,23 +1889,48 @@ function renderActiveStream() {
   if (messagesEl.querySelector(".empty")) {
     messagesEl.innerHTML = "";
   }
-  return ensureStreamAssistantElement(stream);
+  const element = ensureStreamAssistantElement(stream);
+  if (stream.content && element) {
+    setStreamingContent(element, stream.content, false);
+  }
+  return element;
 }
 
 function ensureStreamAssistantElement(stream = state.activeStream) {
   if (!streamMatchesView(stream)) return null;
-  let element = [...messagesEl.querySelectorAll(".message.streaming")]
-    .find((item) => item.dataset.streamId === stream.id);
+  let element = stream.element || null;
+  if (element && (!element.isConnected || element.parentElement !== messagesEl)) {
+    element = null;
+    stream.element = null;
+  }
   if (!element) {
     element = appendMessage({ role: "assistant", mode: stream.mode, content: stream.content || "" }, "streaming", false);
     element.dataset.streamId = stream.id;
+    stream.element = element;
   }
-  if (stream.content) {
-    setMessageContent(element, stream.content, false);
-  } else {
+  if (!stream.content) {
     setRuntimeStatus(element, streamStatusItems(stream));
   }
+  if (stream.mode === "agentic" && stream.routePath) {
+    applyAgenticRouteBadge(element, stream.routePath, stream.routeReason);
+  }
   return element;
+}
+
+function setStreamingContent(element, content, followScroll = true) {
+  const bubble = element?.querySelector(".bubble");
+  if (!bubble) return;
+  element.classList.toggle("thinking", !content);
+  if (content) {
+    element.querySelector(".thinking-notice")?.remove();
+    element.querySelector(".runtime-status-mount")?.remove();
+    element.classList.remove("status-only");
+  }
+  bubble.classList.add("streaming-plain");
+  bubble.textContent = content || "";
+  if (followScroll) {
+    scrollMessagesToBottom();
+  }
 }
 
 function setMessageContent(element, content, followScroll = true) {
@@ -1269,6 +1942,7 @@ function setMessageContent(element, content, followScroll = true) {
     element.querySelector(".runtime-status-mount")?.remove();
     element.classList.remove("status-only");
   }
+  bubble.classList.remove("streaming-plain");
   bubble.innerHTML = formatContent(content);
   if (followScroll) {
     scrollMessagesToBottom();
@@ -1343,9 +2017,14 @@ async function loadChats() {
   }
 }
 
-async function loadSettings() {
+async function loadSettings(restoreDraft = false) {
   state.settings = await api("/api/settings");
   renderSettings();
+  captureSettingsBaselineFromForm();
+  const hasLocalDraft = Boolean(settingsForm && safeLocalStorageGet(dirtyStorageKey(settingsForm, "settings")));
+  if (restoreDraft || hasLocalDraft) {
+    restoreSettingsDraftFromStorage();
+  }
   syncHeaderWorkspace();
   if (shell.classList.contains("settings-open")) {
     ensureModelsLoaded().catch((error) => {
@@ -1355,11 +2034,15 @@ async function loadSettings() {
 }
 
 async function loadWorkflowPresets() {
+  const previousDraftId = state.workflowEditorDraft?.id || "";
   const response = await api("/api/settings/workflows");
   state.workflowPresets = response.workflows || [];
+  state.customWorkflowIds = Array.isArray(response.custom_ids) ? response.custom_ids : [];
   if (response.selected && state.settings) {
     state.settings.workflow_presets = response.selected;
   }
+  const candidate = workflowById(previousDraftId) || workflowById(state.settings?.workflow_presets?.[state.activeMode]) || state.workflowPresets[0] || null;
+  state.workflowEditorDraft = candidate ? newWorkflowDraftFrom(candidate) : null;
   renderWorkflowSettings();
 }
 
@@ -1422,6 +2105,132 @@ async function loadSchedulerStatus() {
   agenticSchedulerStatus.textContent = status.running
     ? `Scheduler active · ${status.active_runs.length} active run(s)`
     : "Scheduler paused";
+}
+
+function createNewCustomWorkflowDraft() {
+  const base = normalizeWorkflowDraft(workflowById("deep_orchestra") || workflowById("simple") || state.workflowPresets[0] || {});
+  const draftBase = cloneWorkflowDraft(base);
+  const idBase = slugifyWorkflowId(`${base.id || "workflow"}_custom`) || "custom_workflow";
+  let unique = idBase;
+  let counter = 2;
+  const taken = new Set(state.workflowPresets.map((workflow) => workflow.id));
+  while (taken.has(unique)) {
+    unique = `${idBase}_${counter}`;
+    counter += 1;
+  }
+  state.workflowEditorDraft = {
+    ...draftBase,
+    id: unique,
+    name: `${draftBase.name || "Workflow"} Custom`,
+    description: draftBase.description || "",
+    modes: draftBase.modes?.length ? draftBase.modes : ["chat", "code", "agentic"],
+    mode: (draftBase.modes?.[0] || "chat"),
+  };
+  renderWorkflowEditor();
+}
+
+async function saveWorkflowEditorDraft() {
+  return saveWorkflowEditorDraftWithAssignment(false);
+}
+
+function currentWorkflowAssignmentSelection() {
+  return {
+    chat: Boolean(workflowEditorAssignChat?.checked),
+    code: Boolean(workflowEditorAssignCode?.checked),
+    agentic: Boolean(workflowEditorAssignAgentic?.checked),
+  };
+}
+
+async function applyWorkflowAssignment(workflowId, assignment = currentWorkflowAssignmentSelection()) {
+  if (!workflowById(workflowId)) {
+    setStatus("Save the workflow first before assigning it.", true);
+    return false;
+  }
+  const nextPresets = {
+    ...(state.settings?.workflow_presets || {}),
+  };
+  let assigned = 0;
+  if (assignment.chat) {
+    nextPresets.chat = workflowId;
+    assigned += 1;
+  }
+  if (assignment.code) {
+    nextPresets.code = workflowId;
+    assigned += 1;
+  }
+  if (assignment.agentic) {
+    nextPresets.agentic = workflowId;
+    assigned += 1;
+  }
+  if (assigned === 0) {
+    return false;
+  }
+  const workflowPresets = {
+    chat: nextPresets.chat || "simple",
+    code: nextPresets.code || "simple",
+    agentic: nextPresets.agentic || "simple",
+  };
+  state.settings = await api("/api/settings", {
+    method: "PUT",
+    body: JSON.stringify({
+      ...(state.settings || {}),
+      workflow_presets: workflowPresets,
+    }),
+  });
+  renderWorkflowSettings();
+  captureSettingsBaselineFromForm();
+  setStatus("Workflow assigned & saved");
+  return true;
+}
+
+async function saveWorkflowEditorDraftWithAssignment(assignAfterSave = false) {
+  const draft = collectWorkflowDraftFromEditor();
+  if (!draft) return;
+  const assignment = assignAfterSave ? currentWorkflowAssignmentSelection() : null;
+  if (!draft.id || !draft.name) {
+    setStatus("Workflow id and name are required.", true);
+    return;
+  }
+  if (!Array.isArray(draft.nodes) || draft.nodes.length === 0) {
+    setStatus("At least one node is required.", true);
+    return;
+  }
+  const edges = deriveWorkflowEdgesFromNodes(draft.nodes);
+  const payload = {
+    ...draft,
+    mode: draft.modes[0] || "chat",
+    edges,
+  };
+  await api(`/api/settings/workflows/${encodeURIComponent(draft.id)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  await loadWorkflowPresets();
+  const saved = workflowById(draft.id);
+  if (saved) {
+    state.workflowEditorDraft = newWorkflowDraftFrom(saved);
+    renderWorkflowEditor();
+  }
+  if (assignAfterSave) {
+    const assigned = await applyWorkflowAssignment(draft.id, assignment || undefined);
+    if (!assigned) {
+      setStatus("Custom workflow saved");
+    }
+    return;
+  }
+  setStatus("Custom workflow saved");
+}
+
+async function deleteWorkflowEditorDraft() {
+  const draft = collectWorkflowDraftFromEditor();
+  if (!draft || !draft.id) return;
+  if (!isCustomWorkflow(draft.id)) {
+    setStatus("Only custom workflows can be deleted.", true);
+    return;
+  }
+  await api(`/api/settings/workflows/${encodeURIComponent(draft.id)}`, { method: "DELETE" });
+  await loadWorkflowPresets();
+  setStatus("Custom workflow deleted");
 }
 
 async function refreshModels() {
@@ -1546,6 +2355,9 @@ function setLoading(loading) {
 }
 
 async function sendMessage(content) {
+  if (state.messageRequestInFlight) return;
+  state.messageRequestInFlight = true;
+  try {
   if (!state.activeChatId) {
     await createChat();
   }
@@ -1556,8 +2368,11 @@ async function sendMessage(content) {
     chatId,
     mode,
     content: "",
+    routePath: "",
+    routeReason: "",
     statusItems: [],
     assistantMessage: null,
+    element: null,
   };
   state.activeStream = stream;
   setLoading(true);
@@ -1565,7 +2380,22 @@ async function sendMessage(content) {
   let tokenChunks = 0;
   let assistantEl = null;
   let pendingRender = false;
+  let pendingRenderTimer = null;
+  let lastRenderTs = 0;
   let finalStatus = "";
+
+  const flushRender = () => {
+    if (!pendingRender) return;
+    pendingRender = false;
+    if (pendingRenderTimer !== null) {
+      window.clearTimeout(pendingRenderTimer);
+      pendingRenderTimer = null;
+    }
+    assistantEl = ensureStreamAssistantElement(stream);
+    if (assistantEl) {
+      setStreamingContent(assistantEl, stream.content, state.autoScrollLocked);
+    }
+  };
 
   const renderWorkflowProgress = () => {
     if (stream.content) return;
@@ -1593,13 +2423,81 @@ async function sendMessage(content) {
   const scheduleRender = () => {
     if (pendingRender) return;
     pendingRender = true;
-    requestAnimationFrame(() => {
-      pendingRender = false;
-      assistantEl = ensureStreamAssistantElement(stream);
-      if (assistantEl) {
-        setMessageContent(assistantEl, stream.content, false);
+    const elapsed = performance.now() - lastRenderTs;
+    const delay = Math.max(0, streamRenderIntervalMs - elapsed);
+    pendingRenderTimer = window.setTimeout(() => {
+      requestAnimationFrame(() => {
+        pendingRender = false;
+        pendingRenderTimer = null;
+        lastRenderTs = performance.now();
+        assistantEl = ensureStreamAssistantElement(stream);
+        if (assistantEl) {
+          setStreamingContent(assistantEl, stream.content, state.autoScrollLocked);
+        }
+      });
+    }, delay);
+  };
+
+  const handleStreamEvent = (event) => {
+    if (event.type === "user_message") {
+      if (streamMatchesView(stream)) {
+        appendMessage(event.message);
       }
-    });
+      watchChatTitle(chatId);
+      input.value = "";
+      assistantEl = ensureStreamAssistantElement(stream);
+      state.streamingAssistant = true;
+      state.autoScrollLocked = true;
+    } else if (event.type === "status") {
+      const label = event.message || `${mode} working...`;
+      setStatus(label);
+      pushRuntimeStatus(label);
+    } else if (event.type === "workflow_status") {
+      const label = event.message || "Workflow step running...";
+      setStatus(label);
+      pushRuntimeStatus(label);
+    } else if (event.type === "agentic_route") {
+      stream.routePath = normalizeAgenticRoute(event.path);
+      stream.routeReason = String(event.reason || "").trim();
+      assistantEl = ensureStreamAssistantElement(stream);
+      applyAgenticRouteBadge(assistantEl, stream.routePath, stream.routeReason);
+    } else if (event.type === "token") {
+      if (!state.streamingAssistant) {
+        state.streamingAssistant = true;
+        state.autoScrollLocked = true;
+      }
+      assistantEl = ensureStreamAssistantElement(stream);
+      clearRuntimeStatus(assistantEl);
+      stream.content += event.content || "";
+      tokenChunks += 1;
+      const elapsed = Math.max((performance.now() - streamStartedAt) / 1000, 0.1);
+      setStatus(`${mode} streaming · ${(tokenChunks / elapsed).toFixed(1)} tok/s`);
+      scheduleRender();
+    } else if (event.type === "assistant_message") {
+      stream.assistantMessage = event.message;
+      flushRender();
+      assistantEl = ensureStreamAssistantElement(stream);
+      setMessageContent(assistantEl, event.message?.content || stream.content, false);
+      finalizeAssistantMessage(assistantEl, event.message);
+    } else if (event.type === "done") {
+      flushRender();
+      const exact = event.stats?.tokens_per_second;
+      assistantEl = ensureStreamAssistantElement(stream);
+      if (assistantEl && stream.content) {
+        setMessageContent(assistantEl, stream.assistantMessage?.content || stream.content, false);
+      }
+      finalStatus = exact ? `Done · ${exact} tok/s` : "Ready";
+      setStatus(finalStatus);
+    } else if (event.type === "error") {
+      throw new Error(event.message || "Stream failed");
+    }
+  };
+
+  const processStreamFrame = (frame) => {
+    const event = parseFrameEvent(frame);
+    if (event) {
+      handleStreamEvent(event);
+    }
   };
 
   try {
@@ -1616,59 +2514,23 @@ async function sendMessage(content) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    const processCompleteFrames = () => {
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() || "";
+      frames.forEach(processStreamFrame);
+    };
 
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const frames = buffer.split("\n\n");
-      buffer = frames.pop() || "";
-
-      for (const frame of frames) {
-        const line = frame.split("\n").find((item) => item.startsWith("data: "));
-        if (!line) continue;
-        const event = JSON.parse(line.slice(6));
-        if (event.type === "user_message") {
-          if (streamMatchesView(stream)) {
-            appendMessage(event.message);
-          }
-          watchChatTitle(chatId);
-          input.value = "";
-          assistantEl = ensureStreamAssistantElement(stream);
-          state.streamingAssistant = true;
-          state.autoScrollLocked = false;
-        } else if (event.type === "status") {
-          const label = event.message || `${mode} working...`;
-          setStatus(label);
-          pushRuntimeStatus(label);
-        } else if (event.type === "workflow_status") {
-          const label = event.message || "Workflow step running...";
-          setStatus(label);
-          pushRuntimeStatus(label);
-        } else if (event.type === "token") {
-          if (!state.streamingAssistant) {
-            state.streamingAssistant = true;
-            state.autoScrollLocked = false;
-          }
-          assistantEl = ensureStreamAssistantElement(stream);
-          clearRuntimeStatus(assistantEl);
-          stream.content += event.content || "";
-          tokenChunks += 1;
-          const elapsed = Math.max((performance.now() - streamStartedAt) / 1000, 0.1);
-          setStatus(`${mode} streaming · ${(tokenChunks / elapsed).toFixed(1)} tok/s`);
-          scheduleRender();
-        } else if (event.type === "assistant_message") {
-          stream.assistantMessage = event.message;
-          assistantEl = ensureStreamAssistantElement(stream);
-          finalizeAssistantMessage(assistantEl, event.message);
-        } else if (event.type === "done") {
-          const exact = event.stats?.tokens_per_second;
-          finalStatus = exact ? `Done · ${exact} tok/s` : "Ready";
-          setStatus(finalStatus);
-        } else if (event.type === "error") {
-          throw new Error(event.message || "Stream failed");
-        }
-      }
+      processCompleteFrames();
+    }
+    buffer += decoder.decode();
+    processCompleteFrames();
+    if (buffer.trim()) {
+      processStreamFrame(buffer);
+      buffer = "";
     }
 
     await loadChats();
@@ -1681,14 +2543,23 @@ async function sendMessage(content) {
     setStatus(error.message, true);
     if (assistantEl && !stream.content) {
       assistantEl.remove();
+      stream.element = null;
     }
   } finally {
+    flushRender();
+    if (pendingRenderTimer !== null) {
+      window.clearTimeout(pendingRenderTimer);
+      pendingRenderTimer = null;
+    }
     if (state.activeStream?.id === stream.id) {
       state.activeStream = null;
     }
     state.streamingAssistant = false;
     setLoading(false);
     if (finalStatus) setStatus(finalStatus);
+  }
+  } finally {
+    state.messageRequestInFlight = false;
   }
 }
 
@@ -1807,6 +2678,101 @@ settingsNavButtons.forEach((button) => {
     state.activeSettingsSection = button.dataset.settingsSection || "basis";
     renderSettingsSections();
   });
+});
+
+workflowEditorTarget?.addEventListener("change", () => {
+  const selectedId = workflowEditorTarget.value;
+  const selected = workflowById(selectedId);
+  if (!selected) return;
+  state.workflowEditorDraft = newWorkflowDraftFrom(selected);
+  renderWorkflowEditor();
+});
+
+workflowEditorNew?.addEventListener("click", () => {
+  createNewCustomWorkflowDraft();
+});
+
+workflowEditorSave?.addEventListener("click", () => {
+  saveWorkflowEditorDraft().catch((error) => setStatus(error.message, true));
+});
+
+workflowEditorSaveAssign?.addEventListener("click", () => {
+  saveWorkflowEditorDraftWithAssignment(true).catch((error) => setStatus(error.message, true));
+});
+
+workflowEditorDelete?.addEventListener("click", () => {
+  deleteWorkflowEditorDraft().catch((error) => setStatus(error.message, true));
+});
+
+workflowEditorAddNode?.addEventListener("click", () => {
+  const draft = collectWorkflowDraftFromEditor() || activeWorkflowDraft();
+  if (!draft) return;
+  draft.nodes.push({
+    id: `node_${draft.nodes.length + 1}`,
+    type: "role",
+    role: "orchestrator",
+    title: "New Node",
+    input: [],
+    output: "",
+    max_parallel: 1,
+    max_items: 4,
+    expects_json: false,
+    receive_from: [],
+    reports_to: [],
+    worker_instances: 1,
+    config: {},
+  });
+  state.workflowEditorDraft = draft;
+  renderWorkflowEditor();
+});
+
+workflowEditorNodeList?.addEventListener("click", (event) => {
+  const removeButton = event.target.closest(".remove-workflow-node");
+  if (!removeButton) return;
+  const row = removeButton.closest(".workflow-editor-node");
+  const index = Number(row?.dataset.index ?? "-1");
+  const draft = collectWorkflowDraftFromEditor() || activeWorkflowDraft();
+  if (!draft || index < 0) return;
+  draft.nodes.splice(index, 1);
+  state.workflowEditorDraft = draft;
+  renderWorkflowEditor();
+});
+
+workflowEditorNodeList?.addEventListener("change", (event) => {
+  const typeSelect = event.target.closest(".wf-node-type");
+  if (!typeSelect) {
+    collectWorkflowDraftFromEditor();
+    return;
+  }
+  const row = typeSelect.closest(".workflow-editor-node");
+  const roleInput = row?.querySelector(".wf-node-role");
+  if (roleInput && !roleInput.value.trim()) {
+    roleInput.value = defaultRoleForNodeType(typeSelect.value);
+  }
+  updateWorkflowNodeTypeControls(row, typeSelect.value);
+  collectWorkflowDraftFromEditor();
+});
+
+[
+  workflowEditorId,
+  workflowEditorName,
+  workflowEditorDescription,
+  workflowEditorExecution,
+  workflowEditorMaxIterations,
+  workflowEditorModeChat,
+  workflowEditorModeCode,
+  workflowEditorModeAgentic,
+].forEach((element) => {
+  element?.addEventListener("input", () => {
+    collectWorkflowDraftFromEditor();
+  });
+  element?.addEventListener("change", () => {
+    collectWorkflowDraftFromEditor();
+  });
+});
+
+workflowEditorNodeList?.addEventListener("input", () => {
+  collectWorkflowDraftFromEditor();
 });
 
 emailProvider.addEventListener("change", () => {
@@ -2065,33 +3031,11 @@ runAgenticTaskButton.addEventListener("click", async () => {
 
 settingsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const modelRoles = collectModelRoles();
-  if (modelRoles.length === 0) {
+  const payload = buildSettingsPayload(false);
+  if (!payload || !Array.isArray(payload.model_roles) || payload.model_roles.length === 0) {
     setStatus("At least one role with a model is required.", true);
     return;
   }
-  const assistantRole = modelRoles.find((item) => item.role.toLowerCase() === "assistant") || modelRoles[0];
-  const payload = {
-    ...state.settings,
-    user_name: userName.value.trim(),
-    ollama_base_url: ollamaBaseUrl.value.trim(),
-    workspace_path: workspacePath.value.trim(),
-    embedding_model: embeddingModel.value.trim(),
-    require_tool_confirmation: requireToolConfirmation.checked,
-    always_allowed_tools: Array.isArray(state.settings?.always_allowed_tools) ? state.settings.always_allowed_tools : [],
-    effort: currentEffort(),
-    workflow_presets: {
-      chat: workflowChat?.value || "simple",
-      code: workflowCode?.value || "simple",
-      agentic: workflowAgentic?.value || "simple",
-    },
-    email_provider: {
-      ...(state.settings.email_provider || {}),
-      provider: emailProvider.value,
-    },
-    default_model: assistantRole.model,
-    model_roles: modelRoles,
-  };
   try {
     state.settings = await api("/api/settings", {
       method: "PUT",
@@ -2103,6 +3047,7 @@ settingsForm.addEventListener("submit", async (event) => {
     if (messagesEl.querySelector(".empty")) {
       renderMessages([]);
     }
+    captureSettingsBaselineFromForm();
     setStatus("Settings saved");
   } catch (error) {
     setStatus(error.message, true);
@@ -2131,22 +3076,35 @@ input.addEventListener("keydown", (event) => {
 
 renderModeSwitch();
 initDesktopChrome();
+initGenericDirtyTracking();
 
-Promise.all([
-  loadRoles(),
-  ensureModelsLoaded(),
-  loadMistakes(),
-  loadAgenticTasks(),
-  loadSchedulerStatus(),
-  loadSettings(),
-  loadWorkflowPresets(),
-  loadTools(),
-  loadChats(),
-])
-  .then(() => {
-    if (state.activeChatId) return selectChat(state.activeChatId);
+async function loadStartupCritical() {
+  await loadSettings(true);
+  await Promise.all([
+    loadWorkflowPresets(),
+    loadChats(),
+  ]);
+  if (state.activeChatId) {
+    await selectChat(state.activeChatId);
+  } else {
     renderMessages([]);
-    return null;
+  }
+}
+
+function loadStartupDeferred() {
+  Promise.all([
+    loadRoles(),
+    loadMistakes(),
+    loadAgenticTasks(),
+    loadSchedulerStatus(),
+    loadTools(),
+  ])
+    .catch((error) => setStatus(error.message, true));
+}
+
+loadStartupCritical()
+  .then(() => {
+    setStatus("Ready");
+    window.setTimeout(loadStartupDeferred, 0);
   })
-  .then(() => setStatus("Ready"))
   .catch((error) => setStatus(error.message, true));

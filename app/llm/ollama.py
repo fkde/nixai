@@ -137,6 +137,7 @@ class OllamaClient:
             async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
                 last_exc: httpx.HTTPError | None = None
                 for url in self._url_candidates("/api/chat"):
+                    emitted_any = False
                     try:
                         async with client.stream("POST", url, json=payload) as response:
                             response.raise_for_status()
@@ -149,10 +150,12 @@ class OllamaClient:
                                 if isinstance(content, str) and content:
                                     visible = reasoning_filter.feed(content)
                                     if visible:
+                                        emitted_any = True
                                         yield {"type": "token", "content": visible}
                                 if data.get("done"):
                                     visible = reasoning_filter.flush()
                                     if visible:
+                                        emitted_any = True
                                         yield {"type": "token", "content": visible}
                                     yield {
                                         "type": "done",
@@ -163,6 +166,10 @@ class OllamaClient:
                                     }
                             return
                     except httpx.HTTPError as exc:
+                        if emitted_any:
+                            # Do not restart from a fallback URL once tokens were already emitted.
+                            # A restart would duplicate partial output in the UI.
+                            raise
                         last_exc = exc
                 if last_exc is not None:
                     raise last_exc

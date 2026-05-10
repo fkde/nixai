@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from app.config import config_dir, default_workflow_presets, normalize_workflow_preset_id
@@ -13,7 +14,9 @@ def bundled_workflow_dir() -> Path:
 
 
 def custom_workflow_dir() -> Path:
-    return config_dir() / "workflows"
+    path = config_dir() / "workflows"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def list_workflows(mode: MessageMode | None = None) -> list[WorkflowDefinition]:
@@ -65,9 +68,46 @@ def selected_workflow(settings, mode: MessageMode) -> WorkflowDefinition | None:
     return get_workflow(fallback_id, mode)
 
 
+def list_custom_workflow_ids() -> list[str]:
+    directory = custom_workflow_dir()
+    if not directory.exists():
+        return []
+    return sorted(path.stem for path in directory.glob("*.json") if path.stem)
+
+
+def save_custom_workflow(workflow: WorkflowDefinition) -> WorkflowDefinition:
+    workflow_id = _sanitize_workflow_id(workflow.id)
+    payload = workflow.model_copy(update={"id": workflow_id})
+    path = custom_workflow_dir() / f"{workflow_id}.json"
+    data = payload.model_dump(by_alias=True)
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    loaded = _load_workflow_file(path)
+    if loaded is None:
+        raise ValueError("Failed to load saved workflow definition.")
+    return loaded
+
+
+def delete_custom_workflow(workflow_id: str) -> bool:
+    wanted = _sanitize_workflow_id(workflow_id)
+    path = custom_workflow_dir() / f"{wanted}.json"
+    if not path.exists():
+        return False
+    path.unlink()
+    return True
+
+
 def _load_workflow_file(path: Path) -> WorkflowDefinition | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         return WorkflowDefinition.model_validate(data)
     except Exception:
         return None
+
+
+def _sanitize_workflow_id(raw: str) -> str:
+    normalized = normalize_workflow_preset_id(str(raw or "").strip())
+    if not normalized:
+        raise ValueError("Workflow id is required.")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", normalized):
+        raise ValueError("Workflow id must only contain letters, numbers, '-' or '_'.")
+    return normalized
