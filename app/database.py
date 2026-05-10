@@ -138,7 +138,7 @@ def list_chats() -> list[Chat]:
 
 def create_chat(title: Optional[str] = None, workspace_path: str = "") -> Chat:
     now = utc_now()
-    chat = Chat(id=new_id(), title=title or "Neuer Chat", workspace_path=workspace_path.strip(), created_at=now, updated_at=now)
+    chat = Chat(id=new_id(), title=title or "New Chat", workspace_path=workspace_path.strip(), created_at=now, updated_at=now)
     with get_connection() as db:
         db.execute(
             "INSERT INTO chats (id, title, workspace_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -161,7 +161,7 @@ def update_chat(chat_id: str, title: Optional[str] = None, workspace_path: Optio
     values = []
     if title is not None:
         assignments.append("title = ?")
-        values.append(" ".join(title.strip().split())[:80] or "Neuer Chat")
+        values.append(" ".join(title.strip().split())[:80] or "New Chat")
     if workspace_path is not None:
         assignments.append("workspace_path = ?")
         values.append(workspace_path.strip())
@@ -243,13 +243,13 @@ def set_message_feedback(message_id: str, rating: FeedbackRating) -> Optional[Me
 
 
 def update_chat_title_if_default(chat_id: str, title: str) -> None:
-    clean_title = " ".join(title.strip().split())[:80] or "Neuer Chat"
+    clean_title = " ".join(title.strip().split())[:80] or "New Chat"
     with get_connection() as db:
         db.execute(
             """
             UPDATE chats
             SET title = ?
-            WHERE id = ? AND title = 'Neuer Chat'
+            WHERE id = ? AND title IN ('Neuer Chat', 'New Chat')
             """,
             (clean_title, chat_id),
         )

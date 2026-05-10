@@ -36,6 +36,14 @@ def default_model_roles() -> list[ModelRole]:
     ]
 
 
+def default_workflow_presets() -> dict[str, str]:
+    return {
+        "chat": "chat_direct",
+        "code": "code_direct_worker",
+        "agentic": "agentic_direct_orchestrator",
+    }
+
+
 class Settings(BaseModel):
     user_name: str = ""
     ollama_base_url: str = "http://localhost:11434"
@@ -51,6 +59,7 @@ class Settings(BaseModel):
     routing_min_score: float = 0.24
     require_tool_confirmation: bool = True
     always_allowed_tools: list[str] = Field(default_factory=list)
+    workflow_presets: dict[str, str] = Field(default_factory=default_workflow_presets)
     email_provider: EmailProviderSettings = Field(default_factory=EmailProviderSettings)
 
     def model_for_role(self, role: str) -> str:
@@ -125,6 +134,9 @@ def save_settings(settings: Settings) -> None:
     settings.reviewer_model = settings.model_for_role("reviewer")
     settings.judge_model = settings.model_for_role("judge")
     settings.always_allowed_tools = sorted({name.strip() for name in settings.always_allowed_tools if name.strip()})
+    defaults = default_workflow_presets()
+    workflow_presets = {mode: str(settings.workflow_presets.get(mode) or defaults[mode]).strip() for mode in defaults}
+    settings.workflow_presets = workflow_presets
     settings.email_provider.provider = settings.email_provider.provider.strip().lower()
     if settings.email_provider.provider not in {"", "google", "microsoft"}:
         settings.email_provider.provider = ""

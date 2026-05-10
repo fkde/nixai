@@ -1,0 +1,55 @@
+{
+  "id": "agentic_review_loop",
+  "name": "Agentic: Review Loop",
+  "description": "Interactive agentic fallback with orchestrator, worker pool, reviewer, and judge. Scheduled runs keep their approval-safe tool policy.",
+  "mode": "agentic",
+  "execution": "loop",
+  "max_iterations": 2,
+  "nodes": [
+    {
+      "id": "orchestrator",
+      "type": "role",
+      "role": "orchestrator",
+      "title": "Plan",
+      "output": "plan",
+      "max_items": 3,
+      "expects_json": true
+    },
+    {
+      "id": "workers",
+      "type": "worker_pool",
+      "role": "worker",
+      "title": "Workers",
+      "input": "plan.work_items",
+      "output": "worker_reports",
+      "max_parallel": 2,
+      "max_items": 3
+    },
+    {
+      "id": "reviewer",
+      "type": "reviewer",
+      "role": "reviewer",
+      "title": "Review",
+      "input": ["plan", "worker_reports"],
+      "output": "review",
+      "expects_json": true
+    },
+    {
+      "id": "judge",
+      "type": "judge",
+      "role": "judge",
+      "title": "Judge",
+      "input": ["plan", "worker_reports", "review"],
+      "output": "decision",
+      "expects_json": true
+    }
+  ],
+  "edges": [
+    {"from": "orchestrator", "to": "workers"},
+    {"from": "workers", "to": "reviewer"},
+    {"from": "reviewer", "to": "judge"},
+    {"from": "judge", "to": "workers", "when": "decision.status == 'retry'"},
+    {"from": "judge", "to": "end", "when": "decision.status == 'done'"},
+    {"from": "judge", "to": "needs_user", "when": "decision.status == 'needs_user'"}
+  ]
+}

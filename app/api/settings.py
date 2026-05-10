@@ -7,6 +7,8 @@ from pydantic import BaseModel
 
 from app.config import Settings, load_settings, save_settings
 from app.llm.ollama import OllamaClient, OllamaError
+from app.models import OllamaModelInfo
+from app.workflows.presets import list_workflow_summaries
 
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -34,12 +36,22 @@ def put_settings(settings: Settings) -> Settings:
     return load_settings()
 
 
-@router.get("/models", response_model=list[str])
-async def get_models() -> list[str]:
+@router.get("/models", response_model=list[OllamaModelInfo])
+async def get_models() -> list[OllamaModelInfo]:
     try:
-        return await OllamaClient(load_settings()).list_models()
+        return await OllamaClient(load_settings()).list_model_catalog()
     except OllamaError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/workflows")
+def get_workflows() -> dict[str, object]:
+    settings = load_settings()
+    return {
+        "success": True,
+        "selected": settings.workflow_presets,
+        "workflows": [workflow.model_dump(by_alias=True) for workflow in list_workflow_summaries()],
+    }
 
 
 @router.post("/email-provider/auth", response_model=EmailProviderAuthResponse)

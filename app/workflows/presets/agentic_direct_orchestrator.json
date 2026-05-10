@@ -1,0 +1,17 @@
+{
+  "id": "agentic_direct_orchestrator",
+  "name": "Agentic: Direct Orchestrator",
+  "description": "Current lightweight agentic behavior with task discovery and orchestrator chat fallback.",
+  "mode": "agentic",
+  "execution": "direct",
+  "max_iterations": 1,
+  "nodes": [
+    {
+      "id": "orchestrator",
+      "type": "role",
+      "role": "orchestrator",
+      "title": "Orchestrator"
+    }
+  ],
+  "edges": []
+}

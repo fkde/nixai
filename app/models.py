@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -12,6 +12,7 @@ MessageMode = Literal["chat", "code", "agentic"]
 FeedbackRating = Literal["up", "down"]
 TaskStatus = Literal["active", "paused"]
 TaskRunStatus = Literal["running", "success", "failed", "needs_review"]
+OllamaModelKind = Literal["chat", "embedding", "unknown"]
 
 
 def utc_now() -> str:
@@ -101,6 +102,23 @@ class UpdateAgenticTaskRequest(BaseModel):
 
 class RunAgenticTaskResponse(BaseModel):
     run: AgenticTaskRun
+
+
+class OllamaModelInfo(BaseModel):
+    name: str
+    kind: OllamaModelKind = "unknown"
+    family: str = ""
+    families: list[str] = Field(default_factory=list)
+    parameter_size: str = ""
+    quantization_level: str = ""
+    format: str = ""
+    size: Optional[int] = None
+    digest: str = ""
+    modified_at: str = ""
+    details: dict[str, Any] = Field(default_factory=dict)
+    model_info: dict[str, Any] = Field(default_factory=dict)
+    capabilities: list[str] = Field(default_factory=list)
+    error: str = ""
 
 
 class MessageFeedbackRequest(BaseModel):

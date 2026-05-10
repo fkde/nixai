@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -14,8 +14,21 @@
             <p class="app-kicker">Local Agent Runner</p>
             <h1>NixAI</h1>
           </div>
-          <div class="sidebar-actions">
-            <button id="new-chat" type="button">+ Neuer Chat</button>
+          <div class="sidebar-actions" role="toolbar" aria-label="Primary actions">
+            <button id="new-chat" class="sidebar-tool-button primary" type="button" aria-label="New chat" title="New chat">
+              <span class="button-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 5v14" />
+                  <path d="M5 12h14" />
+                </svg>
+              </span>
+            </button>
+            <button id="settings-toggle" class="sidebar-tool-button" type="button" aria-label="Open settings" title="Settings">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 15.2A3.2 3.2 0 1 0 12 8.8a3.2 3.2 0 0 0 0 6.4Z" />
+                <path d="M18.7 13.6c.1-.5.1-1 .1-1.6s0-1.1-.1-1.6l2-1.5-2-3.4-2.4 1a7.4 7.4 0 0 0-2.8-1.6L13.2 2h-4l-.4 2.9a7.4 7.4 0 0 0-2.8 1.6l-2.4-1-2 3.4 2 1.5c-.1.5-.1 1-.1 1.6s0 1.1.1 1.6l-2 1.5 2 3.4 2.4-1a7.4 7.4 0 0 0 2.8 1.6l.4 2.9h4l.4-2.9a7.4 7.4 0 0 0 2.8-1.6l2.4 1 2-3.4-2.1-1.5Z" />
+              </svg>
+            </button>
           </div>
         </div>
         <nav id="chat-list" class="chat-list" aria-label="Chats"></nav>
@@ -24,21 +37,15 @@
       <section class="chat">
         <header class="chat-header">
           <div>
-            <p class="eyebrow">Lokaler Ollama-Agent</p>
-            <h2 id="chat-title">Kein Chat ausgewählt</h2>
+            <p class="eyebrow">Local Ollama Agent</p>
+            <h2 id="chat-title">No Chat Selected</h2>
             <p class="chat-workspace-field">
               <span>Workspace</span>
-              <strong id="chat-workspace">Fallback aus Einstellungen</strong>
+              <strong id="chat-workspace">Settings fallback</strong>
             </p>
           </div>
           <div class="chat-header-actions">
-            <button id="settings-toggle" class="header-icon-button" type="button" aria-label="Einstellungen öffnen">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
-                <path d="m19.4 15 .4-3-.4-3-2.1-.6a7.4 7.4 0 0 0-1-1.7l.5-2.1-2.7-1.5-1.6 1.5a7.5 7.5 0 0 0-2 0L8.9 3.1 6.2 4.6l.5 2.1a7.4 7.4 0 0 0-1 1.7L3.6 9 3.2 12l.4 3 2.1.6c.3.6.6 1.2 1 1.7l-.5 2.1 2.7 1.5 1.6-1.5a7.5 7.5 0 0 0 2 0l1.6 1.5 2.7-1.5-.5-2.1c.4-.5.7-1.1 1-1.7l2.1-.6Z" />
-              </svg>
-            </button>
-            <div class="mode-switch" role="group" aria-label="Modus">
+            <div class="mode-switch" role="group" aria-label="Mode">
               <button class="mode-button active" type="button" data-mode="chat">Chat</button>
               <button class="mode-button" type="button" data-mode="code">Code</button>
               <button class="mode-button" type="button" data-mode="agentic">Agentic</button>
@@ -50,42 +57,73 @@
 
         <form id="message-form" class="composer">
           <div class="composer-plus">
-            <button id="composer-plus-button" class="composer-plus-button" type="button" aria-label="Aktionen öffnen" aria-expanded="false">+</button>
+            <button id="composer-plus-button" class="composer-plus-button" type="button" aria-label="Open actions" aria-expanded="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14" />
+                <path d="M5 12h14" />
+              </svg>
+            </button>
             <div id="composer-plus-menu" class="composer-plus-menu" hidden>
-              <button id="add-workspace" type="button">Workspace hinzufügen</button>
+              <button id="add-workspace" type="button">
+                <span class="button-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9Z" />
+                    <path d="M12 10.5v5" />
+                    <path d="M9.5 13h5" />
+                  </svg>
+                </span>
+                <span>Add Workspace</span>
+              </button>
             </div>
           </div>
-          <textarea id="message-input" rows="3" placeholder="Nachricht schreiben..."></textarea>
-          <button id="send-button" type="submit">Senden</button>
+          <textarea id="message-input" rows="3" placeholder="Write a message..."></textarea>
+          <button id="send-button" type="submit">
+            <span>Send</span>
+            <span class="button-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M7 17 17 7" />
+                <path d="M9 7h8v8" />
+              </svg>
+            </span>
+          </button>
         </form>
       </section>
 
       <aside id="settings-panel" class="settings-panel" aria-hidden="true">
         <header class="settings-header">
           <div>
-            <p class="eyebrow">Konfiguration</p>
-            <h2>Einstellungen</h2>
+            <p class="eyebrow">Configuration</p>
+            <h2>Settings</h2>
           </div>
-          <button id="settings-close" class="icon-button" type="button" aria-label="Einstellungen schließen">x</button>
+          <button id="settings-close" class="icon-button" type="button" aria-label="Close settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12" />
+              <path d="M18 6 6 18" />
+            </svg>
+          </button>
         </header>
 
         <div class="settings-body">
-          <nav class="settings-nav" aria-label="Einstellungsgruppen">
+          <nav class="settings-nav" aria-label="Settings groups">
             <button class="settings-nav-button active" type="button" data-settings-section="basis">
-              <span>Basis</span>
-              <small>Ollama, Workspace, Profil</small>
+              <span>General</span>
+              <small>Ollama, workspace, profile</small>
             </button>
             <button class="settings-nav-button" type="button" data-settings-section="models">
-              <span>Modelle</span>
-              <small>Rollen und Modellzuweisung</small>
+              <span>Models</span>
+              <small>Roles and model mapping</small>
+            </button>
+            <button class="settings-nav-button" type="button" data-settings-section="workflows">
+              <span>Workflows</span>
+              <small>Mode presets</small>
             </button>
             <button class="settings-nav-button" type="button" data-settings-section="prompts">
               <span>Prompts</span>
-              <small>Markdown-Rollen bearbeiten</small>
+              <small>Edit Markdown roles</small>
             </button>
             <button class="settings-nav-button" type="button" data-settings-section="tools">
               <span>Tools</span>
-              <small>Freigaben und Zugriff</small>
+              <small>Approvals and access</small>
             </button>
             <button class="settings-nav-button" type="button" data-settings-section="memory">
               <span>Memory</span>
@@ -93,21 +131,21 @@
             </button>
             <button class="settings-nav-button" type="button" data-settings-section="agentic">
               <span>Agentic</span>
-              <small>Tasks und Runs</small>
+              <small>Tasks and runs</small>
             </button>
           </nav>
 
           <form id="settings-form" class="settings-form">
             <section class="settings-section active" data-settings-panel="basis">
               <div class="settings-section-title">
-                <p class="eyebrow">Basis</p>
-                <h3>Lokale Laufzeit</h3>
-                <p>Verbindung zu Ollama, Nutzername und globaler Workspace-Fallback.</p>
+                <p class="eyebrow">General</p>
+                <h3>Local Runtime</h3>
+                <p>Ollama connection, display name, and global workspace fallback.</p>
               </div>
 
               <div class="settings-grid two">
                 <label class="field settings-card">
-                  <span>Dein Name</span>
+                  <span>Your Name</span>
                   <input id="user-name" type="text" placeholder="Flo" />
                 </label>
 
@@ -126,26 +164,26 @@
             <section class="settings-section" data-settings-panel="models">
               <div class="model-section-header">
                 <div>
-                  <p class="eyebrow">Modelle</p>
-                  <h3>Rollen-Zuweisung</h3>
-                  <p id="models-hint">Modelle werden aus Ollama geladen, wenn verfügbar.</p>
+                  <p class="eyebrow">Models</p>
+                  <h3>Role Assignment</h3>
+                  <p id="models-hint">Models are loaded from Ollama when available.</p>
                 </div>
-                <button id="refresh-models" type="button">Modelle laden</button>
+                <button id="refresh-models" type="button">Refresh Models</button>
               </div>
 
               <div class="model-settings-grid">
                 <section class="settings-card model-embedding-card">
                   <div>
-                    <span class="model-role-label">Embedding-Modell</span>
-                    <p>Wird für Tool-Routing und spätere Kontextsuche genutzt.</p>
+                    <span class="model-role-label">Embedding Model</span>
+                    <p>Used for tool routing and later context search.</p>
                   </div>
                   <select id="embedding-model"></select>
                 </section>
 
                 <section class="settings-card model-assignment-card">
                   <div class="model-assignment-head">
-                    <span>Rolle</span>
-                    <span>Modell</span>
+                    <span>Role</span>
+                    <span>Model</span>
                     <span></span>
                   </div>
                   <div id="model-role-list" class="model-role-list"></div>
@@ -153,30 +191,65 @@
                 </section>
               </div>
 
-              <button id="add-model-role" class="secondary-button" type="button">+ Hinzufügen</button>
+              <button id="add-model-role" class="secondary-button" type="button">+ Add Role</button>
+            </section>
+
+            <section class="settings-section workflow-section" data-settings-panel="workflows">
+              <div class="settings-section-title">
+                <p class="eyebrow">Workflows</p>
+                <h3>Mode Presets</h3>
+                <p>Choose which JSON workflow each mode uses. Presets live in the repository and can be extended later from the config folder.</p>
+              </div>
+
+              <div class="settings-grid two">
+                <label class="field settings-card">
+                  <span>Chat</span>
+                  <select id="workflow-chat"></select>
+                </label>
+
+                <label class="field settings-card">
+                  <span>Code</span>
+                  <select id="workflow-code"></select>
+                </label>
+
+                <label class="field settings-card">
+                  <span>Agentic</span>
+                  <select id="workflow-agentic"></select>
+                </label>
+              </div>
+
+              <div class="settings-card">
+                <div class="model-section-header compact">
+                  <div>
+                    <h3>Available Presets</h3>
+                    <p>Direct presets keep the existing behavior. Loop presets run orchestrator, workers, reviewer, and judge.</p>
+                  </div>
+                </div>
+                <div id="workflow-preset-list" class="workflow-preset-list"></div>
+              </div>
             </section>
 
             <section class="settings-section role-prompt-section" data-settings-panel="prompts">
               <div class="model-section-header">
                 <div>
                   <p class="eyebrow">Prompts</p>
-                  <h3>Rollen-Prompts</h3>
-                  <p>Markdown-Kontext fuer Orchestrator, Worker, Reviewer und eigene Rollen.</p>
+                  <h3>Role Prompts</h3>
+                  <p>Markdown context for orchestrator, worker, reviewer, and custom roles.</p>
                 </div>
               </div>
 
               <div class="role-editor-card">
                 <div class="role-tabs-row">
-                  <div id="role-prompt-list" class="role-prompt-list" role="tablist" aria-label="Rollen-Prompts"></div>
+                  <div id="role-prompt-list" class="role-prompt-list" role="tablist" aria-label="Role prompts"></div>
                   <div class="role-tabs-actions">
-                    <button id="new-role" class="secondary-button" type="button">Neu</button>
-                    <button id="delete-role" class="danger-button" type="button">Löschen</button>
-                    <button id="save-role" class="secondary-button" type="button">Rolle speichern</button>
+                    <button id="new-role" class="secondary-button" type="button">New</button>
+                    <button id="delete-role" class="danger-button" type="button">Delete</button>
+                    <button id="save-role" class="secondary-button" type="button">Save Role</button>
                   </div>
                 </div>
 
                 <label class="field">
-                  <span>Rollenname</span>
+                  <span>Role Name</span>
                   <input id="role-name" type="text" placeholder="ORCHESTRATOR" />
                 </label>
 
@@ -185,8 +258,8 @@
                     <span>Markdown</span>
                     <textarea id="role-content" class="markdown-editor" rows="12" spellcheck="false"></textarea>
                   </label>
-                  <section class="markdown-preview-wrap" aria-label="Markdown Vorschau">
-                    <span class="model-role-label">Vorschau</span>
+                  <section class="markdown-preview-wrap" aria-label="Markdown preview">
+                    <span class="model-role-label">Preview</span>
                     <div id="role-preview" class="markdown-preview"></div>
                   </section>
                 </div>
@@ -197,19 +270,19 @@
             <section class="settings-section tool-approval-section" data-settings-panel="tools">
               <div class="settings-section-title">
                 <p class="eyebrow">Tools</p>
-                <h3>Tools & Provider</h3>
-                <p>Nachfragen vor Tool-Aufrufen, dauerhaft erlaubte Funktionen und externe Verbindungen.</p>
+                <h3>Tools & Providers</h3>
+                <p>Approval prompts, permanently allowed functions, and external connections.</p>
               </div>
 
               <div class="settings-grid two">
                 <div class="settings-card">
                   <label class="toggle-field">
                     <input id="require-tool-confirmation" type="checkbox" />
-                    <span>Vor Tool-Aufrufen nachfragen</span>
+                    <span>Ask before tool calls</span>
                   </label>
                 </div>
                 <div class="settings-card">
-                  <span class="model-role-label">Immer erlaubt</span>
+                  <span class="model-role-label">Always Allowed</span>
                   <div id="always-allowed-tools" class="tool-chip-list"></div>
                 </div>
               </div>
@@ -217,15 +290,15 @@
               <div class="settings-card provider-card">
                 <div class="model-section-header compact">
                   <div>
-                    <h3>E-Mail Provider</h3>
-                    <p>Provider wählen und später per OAuth verbinden. E-Mail-Tools werden erst nach echter Verbindung aktiv.</p>
+                    <h3>Email Provider</h3>
+                    <p>Choose a provider and connect later with OAuth. Email tools only become active after a real connection.</p>
                   </div>
                 </div>
                 <div class="provider-grid">
                   <label class="field">
                     <span>Provider</span>
                     <select id="email-provider">
-                      <option value="">Nicht verbunden</option>
+                      <option value="">Not connected</option>
                       <option value="google">Google Gmail</option>
                       <option value="microsoft">Microsoft Outlook</option>
                     </select>
@@ -233,21 +306,21 @@
                   <div class="provider-status">
                     <span class="model-role-label">Status</span>
                     <strong id="email-provider-status">disconnected</strong>
-                    <small id="email-provider-account">Kein Account verbunden.</small>
+                    <small id="email-provider-account">No account connected.</small>
                   </div>
                 </div>
                 <div class="role-editor-actions">
-                  <button id="connect-email-provider" type="button">Provider verbinden</button>
-                  <button id="disconnect-email-provider" class="danger-button" type="button">Trennen</button>
+                  <button id="connect-email-provider" type="button">Connect Provider</button>
+                  <button id="disconnect-email-provider" class="danger-button" type="button">Disconnect</button>
                 </div>
-                <p id="email-provider-hint" class="settings-empty">Wähle Google oder Microsoft und starte danach den Auth-Prozess.</p>
+                <p id="email-provider-hint" class="settings-empty">Choose Google or Microsoft, then start the auth flow.</p>
               </div>
 
               <div class="settings-card">
                 <div class="model-section-header compact">
                   <div>
-                    <h3>Verfügbare Tools</h3>
-                    <p>Registrierte Funktionen, Risiko und Freigabestatus.</p>
+                    <h3>Available Tools</h3>
+                    <p>Registered functions, risk, and approval status.</p>
                   </div>
                 </div>
                 <div id="available-tool-list" class="available-tool-list"></div>
@@ -259,11 +332,11 @@
                 <div>
                   <p class="eyebrow">Memory</p>
                   <h3>Mistakes</h3>
-                  <p>Zentrales Lernjournal fuer Fehler, Korrekturen und Safety-Hinweise.</p>
+                  <p>Central learning journal for errors, corrections, and safety notes.</p>
                 </div>
                 <div class="inline-actions">
-                  <button id="analyze-mistakes" type="button" disabled>Fehler analysieren</button>
-                  <button id="save-mistakes" class="secondary-button" type="button">Speichern</button>
+                  <button id="analyze-mistakes" type="button" disabled>Analyze Mistakes</button>
+                  <button id="save-mistakes" class="secondary-button" type="button">Save</button>
                 </div>
               </div>
 
@@ -272,8 +345,8 @@
                   <span>MISTAKES.md</span>
                   <textarea id="mistakes-content" class="markdown-editor" rows="10" spellcheck="false"></textarea>
                 </label>
-                <section class="markdown-preview-wrap" aria-label="Mistakes Vorschau">
-                  <span class="model-role-label">Vorschau</span>
+                <section class="markdown-preview-wrap" aria-label="Mistakes preview">
+                  <span class="model-role-label">Preview</span>
                   <div id="mistakes-preview" class="markdown-preview"></div>
                 </section>
               </div>
@@ -284,9 +357,9 @@
                 <div>
                   <p class="eyebrow">Agentic</p>
                   <h3>Agentic Tasks</h3>
-                  <p id="agentic-scheduler-status">Scheduler wird geladen...</p>
+                  <p id="agentic-scheduler-status">Loading scheduler...</p>
                 </div>
-                <button id="new-agentic-task" type="button">Neu</button>
+                <button id="new-agentic-task" type="button">New</button>
               </div>
 
               <div class="settings-grid agentic-grid">
@@ -296,8 +369,8 @@
 
                 <div class="role-editor-card">
                   <label class="field">
-                    <span>Titel</span>
-                    <input id="agentic-task-title" type="text" placeholder="E-Mail Zusammenfassung" />
+                    <span>Title</span>
+                    <input id="agentic-task-title" type="text" placeholder="Email summary" />
                   </label>
                   <label class="field">
                     <span>Schedule</span>
@@ -306,18 +379,18 @@
                   <label class="field">
                     <span>Status</span>
                     <select id="agentic-task-status">
-                      <option value="active">Aktiv</option>
-                      <option value="paused">Pausiert</option>
+                      <option value="active">Active</option>
+                      <option value="paused">Paused</option>
                     </select>
                   </label>
                   <label class="field">
-                    <span>Aufgabe</span>
-                    <textarea id="agentic-task-prompt" rows="5" placeholder="Was soll NixAI wiederkehrend tun?"></textarea>
+                    <span>Task</span>
+                    <textarea id="agentic-task-prompt" rows="5" placeholder="What should NixAI do on a recurring basis?"></textarea>
                   </label>
                   <div class="role-editor-actions">
-                    <button id="delete-agentic-task" class="danger-button" type="button">Loeschen</button>
-                    <button id="run-agentic-task" type="button">Jetzt ausfuehren</button>
-                    <button id="save-agentic-task" class="secondary-button" type="button">Task speichern</button>
+                    <button id="delete-agentic-task" class="danger-button" type="button">Delete</button>
+                    <button id="run-agentic-task" type="button">Run Now</button>
+                    <button id="save-agentic-task" class="secondary-button" type="button">Save Task</button>
                   </div>
                 </div>
               </div>
@@ -326,7 +399,7 @@
                 <div class="model-section-header compact">
                   <div>
                     <h3>Runs</h3>
-                    <p>Letzte Ausfuehrungen und Failover-Status.</p>
+                    <p>Recent runs and failover status.</p>
                   </div>
                 </div>
                 <div id="agentic-run-list" class="agentic-run-list"></div>
@@ -334,7 +407,7 @@
             </section>
 
             <footer class="settings-footer">
-              <button id="save-settings" type="submit">Speichern</button>
+              <button id="save-settings" type="submit">Save</button>
             </footer>
           </form>
         </div>
@@ -345,23 +418,28 @@
           <header class="settings-header">
             <div>
               <p class="eyebrow">Review Wizard</p>
-              <h2 id="mistakes-modal-title">Fehler analysieren</h2>
+              <h2 id="mistakes-modal-title">Analyze Mistakes</h2>
             </div>
-            <button id="close-mistakes-modal" class="icon-button" type="button" aria-label="Fehleranalyse schließen">x</button>
+            <button id="close-mistakes-modal" class="icon-button" type="button" aria-label="Close mistake analysis">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6l12 12" />
+                <path d="M18 6 6 18" />
+              </svg>
+            </button>
           </header>
           <div class="mistakes-wizard">
             <aside id="mistake-entry-list" class="mistake-entry-list"></aside>
             <section class="mistake-review-panel">
               <div id="mistake-entry-detail" class="markdown-preview"></div>
               <div class="role-editor-actions">
-                <button id="suggest-mistake-solution" type="button">Lösung vorschlagen</button>
-                <button id="accept-mistake-solution" class="secondary-button" type="button" disabled>Das ist die Lösung</button>
+                <button id="suggest-mistake-solution" type="button">Suggest Fix</button>
+                <button id="accept-mistake-solution" class="secondary-button" type="button" disabled>Accept Fix</button>
               </div>
               <label class="field">
-                <span>Vorgeschlagene MEMORY.md Anweisung</span>
+                <span>Suggested MEMORY.md Instruction</span>
                 <textarea id="mistake-solution" class="markdown-editor" rows="8" spellcheck="false"></textarea>
               </label>
-              <p id="mistake-solution-hint" class="settings-empty">Waehle einen Fehler aus und lass dir eine Lösung vorschlagen.</p>
+              <p id="mistake-solution-hint" class="settings-empty">Select a mistake and ask for a fix suggestion.</p>
             </section>
           </div>
         </section>
@@ -371,24 +449,29 @@
         <section class="tool-approval-modal" role="dialog" aria-modal="true" aria-labelledby="tool-approval-title">
           <header class="settings-header">
             <div>
-              <p class="eyebrow">Tool-Aufruf</p>
-              <h2 id="tool-approval-title">Freigabe erforderlich</h2>
+              <p class="eyebrow">Tool Call</p>
+              <h2 id="tool-approval-title">Approval Required</h2>
             </div>
-            <button id="deny-tool-call" class="icon-button" type="button" aria-label="Tool-Aufruf abbrechen">x</button>
+            <button id="deny-tool-call" class="icon-button" type="button" aria-label="Cancel tool call">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6l12 12" />
+                <path d="M18 6 6 18" />
+              </svg>
+            </button>
           </header>
           <div class="tool-approval-body">
             <div>
-              <span class="model-role-label">Funktion</span>
+              <span class="model-role-label">Function</span>
               <h3 id="tool-approval-name"></h3>
               <p id="tool-approval-description" class="settings-empty"></p>
             </div>
             <label class="field">
-              <span>Argumente</span>
+              <span>Arguments</span>
               <pre id="tool-approval-arguments" class="tool-approval-arguments"></pre>
             </label>
             <div class="role-editor-actions">
-              <button id="approve-tool-call" type="button">Einmal erlauben</button>
-              <button id="always-allow-tool-call" class="secondary-button" type="button">Immer erlauben</button>
+              <button id="approve-tool-call" type="button">Allow Once</button>
+              <button id="always-allow-tool-call" class="secondary-button" type="button">Always Allow</button>
             </div>
           </div>
         </section>

@@ -4,7 +4,11 @@ const state = {
   loading: false,
   settings: null,
   availableTools: [],
+  workflowPresets: [],
   availableModels: [],
+  modelCatalog: [],
+  modelsLoaded: false,
+  modelsLoading: false,
   roles: [],
   activeRoleName: null,
   mistakes: null,
@@ -18,8 +22,9 @@ const state = {
   pendingToolApproval: null,
   activeSettingsSection: "basis",
   streamingAssistant: false,
-  streamDocked: false,
-  streamDockEnabled: false,
+  autoScrollLocked: true,
+  toastTimer: null,
+  titleWatchers: new Map(),
 };
 
 const shell = document.querySelector(".shell");
@@ -48,6 +53,10 @@ const workspacePath = document.querySelector("#workspace-path");
 const embeddingModel = document.querySelector("#embedding-model");
 const requireToolConfirmation = document.querySelector("#require-tool-confirmation");
 const alwaysAllowedTools = document.querySelector("#always-allowed-tools");
+const workflowChat = document.querySelector("#workflow-chat");
+const workflowCode = document.querySelector("#workflow-code");
+const workflowAgentic = document.querySelector("#workflow-agentic");
+const workflowPresetList = document.querySelector("#workflow-preset-list");
 const emailProvider = document.querySelector("#email-provider");
 const emailProviderStatus = document.querySelector("#email-provider-status");
 const emailProviderAccount = document.querySelector("#email-provider-account");
@@ -98,11 +107,55 @@ const approveToolCallButton = document.querySelector("#approve-tool-call");
 const alwaysAllowToolCallButton = document.querySelector("#always-allow-tool-call");
 const denyToolCallButton = document.querySelector("#deny-tool-call");
 const modeOrder = ["chat", "code", "agentic"];
+const embeddingModelMarkers = ["embed", "embedding", "nomic-bert", "sentence-transformer", "bge-", "all-minilm", "e5-", "gte-"];
+const toastRegion = document.createElement("div");
+toastRegion.className = "toast-region";
+toastRegion.setAttribute("aria-live", "polite");
+toastRegion.setAttribute("aria-atomic", "true");
+document.body.append(toastRegion);
+
+async function initDesktopChrome() {
+  const api = window.pywebview?.api;
+  if (!api?.desktop_info) {
+    window.addEventListener("pywebviewready", initDesktopChrome, { once: true });
+    return;
+  }
+  try {
+    const info = await api.desktop_info();
+    const platform = String(info.platform || "desktop").replace(/[^a-z0-9_-]/gi, "-").toLowerCase();
+    document.body.classList.add("desktop-shell", `desktop-${platform}`);
+    document.body.classList.toggle("native-chrome", Boolean(info.native_chrome));
+    document.body.classList.toggle("native-traffic-lights", Boolean(info.native_traffic_lights));
+  } catch (error) {
+    console.warn(error);
+  }
+}
 
 function setStatus(text, isError = false) {
   if (text && isError) {
     console.warn(text);
   }
+  if (!text) return;
+  if (isError) {
+    showToast(text, "error");
+    return;
+  }
+  if (/\b(saved|deleted|added|prepared|connected|disconnected|finished|set)\b/i.test(text)) {
+    showToast(text, "success");
+  }
+}
+
+function showToast(message, kind = "success") {
+  window.clearTimeout(state.toastTimer);
+  toastRegion.innerHTML = `
+    <div class="toast ${kind}">
+      <span>${escapeHtml(kind === "error" ? "Error" : "Done")}</span>
+      <strong>${escapeHtml(message)}</strong>
+    </div>
+  `;
+  state.toastTimer = window.setTimeout(() => {
+    toastRegion.innerHTML = "";
+  }, kind === "error" ? 5200 : 2600);
 }
 
 function escapeHtml(value) {
@@ -114,19 +167,121 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function formatInlineMarkdown(value) {
+  const codeSpans = [];
+  let html = escapeHtml(value).replace(/`([^`]+)`/g, (_match, code) => {
+    const token = `@@CODE_SPAN_${codeSpans.length}@@`;
+    codeSpans.push(`<code>${code}</code>`);
+    return token;
+  });
+  html = html
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  codeSpans.forEach((code, index) => {
+    html = html.replaceAll(`@@CODE_SPAN_${index}@@`, code);
+  });
+  return html;
+}
+
 function formatContent(content) {
-  const escaped = escapeHtml(content);
-  return escaped.replace(/```([\s\S]*?)```/g, (_match, code) => `<pre><code>${code.trim()}</code></pre>`);
+  const lines = String(content ?? "").replace(/\r\n/g, "\n").split("\n");
+  const blocks = [];
+  let paragraph = [];
+  let list = null;
+  let codeBlock = null;
+
+  const flushParagraph = () => {
+    const text = paragraph.join(" ").trim();
+    if (text) {
+      blocks.push(`<p>${formatInlineMarkdown(text)}</p>`);
+    }
+    paragraph = [];
+  };
+
+  const closeList = () => {
+    if (!list) return;
+    blocks.push(`<${list.type}>${list.items.map((item) => `<li>${item}</li>`).join("")}</${list.type}>`);
+    list = null;
+  };
+
+  const addListItem = (type, text) => {
+    flushParagraph();
+    if (!list || list.type !== type) {
+      closeList();
+      list = { type, items: [] };
+    }
+    list.items.push(formatInlineMarkdown(text.trim()));
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (codeBlock) {
+      if (trimmed.startsWith("```")) {
+        blocks.push(`<pre><code>${escapeHtml(codeBlock.join("\n"))}</code></pre>`);
+        codeBlock = null;
+      } else {
+        codeBlock.push(line);
+      }
+      continue;
+    }
+
+    if (trimmed.startsWith("```")) {
+      flushParagraph();
+      closeList();
+      codeBlock = [];
+      continue;
+    }
+
+    if (!trimmed) {
+      flushParagraph();
+      closeList();
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      closeList();
+      const level = Math.min(heading[1].length + 2, 5);
+      blocks.push(`<h${level}>${formatInlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    const ordered = trimmed.match(/^\d+[.)]\s+(.+)$/);
+    if (ordered) {
+      addListItem("ol", ordered[1]);
+      continue;
+    }
+
+    const unordered = trimmed.match(/^[-*+]\s+(.+)$/);
+    if (unordered) {
+      addListItem("ul", unordered[1]);
+      continue;
+    }
+
+    if (list && list.items.length > 0) {
+      list.items[list.items.length - 1] += ` ${formatInlineMarkdown(trimmed)}`;
+      continue;
+    }
+
+    paragraph.push(trimmed);
+  }
+
+  flushParagraph();
+  closeList();
+  if (codeBlock) {
+    blocks.push(`<pre><code>${escapeHtml(codeBlock.join("\n"))}</code></pre>`);
+  }
+  return blocks.join("");
 }
 
 function thinkingIndicatorHtml() {
   return `
-    <div class="thinking-state" aria-live="polite">
-      <div class="thinking-copy">
-        <span>Denke nach...</span>
-        <small>Ollama sortiert gerade seine Gedanken.</small>
-      </div>
-      <div class="thinking-scanner" aria-hidden="true"><span></span></div>
+    <div class="thinking-notice" aria-live="polite">
+      <span class="thinking-dot" aria-hidden="true"></span>
+      <span>Thinking...</span>
     </div>
   `;
 }
@@ -140,20 +295,20 @@ function emptyGreeting() {
   const suffix = name ? `, ${escapeHtml(name)}` : "";
   const variants = [
     {
-      title: `Nixorious ist wach${suffix}.`,
-      text: "Ich habe Kaffee simuliert, die Konsole geradegerückt und warte auf den ersten Gedanken.",
+      title: `Nixorious is awake${suffix}.`,
+      text: "Local context is ready. Start with a thought, a question, or a task.",
     },
     {
-      title: `Bereit am lokalen Kontrollpult${suffix}.`,
-      text: "Sag Chat, Code oder Agentic, und ich ziehe mir den passenden Mantel an.",
+      title: `Ready at the local console${suffix}.`,
+      text: "Choose Chat, Code, or Agentic and NixAI will use the right workflow.",
     },
     {
-      title: `Leerer Chat. Maximale Möglichkeiten${suffix}.`,
-      text: "Noch ist hier alles still. Verdächtig still. Schreib etwas und wir ändern das.",
+      title: `Empty chat. Full control${suffix}.`,
+      text: "Nothing has happened here yet. Send a message and we will change that.",
     },
     {
-      title: `Hier ist NixAI${suffix}.`,
-      text: "Lokal, motiviert und nur einen Prompt davon entfernt, sich nützlich zu machen.",
+      title: `This is NixAI${suffix}.`,
+      text: "Local, focused, and one prompt away from becoming useful.",
     },
   ];
   const seed = state.activeChatId
@@ -165,11 +320,11 @@ function emptyGreeting() {
 function emptyChatHtml(kind = "chat") {
   const greeting = emptyGreeting();
   const helper = kind === "none"
-    ? "Lege links einen neuen Chat an, dann kann ich loslegen."
+    ? "Create a new chat on the left to get started."
     : "";
   return `
     <section class="empty">
-      <span>NixAI wartet</span>
+      <span>NixAI is waiting</span>
       <h3>${greeting.title}</h3>
       <p>${greeting.text}</p>
       ${helper ? `<small>${helper}</small>` : ""}
@@ -187,6 +342,24 @@ function thumbIcon(direction) {
   `;
 }
 
+function uiIcon(name) {
+  const paths = {
+    trash: `
+      <path d="M4 6h16" />
+      <path d="M9 6V4.8A1.8 1.8 0 0 1 10.8 3h2.4A1.8 1.8 0 0 1 15 4.8V6" />
+      <path d="M7 6l.8 14h8.4L17 6" />
+      <path d="M10 10.5v5" />
+      <path d="M14 10.5v5" />
+    `,
+    minus: '<path d="M6 12h12" />',
+    x: `
+      <path d="M6 6l12 12" />
+      <path d="M18 6 6 18" />
+    `,
+  };
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || ""}</svg>`;
+}
+
 function renderChats() {
   chatList.innerHTML = "";
   for (const chat of state.chats) {
@@ -197,22 +370,14 @@ function renderChats() {
     const button = document.createElement("button");
     button.className = "chat-item";
     button.type = "button";
-    button.textContent = chat.title;
+    button.textContent = displayChatTitle(chat);
     button.addEventListener("click", () => selectChat(chat.id));
 
     const deleteButton = document.createElement("button");
     deleteButton.className = "chat-delete-button";
     deleteButton.type = "button";
-    deleteButton.setAttribute("aria-label", `${chat.title} löschen`);
-    deleteButton.innerHTML = `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M3 6h18" />
-        <path d="M8 6V4h8v2" />
-        <path d="M6 6l1 14h10l1-14" />
-        <path d="M10 11v5" />
-        <path d="M14 11v5" />
-      </svg>
-    `;
+    deleteButton.setAttribute("aria-label", `Delete ${displayChatTitle(chat)}`);
+    deleteButton.innerHTML = uiIcon("trash");
     deleteButton.addEventListener("click", (event) => {
       event.stopPropagation();
       deleteChat(chat.id, chat.title).catch((error) => setStatus(error.message, true));
@@ -230,7 +395,58 @@ function activeChat() {
 function workspaceLabel(chat) {
   const path = chat?.workspace_path?.trim();
   if (path) return path;
-  return "Fallback aus Einstellungen";
+  return "Settings fallback";
+}
+
+function displayChatTitle(chat) {
+  const title = typeof chat === "string" ? chat : chat?.title;
+  return title === "Neuer Chat" ? "New Chat" : title || "Chat";
+}
+
+function isDefaultChatTitle(title) {
+  return title === "Neuer Chat" || title === "New Chat";
+}
+
+function mergeChat(updatedChat) {
+  if (!updatedChat?.id) return;
+  const exists = state.chats.some((chat) => chat.id === updatedChat.id);
+  state.chats = exists
+    ? state.chats.map((chat) => chat.id === updatedChat.id ? updatedChat : chat)
+    : [updatedChat, ...state.chats];
+  renderChats();
+  if (state.activeChatId === updatedChat.id) {
+    chatTitle.textContent = displayChatTitle(updatedChat);
+    chatWorkspace.textContent = workspaceLabel(updatedChat);
+  }
+}
+
+function stopWatchingChatTitle(chatId) {
+  const timer = state.titleWatchers.get(chatId);
+  if (timer) {
+    window.clearInterval(timer);
+  }
+  state.titleWatchers.delete(chatId);
+}
+
+function watchChatTitle(chatId) {
+  const chat = state.chats.find((item) => item.id === chatId);
+  if (!chat || !isDefaultChatTitle(chat.title)) return;
+  stopWatchingChatTitle(chatId);
+
+  let attempts = 0;
+  const timer = window.setInterval(async () => {
+    attempts += 1;
+    try {
+      const updatedChat = await api(`/api/chats/${chatId}`);
+      mergeChat(updatedChat);
+      if (!isDefaultChatTitle(updatedChat.title) || attempts >= 50) {
+        stopWatchingChatTitle(chatId);
+      }
+    } catch (_error) {
+      stopWatchingChatTitle(chatId);
+    }
+  }, 1200);
+  state.titleWatchers.set(chatId, timer);
 }
 
 function renderModeSwitch() {
@@ -242,9 +458,9 @@ function renderModeSwitch() {
     button.setAttribute("aria-pressed", active ? "true" : "false");
   });
   input.placeholder = {
-    chat: "Nachricht schreiben...",
-    code: "Code-Frage oder Projektauftrag schreiben...",
-    agentic: "Agentic Aufgabe oder wiederkehrenden Task beschreiben...",
+    chat: "Write a message...",
+    code: "Ask a code question or describe a project task...",
+    agentic: "Describe an agentic task or recurring run...",
   }[state.activeMode];
 }
 
@@ -267,7 +483,7 @@ function changeMode(nextMode) {
   } else {
     renderMessages([]);
   }
-  setStatus(`${state.activeMode} bereit`);
+  setStatus(`${state.activeMode} ready`);
 }
 
 async function loadActiveModeMessages(mode = state.activeMode) {
@@ -281,11 +497,84 @@ async function loadActiveModeMessages(mode = state.activeMode) {
   renderMessages(messages);
 }
 
-function modelOptionsHtml(selectedModel, placeholder = "Modell auswählen") {
-  const options = state.availableModels
+function normalizeModelCatalog(payload) {
+  if (!Array.isArray(payload)) return [];
+  return payload
+    .map((item) => {
+      if (typeof item === "string") {
+        return {
+          name: item,
+          kind: inferModelKindFromName(item),
+          family: "",
+          families: [],
+          parameter_size: "",
+          quantization_level: "",
+          format: "",
+          details: {},
+          model_info: {},
+          capabilities: [],
+          error: "",
+        };
+      }
+      if (!item || typeof item !== "object" || typeof item.name !== "string") return null;
+      return {
+        name: item.name,
+        kind: item.kind || inferModelKindFromName(item.name),
+        family: item.family || "",
+        families: Array.isArray(item.families) ? item.families : [],
+        parameter_size: item.parameter_size || "",
+        quantization_level: item.quantization_level || "",
+        format: item.format || "",
+        size: Number.isFinite(item.size) ? item.size : null,
+        digest: item.digest || "",
+        modified_at: item.modified_at || "",
+        details: item.details && typeof item.details === "object" ? item.details : {},
+        model_info: item.model_info && typeof item.model_info === "object" ? item.model_info : {},
+        capabilities: Array.isArray(item.capabilities) ? item.capabilities : [],
+        error: item.error || "",
+      };
+    })
+    .filter(Boolean)
+    .sort((first, second) => first.name.localeCompare(second.name));
+}
+
+function inferModelKindFromName(model) {
+  const normalized = String(model || "").toLowerCase();
+  return embeddingModelMarkers.some((marker) => normalized.includes(marker)) ? "embedding" : "chat";
+}
+
+function modelKind(model) {
+  if (!model) return "unknown";
+  if (model.kind) return model.kind;
+  return inferModelKindFromName(model.name);
+}
+
+function modelByName(name) {
+  return state.modelCatalog.find((model) => model.name === name) || null;
+}
+
+function isEmbeddingModelName(name) {
+  const model = modelByName(name);
+  return model ? modelKind(model) === "embedding" : inferModelKindFromName(name) === "embedding";
+}
+
+function roleAssignmentModels() {
+  return state.modelCatalog
+    .filter((model) => modelKind(model) !== "embedding")
+    .map((model) => model.name);
+}
+
+function embeddingModels() {
+  return state.modelCatalog
+    .filter((model) => modelKind(model) === "embedding")
+    .map((model) => model.name);
+}
+
+function modelOptionsHtml(selectedModel, placeholder = "Select model", models = state.availableModels) {
+  const options = models
     .map((model) => `<option value="${escapeHtml(model)}"${model === selectedModel ? " selected" : ""}>${escapeHtml(model)}</option>`)
     .join("");
-  const selectedExists = state.availableModels.includes(selectedModel);
+  const selectedExists = models.includes(selectedModel);
   const customOption = selectedModel && !selectedExists
     ? `<option value="${escapeHtml(selectedModel)}" selected>${escapeHtml(selectedModel)}</option>`
     : "";
@@ -325,30 +614,31 @@ function roleSelectOptionsHtml(selectedRole) {
     ? `<option value="${escapeHtml(selectedRole)}" selected>${escapeHtml(selectedRole)}</option>`
     : "";
   const emptySelected = selectedRole ? "" : " selected";
-  return `<option value=""${emptySelected}>Rolle auswählen</option>${customOption}${options}`;
+  return `<option value=""${emptySelected}>Select role</option>${customOption}${options}`;
 }
 
 function renderModelRoles() {
   const roles = normalizeModelRoles(state.settings?.model_roles);
   modelRoleList.innerHTML = "";
   roles.forEach((roleConfig, index) => {
+    const selectedModel = isEmbeddingModelName(roleConfig.model) ? "" : roleConfig.model;
     const row = document.createElement("div");
     row.className = "model-role-row";
     row.dataset.index = String(index);
     row.innerHTML = `
       <label class="model-role-field">
-        <span class="model-role-label">Rolle</span>
+        <span class="model-role-label">Role</span>
         <select class="role-select">
           ${roleSelectOptionsHtml(roleConfig.role)}
         </select>
       </label>
       <label class="model-role-field">
-        <span class="model-role-label">Modell</span>
+        <span class="model-role-label">Model</span>
         <select class="model-select">
-          ${modelOptionsHtml(roleConfig.model)}
+          ${modelOptionsHtml(selectedModel, "Select model", roleAssignmentModels())}
         </select>
       </label>
-      <button class="remove-role" type="button" aria-label="Rolle entfernen">-</button>
+      <button class="remove-role" type="button" aria-label="Remove role">${uiIcon("minus")}</button>
     `;
 
     row.querySelector(".remove-role").addEventListener("click", () => {
@@ -358,9 +648,60 @@ function renderModelRoles() {
   });
 }
 
+function workflowPresetsForMode(mode) {
+  return state.workflowPresets.filter((workflow) => workflow.mode === mode);
+}
+
+function workflowOptionsHtml(mode, selected) {
+  const workflows = workflowPresetsForMode(mode);
+  const options = workflows
+    .map((workflow) => `<option value="${escapeHtml(workflow.id)}"${workflow.id === selected ? " selected" : ""}>${escapeHtml(workflow.name)}</option>`)
+    .join("");
+  const selectedExists = workflows.some((workflow) => workflow.id === selected);
+  const customOption = selected && !selectedExists
+    ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)}</option>`
+    : "";
+  return `${customOption}${options}`;
+}
+
+function renderWorkflowSettings() {
+  if (!state.settings || !workflowChat || !workflowCode || !workflowAgentic) return;
+  const selected = state.settings.workflow_presets || {};
+  workflowChat.innerHTML = workflowOptionsHtml("chat", selected.chat || "chat_direct");
+  workflowCode.innerHTML = workflowOptionsHtml("code", selected.code || "code_direct_worker");
+  workflowAgentic.innerHTML = workflowOptionsHtml("agentic", selected.agentic || "agentic_direct_orchestrator");
+  renderWorkflowPresetList();
+}
+
+function renderWorkflowPresetList() {
+  if (!workflowPresetList) return;
+  workflowPresetList.innerHTML = "";
+  if (state.workflowPresets.length === 0) {
+    workflowPresetList.innerHTML = '<p class="settings-empty">No workflow presets found.</p>';
+    return;
+  }
+  state.workflowPresets.forEach((workflow) => {
+    const item = document.createElement("article");
+    item.className = "workflow-preset-item";
+    const nodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
+    item.innerHTML = `
+      <div>
+        <strong>${escapeHtml(workflow.name)}</strong>
+        <small>${escapeHtml(workflow.mode)} · ${escapeHtml(workflow.execution)} · ${escapeHtml(workflow.max_iterations || 1)} iteration(s)</small>
+      </div>
+      <p>${escapeHtml(workflow.description || "")}</p>
+      <div class="workflow-node-list">
+        ${nodes.map((node) => `<span>${escapeHtml(node.title || node.role || node.type || node.id)}</span>`).join("")}
+      </div>
+    `;
+    workflowPresetList.append(item);
+  });
+}
+
 function renderEmbeddingModel() {
   if (!embeddingModel) return;
-  embeddingModel.innerHTML = modelOptionsHtml(state.settings?.embedding_model || "", "Kein Embedding-Modell");
+  const selectedModel = isEmbeddingModelName(state.settings?.embedding_model) ? state.settings.embedding_model : "";
+  embeddingModel.innerHTML = modelOptionsHtml(selectedModel, "No embedding model", embeddingModels());
 }
 
 function activeRole() {
@@ -451,7 +792,7 @@ function renderMistakeWizard() {
   renderMistakeAnalyzeButton();
   mistakeEntryList.innerHTML = "";
   if (state.mistakeEntries.length === 0) {
-    mistakeEntryList.innerHTML = '<p class="settings-empty">Keine Fehler-Eintraege gefunden.</p>';
+    mistakeEntryList.innerHTML = '<p class="settings-empty">No mistake entries found.</p>';
   }
   state.mistakeEntries.forEach((entry) => {
     const button = document.createElement("button");
@@ -460,7 +801,7 @@ function renderMistakeWizard() {
     button.classList.toggle("active", entry.id === state.activeMistakeId);
     button.innerHTML = `
       <span>${escapeHtml(entry.title || "Untitled mistake")}</span>
-      <small>${escapeHtml(entry.timestamp || "ohne Timestamp")}</small>
+      <small>${escapeHtml(entry.timestamp || "no timestamp")}</small>
     `;
     button.addEventListener("click", () => {
       state.activeMistakeId = entry.id;
@@ -471,9 +812,9 @@ function renderMistakeWizard() {
   });
 
   const entry = activeMistakeEntry();
-  mistakeEntryDetail.innerHTML = entry ? markdownPreview(entry.content) : "<p>Waehle einen Fehler aus.</p>";
+  mistakeEntryDetail.innerHTML = entry ? markdownPreview(entry.content) : "<p>Select a mistake.</p>";
   mistakeSolution.value = state.suggestedMistakeSolution?.instruction || "";
-  mistakeSolutionHint.textContent = state.suggestedMistakeSolution?.rationale || "Waehle einen Fehler aus und lass dir eine Lösung vorschlagen.";
+  mistakeSolutionHint.textContent = state.suggestedMistakeSolution?.rationale || "Select a mistake and ask for a fix suggestion.";
   suggestMistakeSolutionButton.disabled = !entry;
   acceptMistakeSolutionButton.disabled = !entry || !mistakeSolution.value.trim();
 }
@@ -485,7 +826,7 @@ function activeAgenticTask() {
 function renderAgenticTasks() {
   agenticTaskList.innerHTML = "";
   if (state.agenticTasks.length === 0) {
-    agenticTaskList.innerHTML = '<p class="settings-empty">Noch keine Agentic Tasks.</p>';
+    agenticTaskList.innerHTML = '<p class="settings-empty">No agentic tasks yet.</p>';
   }
   state.agenticTasks.forEach((task) => {
     const button = document.createElement("button");
@@ -520,34 +861,73 @@ function renderAgenticTaskEditor() {
 function renderAgenticRuns() {
   agenticRunList.innerHTML = "";
   if (!state.activeTaskId) {
-    agenticRunList.innerHTML = '<p class="settings-empty">Waehle einen Task aus.</p>';
+    agenticRunList.innerHTML = '<p class="settings-empty">Select a task.</p>';
     return;
   }
   if (state.agenticRuns.length === 0) {
-    agenticRunList.innerHTML = '<p class="settings-empty">Noch keine Runs.</p>';
+    agenticRunList.innerHTML = '<p class="settings-empty">No runs yet.</p>';
     return;
   }
   state.agenticRuns.forEach((run) => {
     const item = document.createElement("article");
     item.className = `agentic-run-item ${run.status}`;
+    const summary = runSummaryParts(run.summary || run.error || "No result text.");
     item.innerHTML = `
       <div>
         <strong>${escapeHtml(run.status)}</strong>
         <small>${escapeHtml(run.started_at)} · attempt ${escapeHtml(run.attempt)}</small>
       </div>
-      <p>${escapeHtml(run.summary || run.error || "Kein Ergebnistext.")}</p>
+      <section class="run-summary">${formatContent(summary.main)}</section>
+      ${summary.details ? `
+        <details class="run-details">
+          <summary>Review details</summary>
+          <div>${formatContent(summary.details)}</div>
+        </details>
+      ` : ""}
     `;
     agenticRunList.append(item);
   });
 }
 
-function collectModelRoles() {
+function runSummaryParts(value) {
+  const clean = String(value || "")
+    .replace(/\*{3,}/g, "\n\n")
+    .replace(/#{1,6}\s*Reviewer Findings/gi, "### Review")
+    .replace(/#{1,6}\s*Recommendations/gi, "### Recommendations")
+    .trim();
+  const detailsStart = clean.search(/(^|\n)\s*(#{2,6}\s*(Review|Recommendations)|\*\*Correctness:\*\*|\*\*Safety:\*\*)/i);
+  if (detailsStart <= 0) {
+    return { main: clean, details: "" };
+  }
+  return {
+    main: clean.slice(0, detailsStart).trim(),
+    details: clean.slice(detailsStart).trim(),
+  };
+}
+
+function collectModelRoleDrafts() {
   return [...modelRoleList.querySelectorAll(".model-role-row")]
     .map((row) => ({
       role: row.querySelector(".role-select").value.trim(),
       model: row.querySelector(".model-select").value.trim(),
-    }))
-    .filter((item) => item.role && item.model);
+    }));
+}
+
+function collectModelRoles() {
+  return collectModelRoleDrafts().filter((item) => item.role && item.model);
+}
+
+function syncModelSelectionState() {
+  if (!state.settings) return;
+  const draftRoles = collectModelRoleDrafts();
+  const nextSettings = { ...state.settings };
+  if (draftRoles.length > 0) {
+    nextSettings.model_roles = draftRoles;
+  }
+  if (embeddingModel.options.length > 0) {
+    nextSettings.embedding_model = embeddingModel.value.trim();
+  }
+  state.settings = nextSettings;
 }
 
 function renderSettings() {
@@ -561,20 +941,27 @@ function renderSettings() {
   renderEmailProvider();
   renderAlwaysAllowedTools();
   renderAvailableTools();
+  renderWorkflowSettings();
   renderModelRoles();
   renderSettingsSections();
+}
+
+async function ensureModelsLoaded(force = false) {
+  if (state.modelsLoading) return;
+  if (!force && state.modelsLoaded) return;
+  await refreshModels();
 }
 
 function renderEmailProvider() {
   const provider = state.settings?.email_provider || {};
   const status = provider.status || "disconnected";
-  const account = provider.account_email || "Kein Account verbunden.";
+  const account = provider.account_email || "No account connected.";
   emailProviderStatus.textContent = status;
   emailProviderStatus.className = `provider-state ${status}`;
   emailProviderAccount.textContent = account;
   emailProviderHint.textContent = provider.provider
-    ? "OAuth ist vorbereitet. Der echte Browser-Flow braucht als nächsten Schritt Client-ID, Redirect URI und Token-Speicher."
-    : "Wähle Google oder Microsoft und starte danach den Auth-Prozess.";
+    ? "OAuth is prepared. The real browser flow needs a client ID, redirect URI, and token storage next."
+    : "Choose Google or Microsoft, then start the auth flow.";
   connectEmailProviderButton.disabled = !emailProvider.value;
   disconnectEmailProviderButton.disabled = status === "disconnected" && !provider.provider;
 }
@@ -594,7 +981,7 @@ function renderAlwaysAllowedTools() {
   const tools = Array.isArray(state.settings?.always_allowed_tools) ? state.settings.always_allowed_tools : [];
   alwaysAllowedTools.innerHTML = "";
   if (tools.length === 0) {
-    alwaysAllowedTools.innerHTML = '<p class="settings-empty">Noch keine Funktion dauerhaft erlaubt.</p>';
+    alwaysAllowedTools.innerHTML = '<p class="settings-empty">No function is permanently allowed yet.</p>';
     return;
   }
   tools.forEach((tool) => {
@@ -602,7 +989,7 @@ function renderAlwaysAllowedTools() {
     chip.className = "tool-chip";
     chip.innerHTML = `
       <span>${escapeHtml(tool)}</span>
-      <button type="button" aria-label="${escapeHtml(tool)} entfernen">x</button>
+      <button type="button" aria-label="Remove ${escapeHtml(tool)}">${uiIcon("x")}</button>
     `;
     chip.querySelector("button").addEventListener("click", () => {
       state.settings.always_allowed_tools = tools.filter((item) => item !== tool);
@@ -615,7 +1002,7 @@ function renderAlwaysAllowedTools() {
 function renderAvailableTools() {
   availableToolList.innerHTML = "";
   if (!Array.isArray(state.availableTools) || state.availableTools.length === 0) {
-    availableToolList.innerHTML = '<p class="settings-empty">Tool-Liste wird geladen...</p>';
+    availableToolList.innerHTML = '<p class="settings-empty">Loading tool list...</p>';
     return;
   }
   state.availableTools.forEach((tool) => {
@@ -630,7 +1017,7 @@ function renderAvailableTools() {
       <div class="tool-meta">
         <span>${escapeHtml(meta.category || "tool")}</span>
         <span>${escapeHtml(meta.risk || "read")}</span>
-        <span>${meta.alwaysAllowed ? "immer erlaubt" : meta.requiresConfirmation ? "fragt nach" : "frei"}</span>
+        <span>${meta.alwaysAllowed ? "always allowed" : meta.requiresConfirmation ? "asks first" : "free"}</span>
       </div>
     `;
     availableToolList.append(item);
@@ -641,6 +1028,9 @@ function openSettings() {
   shell.classList.add("settings-open");
   settingsPanel.setAttribute("aria-hidden", "false");
   renderSettings();
+  ensureModelsLoaded().catch((error) => {
+    modelsHint.textContent = error.message;
+  });
 }
 
 function closeSettings() {
@@ -659,26 +1049,26 @@ function renderMessages(messages) {
     return;
   }
   for (const message of messages) {
-    const mode = message.mode || "chat";
     const feedback = message.feedback || "";
     const item = document.createElement("article");
-    item.className = `message ${message.role} ${mode}`;
+    item.className = `message ${message.role} ${message.mode || "chat"}`;
     const feedbackActions = message.role === "assistant"
       ? `
-        <div class="message-feedback" aria-label="Antwort bewerten">
-          <button class="feedback-button ${feedback === "up" ? "active" : ""}" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="up" aria-label="Daumen hoch">${thumbIcon("up")}</button>
-          <button class="feedback-button ${feedback === "down" ? "active" : ""}" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="down" aria-label="Daumen runter">${thumbIcon("down")}</button>
+        <div class="message-feedback" aria-label="Rate response">
+          <button class="feedback-button ${feedback === "up" ? "active" : ""}" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="up" aria-label="Thumbs up">${thumbIcon("up")}</button>
+          <button class="feedback-button ${feedback === "down" ? "active" : ""}" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="down" aria-label="Thumbs down">${thumbIcon("down")}</button>
         </div>
       `
       : "";
     item.innerHTML = `
-      <div class="message-role"><span>[${escapeHtml(mode)}]</span> ${escapeHtml(message.role)}</div>
+      <div class="message-role">${escapeHtml(message.role)}</div>
       <div class="bubble">${formatContent(message.content)}</div>
       ${feedbackActions}
     `;
     messagesEl.append(item);
   }
   messagesEl.scrollTop = messagesEl.scrollHeight;
+  state.autoScrollLocked = true;
 }
 
 function isMessagesNearBottom() {
@@ -687,15 +1077,17 @@ function isMessagesNearBottom() {
 
 function scrollMessagesToBottom() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
+  if (!state.streamingAssistant) {
+    state.autoScrollLocked = true;
+  }
 }
 
 messagesEl.addEventListener("scroll", () => {
-  if (state.streamingAssistant && state.streamDockEnabled) {
-    state.streamDocked = isMessagesNearBottom();
-  }
+  if (state.streamingAssistant) return;
+  state.autoScrollLocked = isMessagesNearBottom();
 });
 
-function appendMessage(message, extraClass = "", scrollToBottom = true) {
+function appendMessage(message, extraClass = "", scrollToBottom = state.autoScrollLocked) {
   const mode = message.mode || state.activeMode || "chat";
   const item = document.createElement("article");
   const isThinking = message.role === "assistant" && extraClass.includes("streaming") && !message.content;
@@ -703,12 +1095,13 @@ function appendMessage(message, extraClass = "", scrollToBottom = true) {
   if (isThinking) item.classList.add("thinking");
   item.dataset.messageId = message.id || "";
   item.innerHTML = `
-    <div class="message-role"><span>[${escapeHtml(mode)}]</span> ${escapeHtml(message.role)}</div>
-    <div class="bubble">${isThinking ? thinkingIndicatorHtml() : formatContent(message.content || "")}</div>
+    <div class="message-role">${escapeHtml(message.role)}</div>
+    ${isThinking ? thinkingIndicatorHtml() : ""}
+    <div class="bubble">${isThinking ? "" : formatContent(message.content || "")}</div>
     ${message.role === "assistant" && message.id ? `
-      <div class="message-feedback" aria-label="Antwort bewerten">
-        <button class="feedback-button" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="up" aria-label="Daumen hoch">${thumbIcon("up")}</button>
-        <button class="feedback-button" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="down" aria-label="Daumen runter">${thumbIcon("down")}</button>
+      <div class="message-feedback" aria-label="Rate response">
+        <button class="feedback-button" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="up" aria-label="Thumbs up">${thumbIcon("up")}</button>
+        <button class="feedback-button" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="down" aria-label="Thumbs down">${thumbIcon("down")}</button>
       </div>
     ` : ""}
   `;
@@ -726,6 +1119,9 @@ function setMessageContent(element, content, followScroll = true) {
   const bubble = element?.querySelector(".bubble");
   if (!bubble) return;
   element.classList.toggle("thinking", !content);
+  if (content) {
+    element.querySelector(".thinking-notice")?.remove();
+  }
   bubble.innerHTML = formatContent(content);
   if (followScroll) {
     scrollMessagesToBottom();
@@ -736,11 +1132,12 @@ function finalizeAssistantMessage(element, message) {
   if (!element || !message) return;
   element.dataset.messageId = message.id;
   element.classList.remove("streaming", "thinking");
+  element.querySelector(".thinking-notice")?.remove();
   if (!element.querySelector(".message-feedback")) {
     element.insertAdjacentHTML("beforeend", `
-      <div class="message-feedback" aria-label="Antwort bewerten">
-        <button class="feedback-button" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="up" aria-label="Daumen hoch">${thumbIcon("up")}</button>
-        <button class="feedback-button" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="down" aria-label="Daumen runter">${thumbIcon("down")}</button>
+      <div class="message-feedback" aria-label="Rate response">
+        <button class="feedback-button" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="up" aria-label="Thumbs up">${thumbIcon("up")}</button>
+        <button class="feedback-button" type="button" data-message-id="${escapeHtml(message.id)}" data-rating="down" aria-label="Thumbs down">${thumbIcon("down")}</button>
       </div>
     `);
   }
@@ -765,11 +1162,30 @@ async function loadChats() {
     state.activeChatId = state.chats[0].id;
   }
   renderChats();
+  const chat = activeChat();
+  if (chat) {
+    chatTitle.textContent = displayChatTitle(chat);
+    chatWorkspace.textContent = workspaceLabel(chat);
+  }
 }
 
 async function loadSettings() {
   state.settings = await api("/api/settings");
   renderSettings();
+  if (shell.classList.contains("settings-open")) {
+    ensureModelsLoaded().catch((error) => {
+      modelsHint.textContent = error.message;
+    });
+  }
+}
+
+async function loadWorkflowPresets() {
+  const response = await api("/api/settings/workflows");
+  state.workflowPresets = response.workflows || [];
+  if (response.selected && state.settings) {
+    state.settings.workflow_presets = response.selected;
+  }
+  renderWorkflowSettings();
 }
 
 async function loadTools() {
@@ -787,6 +1203,9 @@ async function loadRoles() {
     state.activeRoleName = state.roles[0]?.name || null;
   }
   renderRoles();
+  if (state.settings) {
+    renderModelRoles();
+  }
 }
 
 async function loadMistakes() {
@@ -826,28 +1245,42 @@ async function loadAgenticRuns(taskId) {
 async function loadSchedulerStatus() {
   const status = await api("/api/agentic-tasks/scheduler/status");
   agenticSchedulerStatus.textContent = status.running
-    ? `Scheduler aktiv · ${status.active_runs.length} aktive Run(s)`
-    : "Scheduler pausiert";
+    ? `Scheduler active · ${status.active_runs.length} active run(s)`
+    : "Scheduler paused";
 }
 
 async function refreshModels() {
-  modelsHint.textContent = "lade Modelle...";
+  if (state.modelsLoading) return;
+  state.modelsLoading = true;
+  syncModelSelectionState();
+  refreshModelsButton.disabled = true;
+  refreshModelsButton.textContent = "Refreshing...";
+  modelsHint.textContent = "Loading models...";
   try {
-    state.availableModels = await api("/api/settings/models");
-    modelsHint.textContent = state.availableModels.length
-      ? `${state.availableModels.length} Modell(e) aus Ollama geladen.`
-      : "Ollama hat keine Modelle gemeldet.";
+    state.modelCatalog = normalizeModelCatalog(await api("/api/settings/models"));
+    state.availableModels = state.modelCatalog.map((model) => model.name);
+    state.modelsLoaded = true;
+    const roleModelCount = roleAssignmentModels().length;
+    const embeddingModelCount = embeddingModels().length;
+    modelsHint.textContent = state.modelCatalog.length
+      ? `${state.modelCatalog.length} model(s) loaded from Ollama · ${roleModelCount} role · ${embeddingModelCount} embedding.`
+      : "Ollama did not report any models.";
     renderModelRoles();
     renderEmbeddingModel();
   } catch (error) {
+    state.modelsLoaded = false;
     modelsHint.textContent = error.message;
+  } finally {
+    state.modelsLoading = false;
+    refreshModelsButton.disabled = false;
+    refreshModelsButton.textContent = "Refresh Models";
   }
 }
 
 async function selectChat(chatId) {
   state.activeChatId = chatId;
   const chat = activeChat();
-  chatTitle.textContent = chat ? chat.title : "Chat";
+  chatTitle.textContent = chat ? displayChatTitle(chat) : "Chat";
   chatWorkspace.textContent = workspaceLabel(chat);
   renderChats();
   await loadActiveModeMessages();
@@ -862,9 +1295,7 @@ async function saveChatWorkspace(workspace) {
     method: "PUT",
     body: JSON.stringify({ workspace_path: nextWorkspace }),
   });
-  state.chats = state.chats.map((item) => item.id === updated.id ? updated : item);
-  chatWorkspace.textContent = workspaceLabel(updated);
-  renderChats();
+  mergeChat(updated);
 }
 
 function closeComposerMenu() {
@@ -889,15 +1320,15 @@ async function requestWorkspacePath() {
     workspace = await window.pywebview.api.choose_workspace();
     if (!workspace) return;
   } else {
-    workspace = window.prompt("Workspace-Pfad für diesen Chat", current);
+    workspace = window.prompt("Workspace path for this chat", current);
   }
   if (workspace === null) return;
   await saveChatWorkspace(workspace);
-  setStatus(workspace.trim() ? "Workspace gesetzt" : "Workspace-Fallback aktiv");
+  setStatus(workspace.trim() ? "Workspace set" : "Workspace fallback active");
 }
 
 async function createChat() {
-  setStatus("erstelle Chat...");
+  setStatus("Creating chat...");
   const chat = await api("/api/chats", {
     method: "POST",
     body: JSON.stringify({ title: null }),
@@ -906,13 +1337,14 @@ async function createChat() {
   await loadChats();
   await selectChat(chat.id);
   input.focus();
-  setStatus("bereit");
+  setStatus("Ready");
 }
 
 async function deleteChat(chatId, title) {
-  const confirmed = window.confirm(`Chat "${title}" wirklich löschen?`);
+  const confirmed = window.confirm(`Delete chat "${displayChatTitle(title)}"?`);
   if (!confirmed) return;
 
+  stopWatchingChatTitle(chatId);
   await api(`/api/chats/${chatId}`, { method: "DELETE" });
   if (state.activeChatId === chatId) {
     state.activeChatId = null;
@@ -923,44 +1355,51 @@ async function deleteChat(chatId, title) {
   } else if (state.chats.length > 0) {
     await selectChat(state.chats[0].id);
   } else {
-    chatTitle.textContent = "Kein Chat ausgewählt";
+    chatTitle.textContent = "No Chat Selected";
     chatWorkspace.textContent = workspaceLabel(null);
     renderMessages([]);
   }
-  setStatus("Chat gelöscht");
+  setStatus("Chat deleted");
 }
 
 function setLoading(loading) {
   state.loading = loading;
   input.disabled = loading;
   sendButton.disabled = loading;
-  setStatus(loading ? `${state.activeMode} arbeitet...` : "bereit");
+  setStatus(loading ? `${state.activeMode} working...` : "Ready");
 }
 
 async function sendMessage(content) {
   if (!state.activeChatId) {
     await createChat();
   }
+  const chatId = state.activeChatId;
   setLoading(true);
   const streamStartedAt = performance.now();
   let tokenChunks = 0;
   let streamedContent = "";
+  const workflowProgress = [];
   let assistantEl = null;
   let pendingRender = false;
   let finalStatus = "";
+
+  const renderWorkflowProgress = () => {
+    if (!assistantEl || streamedContent) return;
+    const recent = workflowProgress.slice(-12);
+    setMessageContent(assistantEl, `### Workflow\n${recent.map((item) => `- ${item}`).join("\n")}`, false);
+  };
 
   const scheduleRender = () => {
     if (pendingRender) return;
     pendingRender = true;
     requestAnimationFrame(() => {
       pendingRender = false;
-      setMessageContent(assistantEl, streamedContent, state.streamDocked && isMessagesNearBottom());
-      state.streamDockEnabled = true;
+      setMessageContent(assistantEl, streamedContent, false);
     });
   };
 
   try {
-    const response = await fetch(`/api/chats/${state.activeChatId}/messages/stream`, {
+    const response = await fetch(`/api/chats/${chatId}/messages/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content, mode: state.activeMode }),
@@ -989,33 +1428,40 @@ async function sendMessage(content) {
           appendMessage(event.message);
           input.value = "";
           assistantEl = appendMessage({ role: "assistant", mode: state.activeMode, content: "" }, "streaming");
+          state.streamingAssistant = true;
+          state.autoScrollLocked = false;
         } else if (event.type === "status") {
-          setStatus(event.message || `${state.activeMode} arbeitet...`);
+          setStatus(event.message || `${state.activeMode} working...`);
+        } else if (event.type === "workflow_status") {
+          const label = event.message || "Workflow step running...";
+          workflowProgress.push(label);
+          setStatus(label);
+          renderWorkflowProgress();
         } else if (event.type === "token") {
           if (!state.streamingAssistant) {
             state.streamingAssistant = true;
-            state.streamDocked = false;
-            state.streamDockEnabled = false;
+            state.autoScrollLocked = false;
           }
           streamedContent += event.content || "";
           tokenChunks += 1;
           const elapsed = Math.max((performance.now() - streamStartedAt) / 1000, 0.1);
-          setStatus(`${state.activeMode} streamt · ${(tokenChunks / elapsed).toFixed(1)} tok/s`);
+          setStatus(`${state.activeMode} streaming · ${(tokenChunks / elapsed).toFixed(1)} tok/s`);
           scheduleRender();
         } else if (event.type === "assistant_message") {
           finalizeAssistantMessage(assistantEl, event.message);
         } else if (event.type === "done") {
           const exact = event.stats?.tokens_per_second;
-          finalStatus = exact ? `fertig · ${exact} tok/s` : "bereit";
+          finalStatus = exact ? `Done · ${exact} tok/s` : "Ready";
           setStatus(finalStatus);
         } else if (event.type === "error") {
-          throw new Error(event.message || "Stream fehlgeschlagen");
+          throw new Error(event.message || "Stream failed");
         }
       }
     }
 
     await loadChats();
     renderChats();
+    watchChatTitle(chatId);
     if (state.activeMode === "agentic") {
       await loadAgenticTasks();
     }
@@ -1026,8 +1472,6 @@ async function sendMessage(content) {
     }
   } finally {
     state.streamingAssistant = false;
-    state.streamDocked = false;
-    state.streamDockEnabled = false;
     setLoading(false);
     if (finalStatus) setStatus(finalStatus);
   }
@@ -1042,7 +1486,7 @@ async function sendMessageFeedback(messageId, rating) {
     if (state.activeChatId) {
       await loadActiveModeMessages();
     }
-    setStatus(rating === "down" ? "Feedback gespeichert, Mistakes werden aktualisiert" : "Feedback gespeichert");
+    setStatus(rating === "down" ? "Feedback saved, mistakes are being updated" : "Feedback saved");
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -1056,7 +1500,7 @@ async function callTool(name, argumentsPayload = {}) {
   if (!response.approval_required) return response;
   const approval = await requestToolApproval(response);
   if (!approval.approved) {
-    throw new Error("Tool-Aufruf abgebrochen.");
+    throw new Error("Tool call cancelled.");
   }
   const approvedResponse = await api("/api/tools/call", {
     method: "POST",
@@ -1077,8 +1521,8 @@ function requestToolApproval(request) {
   return new Promise((resolve) => {
     state.pendingToolApproval = resolve;
     const definition = request.tool_definition || {};
-    toolApprovalName.textContent = request.tool || definition.name || "Unbekanntes Tool";
-    toolApprovalDescription.textContent = definition.description || request.message || "Das Modell möchte diese Funktion ausführen.";
+    toolApprovalName.textContent = request.tool || definition.name || "Unknown tool";
+    toolApprovalDescription.textContent = definition.description || request.message || "The model wants to run this function.";
     toolApprovalArguments.textContent = JSON.stringify(request.arguments || {}, null, 2);
     toolApprovalModal.classList.add("open");
     toolApprovalModal.setAttribute("aria-hidden", "false");
@@ -1163,7 +1607,7 @@ connectEmailProviderButton.addEventListener("click", async () => {
     });
     state.settings = await api("/api/settings");
     renderSettings();
-    setStatus(response.message || "Provider vorbereitet");
+    setStatus(response.message || "Provider prepared");
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -1173,14 +1617,14 @@ disconnectEmailProviderButton.addEventListener("click", async () => {
   try {
     state.settings = await api("/api/settings/email-provider/disconnect", { method: "POST" });
     renderSettings();
-    setStatus("E-Mail Provider getrennt");
+    setStatus("Email provider disconnected");
   } catch (error) {
     setStatus(error.message, true);
   }
 });
 
 addModelRoleButton.addEventListener("click", () => {
-  const roles = collectModelRoles();
+  const roles = collectModelRoleDrafts();
   roles.push({ role: "", model: "" });
   state.settings = { ...state.settings, model_roles: roles };
   renderModelRoles();
@@ -1220,7 +1664,7 @@ roleNameInput.addEventListener("input", () => {
 saveRoleButton.addEventListener("click", async () => {
   const name = roleNameInput.value.trim();
   if (!name) {
-    setStatus("Rollenname fehlt.", true);
+    setStatus("Role name is missing.", true);
     return;
   }
   try {
@@ -1231,7 +1675,7 @@ saveRoleButton.addEventListener("click", async () => {
     state.activeRoleName = saved.name;
     await loadRoles();
     renderSettings();
-    setStatus("Rolle gespeichert");
+    setStatus("Role saved");
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -1245,7 +1689,7 @@ deleteRoleButton.addEventListener("click", async () => {
     state.activeRoleName = null;
     await loadRoles();
     renderSettings();
-    setStatus("Rolle geloescht");
+    setStatus("Role deleted");
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -1260,7 +1704,7 @@ saveMistakesButton.addEventListener("click", async () => {
     state.mistakeEntries = await api("/api/mistakes/entries");
     renderMistakes();
     renderMistakeWizard();
-    setStatus("Mistakes gespeichert");
+    setStatus("Mistakes saved");
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -1297,12 +1741,12 @@ suggestMistakeSolutionButton.addEventListener("click", async () => {
   const entry = activeMistakeEntry();
   if (!entry) return;
   suggestMistakeSolutionButton.disabled = true;
-  mistakeSolutionHint.textContent = "Lösung wird destilliert...";
+  mistakeSolutionHint.textContent = "Distilling fix...";
   try {
     const solution = await api(`/api/mistakes/entries/${entry.id}/suggest-solution`, { method: "POST" });
     state.suggestedMistakeSolution = solution;
     mistakeSolution.value = solution.instruction || "";
-    mistakeSolutionHint.textContent = solution.rationale || "Lösungsvorschlag bereit.";
+    mistakeSolutionHint.textContent = solution.rationale || "Fix suggestion ready.";
     acceptMistakeSolutionButton.disabled = !mistakeSolution.value.trim();
   } catch (error) {
     mistakeSolutionHint.textContent = error.message;
@@ -1328,8 +1772,8 @@ acceptMistakeSolutionButton.addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    setStatus("Lösung in MEMORY.md übernommen");
-    mistakeSolutionHint.textContent = "In MEMORY.md übernommen.";
+    setStatus("Fix added to MEMORY.md");
+    mistakeSolutionHint.textContent = "Added to MEMORY.md.";
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -1349,7 +1793,7 @@ saveAgenticTaskButton.addEventListener("click", async () => {
     prompt: agenticTaskPrompt.value.trim(),
   };
   if (!payload.title || !payload.schedule || !payload.prompt) {
-    setStatus("Titel, Schedule und Aufgabe sind erforderlich.", true);
+    setStatus("Title, schedule, and task are required.", true);
     return;
   }
   try {
@@ -1360,7 +1804,7 @@ saveAgenticTaskButton.addEventListener("click", async () => {
     });
     state.activeTaskId = saved.id;
     await loadAgenticTasks();
-    setStatus("Agentic Task gespeichert");
+    setStatus("Agentic task saved");
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -1374,7 +1818,7 @@ deleteAgenticTaskButton.addEventListener("click", async () => {
     state.activeTaskId = null;
     state.agenticRuns = [];
     await loadAgenticTasks();
-    setStatus("Agentic Task geloescht");
+    setStatus("Agentic task deleted");
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -1384,13 +1828,13 @@ runAgenticTaskButton.addEventListener("click", async () => {
   const task = activeAgenticTask();
   if (!task) return;
   runAgenticTaskButton.disabled = true;
-  setStatus("Agentic Task laeuft...");
+  setStatus("Agentic task running...");
   try {
     await api(`/api/agentic-tasks/${task.id}/run-now`, { method: "POST" });
     await loadAgenticTasks();
     await loadAgenticRuns(task.id);
     await loadSchedulerStatus();
-    setStatus("Agentic Run abgeschlossen");
+    setStatus("Agentic run finished");
   } catch (error) {
     setStatus(error.message, true);
   } finally {
@@ -1402,7 +1846,7 @@ settingsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const modelRoles = collectModelRoles();
   if (modelRoles.length === 0) {
-    setStatus("Mindestens eine Rolle mit Modell ist erforderlich.", true);
+    setStatus("At least one role with a model is required.", true);
     return;
   }
   const assistantRole = modelRoles.find((item) => item.role.toLowerCase() === "assistant") || modelRoles[0];
@@ -1414,6 +1858,11 @@ settingsForm.addEventListener("submit", async (event) => {
     embedding_model: embeddingModel.value.trim(),
     require_tool_confirmation: requireToolConfirmation.checked,
     always_allowed_tools: Array.isArray(state.settings?.always_allowed_tools) ? state.settings.always_allowed_tools : [],
+    workflow_presets: {
+      chat: workflowChat?.value || "chat_direct",
+      code: workflowCode?.value || "code_direct_worker",
+      agentic: workflowAgentic?.value || "agentic_direct_orchestrator",
+    },
     email_provider: {
       ...(state.settings.email_provider || {}),
       provider: emailProvider.value,
@@ -1431,7 +1880,7 @@ settingsForm.addEventListener("submit", async (event) => {
     if (messagesEl.querySelector(".empty")) {
       renderMessages([]);
     }
-    setStatus("Einstellungen gespeichert");
+    setStatus("Settings saved");
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -1458,12 +1907,23 @@ input.addEventListener("keydown", (event) => {
 });
 
 renderModeSwitch();
+initDesktopChrome();
 
-Promise.all([loadRoles(), loadMistakes(), loadAgenticTasks(), loadSchedulerStatus(), loadSettings(), loadTools(), loadChats()])
+Promise.all([
+  loadRoles(),
+  ensureModelsLoaded(),
+  loadMistakes(),
+  loadAgenticTasks(),
+  loadSchedulerStatus(),
+  loadSettings(),
+  loadWorkflowPresets(),
+  loadTools(),
+  loadChats(),
+])
   .then(() => {
     if (state.activeChatId) return selectChat(state.activeChatId);
     renderMessages([]);
     return null;
   })
-  .then(() => setStatus("bereit"))
+  .then(() => setStatus("Ready"))
   .catch((error) => setStatus(error.message, true));

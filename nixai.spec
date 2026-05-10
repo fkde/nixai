@@ -23,7 +23,7 @@ a = Analysis(
     ['app/cli.py'],
     pathex=[],
     binaries=[],
-    datas=[('app/static', 'app/static')],
+    datas=[('app/static', 'app/static'), ('app/workflows/presets', 'app/workflows/presets')],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

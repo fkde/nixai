@@ -49,7 +49,7 @@ class CodeContextBuilder:
 
         path = self._extract_path(user_message)
         if path:
-            results.append(self._call("nixai_workspace_read_file", {"path": path}))
+            results.extend(self._read_path_with_fallback(path))
 
         query = self._extract_search_query(user_message)
         if query:
@@ -74,6 +74,36 @@ class CodeContextBuilder:
             results.append(self._call("nixai_workspace_list_files", {"path": "."}))
         return results
 
+    def _read_path_with_fallback(self, path: str) -> list[dict[str, Any]]:
+        read_result = self._call("nixai_workspace_read_file", {"path": path})
+        results = [read_result]
+        if not self._is_tool_error(read_result) or "/" in path:
+            return results
+
+        filename = Path(path).name
+        if not filename:
+            return results
+
+        search_result = self._call("nixai_workspace_search_files", {"query": filename})
+        results.append(search_result)
+
+        matches = self._exact_filename_matches(search_result.get("result"), filename)
+        if len(matches) == 1:
+            results.append(self._call("nixai_workspace_read_file", {"path": matches[0]}))
+        elif len(matches) > 1:
+            results.append(
+                {
+                    "tool": "nixai_workspace_read_file",
+                    "arguments": {"path": path},
+                    "result": (
+                        f"Direct read failed and {len(matches)} files named {filename} were found. "
+                        "Ask the user which path to open.\n"
+                        + "\n".join(matches[:20])
+                    ),
+                }
+            )
+        return results
+
     def _call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
         try:
             if tool == "nixai_workspace_list_files":
@@ -91,6 +121,14 @@ class CodeContextBuilder:
         except Exception as exc:
             result = f"Tool error: {exc}"
         return {"tool": tool, "arguments": arguments, "result": result}
+
+    def _is_tool_error(self, item: dict[str, Any]) -> bool:
+        return isinstance(item.get("result"), str) and item["result"].startswith("Tool error:")
+
+    def _exact_filename_matches(self, result: object, filename: str) -> list[str]:
+        if not isinstance(result, list):
+            return []
+        return [path for path in result if Path(str(path)).name == filename]
 
     def _format_result(self, item: dict[str, Any]) -> str:
         result = item["result"]

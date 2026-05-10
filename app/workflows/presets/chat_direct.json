@@ -1,0 +1,17 @@
+{
+  "id": "chat_direct",
+  "name": "Chat: Direct Assistant",
+  "description": "Simple conversational mode with one assistant response.",
+  "mode": "chat",
+  "execution": "direct",
+  "max_iterations": 1,
+  "nodes": [
+    {
+      "id": "assistant",
+      "type": "role",
+      "role": "assistant",
+      "title": "Assistant"
+    }
+  ],
+  "edges": []
+}
