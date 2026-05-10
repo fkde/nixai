@@ -47,17 +47,37 @@ class WorkflowDefinition(BaseModel):
     id: str
     name: str
     description: str = ""
-    mode: MessageMode
+    mode: MessageMode = "chat"
+    modes: list[MessageMode] = Field(default_factory=list)
     execution: WorkflowExecution = "loop"
     max_iterations: int = Field(default=1, ge=1, le=8)
     nodes: list[WorkflowNode] = Field(default_factory=list)
     edges: list[WorkflowEdge] = Field(default_factory=list)
+
+    @field_validator("modes", mode="before")
+    @classmethod
+    def normalize_modes(cls, value: Any) -> list[MessageMode]:
+        if value is None or value == "":
+            return []
+        raw_modes = value if isinstance(value, list) else [value]
+        modes: list[MessageMode] = []
+        for item in raw_modes:
+            mode = str(item).strip().lower()
+            if mode in {"chat", "code", "agentic"} and mode not in modes:
+                modes.append(mode)  # type: ignore[arg-type]
+        return modes
 
     def is_direct(self) -> bool:
         return self.execution == "direct"
 
     def node(self, node_id: str) -> WorkflowNode | None:
         return next((node for node in self.nodes if node.id == node_id), None)
+
+    def supported_modes(self) -> list[MessageMode]:
+        return self.modes or [self.mode]
+
+    def supports_mode(self, mode: MessageMode) -> bool:
+        return mode in self.supported_modes()
 
 
 class WorkflowEvent(BaseModel):
@@ -79,7 +99,8 @@ class WorkflowSummary(BaseModel):
     id: str
     name: str
     description: str = ""
-    mode: MessageMode
+    mode: MessageMode = "chat"
+    modes: list[MessageMode] = Field(default_factory=list)
     execution: WorkflowExecution = "loop"
     max_iterations: int = 1
     nodes: list[WorkflowNode] = Field(default_factory=list)

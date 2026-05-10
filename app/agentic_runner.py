@@ -8,6 +8,7 @@ from typing import Any, Optional
 from app import database
 from app.agentic_schedule import compute_next_run, is_one_shot_schedule, utc_now_dt
 from app.config import load_settings
+from app.effort import effort_context
 from app.llm.ollama import OllamaClient, OllamaError
 from app.memory import memory_context
 from app.models import AgenticTask, AgenticTaskRun
@@ -25,6 +26,7 @@ AUTO_TOOLS = {
     "nixai_git_diff",
     "nixai_tools_search",
     "nixai_notify_desktop",
+    "nixai_web_search",
     "nixai_web_check_url",
     "nixai_web_fetch_url",
 }
@@ -121,6 +123,7 @@ class AgenticRunner:
                         "content": (
                             f"{role_prompt('REVIEWER')}\n\n"
                             f"{runtime_meta_context(self._task_language_source(task))}\n\n"
+                            f"{effort_context(self.settings.effort)}\n\n"
                             "Summarize this scheduled task run in compact Markdown.\n"
                             "Hard limits: maximum 4 short lines, no long review essay, no recommendations when everything succeeded.\n"
                             "Mention failed tool calls only when present.\n"
@@ -167,6 +170,7 @@ class AgenticRunner:
                         "content": (
                             f"{role_prompt('JUDGE')}\n\n"
                             f"{runtime_meta_context(self._task_language_source(task))}\n\n"
+                            f"{effort_context(self.settings.effort)}\n\n"
                             "You judge a scheduled NixAI Agentic Task run. "
                             "Return strict JSON only: "
                             "{\"status\":\"done|needs_user|retry\",\"reason\":\"...\",\"feedback\":[\"...\"]}. "
@@ -265,6 +269,7 @@ class AgenticRunner:
         return (
             f"{role_prompt('ORCHESTRATOR')}\n\n"
             f"{runtime_meta_context(self._task_language_source(task))}\n\n"
+            f"{effort_context(self.settings.effort)}\n\n"
             f"Shared reviewed memory:\n{memory_context()}\n\n"
             "You are running a scheduled NixAI Agentic Task.\n"
             "Return strict JSON only. Use only listed tools. If tools are missing for the user's request, return needs_review.\n"

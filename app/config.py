@@ -8,6 +8,8 @@ from pathlib import Path
 from platformdirs import user_config_dir, user_data_dir
 from pydantic import BaseModel, Field
 
+from app.effort import normalize_effort
+
 
 APP_NAME = "nixai"
 APP_AUTHOR = "NixAI"
@@ -38,10 +40,24 @@ def default_model_roles() -> list[ModelRole]:
 
 def default_workflow_presets() -> dict[str, str]:
     return {
-        "chat": "chat_direct",
-        "code": "code_direct_worker",
-        "agentic": "agentic_direct_orchestrator",
+        "chat": "simple",
+        "code": "simple",
+        "agentic": "simple",
     }
+
+
+WORKFLOW_PRESET_ALIASES = {
+    "chat_direct": "simple",
+    "code_direct_worker": "simple",
+    "agentic_direct_orchestrator": "simple",
+    "code_review_loop": "deep_orchestra",
+    "agentic_review_loop": "deep_orchestra",
+}
+
+
+def normalize_workflow_preset_id(workflow_id: str) -> str:
+    clean = str(workflow_id or "").strip()
+    return WORKFLOW_PRESET_ALIASES.get(clean, clean)
 
 
 class Settings(BaseModel):
@@ -60,6 +76,7 @@ class Settings(BaseModel):
     require_tool_confirmation: bool = True
     always_allowed_tools: list[str] = Field(default_factory=list)
     workflow_presets: dict[str, str] = Field(default_factory=default_workflow_presets)
+    effort: str = "medium"
     email_provider: EmailProviderSettings = Field(default_factory=EmailProviderSettings)
 
     def model_for_role(self, role: str) -> str:
@@ -123,6 +140,17 @@ def load_settings() -> Settings:
     elif not any(role.role.strip().casefold() == "task_discovery" for role in settings.model_roles):
         settings.model_roles.append(ModelRole(role="task_discovery", model=settings.default_model))
         save_settings(settings)
+    normalized_workflows = {
+        mode: normalize_workflow_preset_id(str(settings.workflow_presets.get(mode) or fallback).strip())
+        for mode, fallback in default_workflow_presets().items()
+    }
+    if settings.workflow_presets != normalized_workflows:
+        settings.workflow_presets = normalized_workflows
+        save_settings(settings)
+    normalized_effort = normalize_effort(settings.effort)
+    if settings.effort != normalized_effort:
+        settings.effort = normalized_effort
+        save_settings(settings)
     return settings
 
 
@@ -134,8 +162,12 @@ def save_settings(settings: Settings) -> None:
     settings.reviewer_model = settings.model_for_role("reviewer")
     settings.judge_model = settings.model_for_role("judge")
     settings.always_allowed_tools = sorted({name.strip() for name in settings.always_allowed_tools if name.strip()})
+    settings.effort = normalize_effort(settings.effort)
     defaults = default_workflow_presets()
-    workflow_presets = {mode: str(settings.workflow_presets.get(mode) or defaults[mode]).strip() for mode in defaults}
+    workflow_presets = {
+        mode: normalize_workflow_preset_id(str(settings.workflow_presets.get(mode) or defaults[mode]).strip())
+        for mode in defaults
+    }
     settings.workflow_presets = workflow_presets
     settings.email_provider.provider = settings.email_provider.provider.strip().lower()
     if settings.email_provider.provider not in {"", "google", "microsoft"}:

@@ -113,6 +113,21 @@ class ToolRegistry:
                 meta={"autoRun": False},
             ),
             ToolDefinition(
+                name="nixai_web_search",
+                description="Searches the public web and returns result titles and URLs.",
+                routing_description="Use when the user asks to research, investigate, find current information, or discover relevant public web pages.",
+                input_schema=_object_schema(
+                    {
+                        "query": _string_schema("Search query."),
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
+                    },
+                    ["query"],
+                ),
+                handler=lambda args: internet.search_web(str(args.get("query") or ""), int(args.get("limit") or 5)),
+                examples=["Search current AI trends", "Recherchiere aktuelle Internet-Trends", "Find sources about this topic"],
+                meta={"autoRun": False},
+            ),
+            ToolDefinition(
                 name="nixai_web_fetch_url",
                 description="Fetches text content from a public http or https URL.",
                 routing_description="Use when the user asks to read a specific public web page or retrieve internet content from a URL.",

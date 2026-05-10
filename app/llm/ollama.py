@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import httpx
 from collections.abc import AsyncIterator
 from typing import Any, Optional
@@ -91,12 +92,19 @@ class OllamaClient:
             model=model,
         )
 
-    async def chat_payload(self, messages: list[dict[str, str]], model: Optional[str] = None) -> str:
+    async def chat_payload(
+        self,
+        messages: list[dict[str, str]],
+        model: Optional[str] = None,
+        response_format: str | dict[str, Any] | None = None,
+    ) -> str:
         payload = {
             "model": model or self.settings.model_for_role("assistant"),
             "messages": messages,
             "stream": False,
         }
+        if response_format is not None:
+            payload["format"] = response_format
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
@@ -107,7 +115,7 @@ class OllamaClient:
         content = data.get("message", {}).get("content")
         if not isinstance(content, str):
             raise OllamaError("Ollama response did not contain message.content")
-        return content
+        return clean_model_content(content)
 
     async def stream_chat(self, messages: list[Message], model: Optional[str] = None) -> AsyncIterator[dict[str, object]]:
         payload = [
@@ -132,14 +140,20 @@ class OllamaClient:
                     try:
                         async with client.stream("POST", url, json=payload) as response:
                             response.raise_for_status()
+                            reasoning_filter = StreamingReasoningFilter()
                             async for line in response.aiter_lines():
                                 if not line.strip():
                                     continue
                                 data = json.loads(line)
                                 content = data.get("message", {}).get("content")
                                 if isinstance(content, str) and content:
-                                    yield {"type": "token", "content": content}
+                                    visible = reasoning_filter.feed(content)
+                                    if visible:
+                                        yield {"type": "token", "content": visible}
                                 if data.get("done"):
+                                    visible = reasoning_filter.flush()
+                                    if visible:
+                                        yield {"type": "token", "content": visible}
                                     yield {
                                         "type": "done",
                                         "eval_count": data.get("eval_count"),
@@ -202,6 +216,76 @@ def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def clean_model_content(content: str) -> str:
+    text = str(content or "")
+    text = re.sub(r"(?is)<think\b[^>]*>.*?</think>\s*", "", text)
+    text = re.sub(r"(?is)^\s*<think\b[^>]*>.*$", "", text)
+    return text.strip()
+
+
+class StreamingReasoningFilter:
+    START_TAG = "<think"
+    END_TAG = "</think>"
+
+    def __init__(self) -> None:
+        self.buffer = ""
+        self.in_think = False
+
+    def feed(self, chunk: str) -> str:
+        self.buffer += str(chunk or "")
+        output: list[str] = []
+        while self.buffer:
+            lower = self.buffer.lower()
+            if self.in_think:
+                end = lower.find(self.END_TAG)
+                if end < 0:
+                    self.buffer = self.buffer[-(len(self.END_TAG) - 1) :]
+                    break
+                close = lower.find(">", end)
+                if close < 0:
+                    self.buffer = self.buffer[end:]
+                    break
+                self.buffer = self.buffer[close + 1 :]
+                self.in_think = False
+                continue
+
+            start = lower.find(self.START_TAG)
+            if start < 0:
+                keep = _partial_suffix_length(lower, self.START_TAG)
+                emit = self.buffer[:-keep] if keep else self.buffer
+                if emit:
+                    output.append(emit)
+                    self.buffer = self.buffer[len(emit) :]
+                break
+
+            if start > 0:
+                output.append(self.buffer[:start])
+            close = lower.find(">", start)
+            if close < 0:
+                self.buffer = self.buffer[start:]
+                break
+            self.buffer = self.buffer[close + 1 :]
+            self.in_think = True
+
+        return "".join(output)
+
+    def flush(self) -> str:
+        if self.in_think:
+            self.buffer = ""
+            return ""
+        visible = clean_model_content(self.buffer)
+        self.buffer = ""
+        return visible
+
+
+def _partial_suffix_length(text: str, tag_start: str) -> int:
+    max_len = min(len(text), len(tag_start) - 1)
+    for length in range(max_len, 0, -1):
+        if tag_start.startswith(text[-length:]):
+            return length
+    return 0
 
 
 def _classify_model(

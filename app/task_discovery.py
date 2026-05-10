@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.agentic_schedule import normalize_one_shot_schedule, parse_one_shot_schedule, utc_now_dt
 from app.config import Settings
+from app.effort import effort_context
 from app.llm.ollama import OllamaClient, OllamaError
 from app.roles import role_prompt
 from app.runtime_context import runtime_meta_context
@@ -59,6 +60,9 @@ class TaskDiscovery:
             result.kind = "one_shot_task"
         elif result.canonical_kind in {"recurring_task", "one_shot_task", "chat"}:
             result.kind = result.canonical_kind
+        if result.canonical_kind == "chat":
+            result.missing_info = []
+            result.schedule = ""
         if not result.prompt:
             result.prompt = user_message
         if not result.title:
@@ -114,13 +118,11 @@ class TaskDiscovery:
         return TaskDiscoveryResult.model_validate(data)
 
     async def _review_if_needed(self, user_message: str, result: TaskDiscoveryResult) -> TaskDiscoveryResult:
-        if result.missing_info:
-            return result
         try:
             reviewed = await self._review_with_model(user_message, result)
         except (OllamaError, ValidationError):
             return result
-        if reviewed.is_scheduled_task or reviewed.missing_info:
+        if reviewed.is_scheduled_task or reviewed.missing_info or reviewed.canonical_kind == "chat":
             return reviewed
         return result
 
@@ -149,6 +151,7 @@ class TaskDiscovery:
             f"{role_prompt('TASK_DISCOVERY')}\n\n"
             "The following runtime instructions override any older role text above.\n\n"
             f"{runtime_meta_context(user_message)}\n\n"
+            f"{effort_context(self.settings.effort)}\n\n"
             "Current NixAI capability: scheduled Agentic Tasks can be stored and executed while NixAI is running. "
             "A scheduled task can be either one-shot or recurring. Return JSON only.\n\n"
             "Intent rules:\n"
@@ -157,6 +160,9 @@ class TaskDiscovery:
             "- A phrase like 'remind me at 14:01' or 'erinnere mich um 14:01 Uhr' is one_shot_task unless the user explicitly says it should repeat.\n"
             "- Do not turn a one-time reminder into a daily task just because it contains a time.\n"
             "- Use kind=\"chat\" when the user is just asking a question or discussing a possible task.\n\n"
+            "- Use kind=\"chat\" for unscheduled research, investigation, web browsing, current-trends, comparison, or analysis requests. "
+            "Those are Agentic work, but they are not scheduled tasks.\n"
+            "- Never ask for schedule details for a research question unless the user explicitly asks NixAI to run it later or repeatedly.\n\n"
             "Schedule format rules:\n"
             "- For one_shot_task, set schedule to exactly: once at <ISO 8601 local datetime with timezone offset>.\n"
             "- Preserve the user's local wall-clock time for clock-only requests. Do not convert it to UTC in the schedule text.\n"
@@ -179,6 +185,7 @@ class TaskDiscovery:
         return (
             "You review a TaskDiscovery JSON result for NixAI. Return corrected JSON only.\n\n"
             f"{runtime_meta_context(user_message)}\n\n"
+            f"{effort_context(self.settings.effort)}\n\n"
             "Correction rules:\n"
             "- If the user asks for a reminder, alert, follow-up, or scheduled action at one specific future time, use kind=\"one_shot_task\".\n"
             "- If the user explicitly asks for repetition, use kind=\"recurring_task\".\n"
@@ -186,6 +193,8 @@ class TaskDiscovery:
             "- A phrase like 'remind me at 14:01' or 'erinnere mich um 14:01 Uhr' is one_shot_task unless the user explicitly says it should repeat.\n"
             "- If the user is only chatting, asking a question, or giving an unscheduled instruction, keep kind=\"chat\".\n"
             "- Do not classify ordinary chat as a task.\n"
+            "- If the user asks to research the internet, investigate current trends, compare current sources, or browse for information, use kind=\"chat\" with missing_info=[] unless they explicitly ask to schedule that research.\n"
+            "- Do not turn unscheduled Agentic work into a planned task.\n"
             "- For one_shot_task, set schedule to exactly: once at <ISO 8601 local datetime with timezone offset>.\n"
             "- Preserve the user's local wall-clock time for clock-only requests. Do not convert it to UTC in the schedule text.\n"
             "- The hour and minute in the ISO local datetime must exactly match the user's stated clock time.\n"
@@ -204,6 +213,7 @@ class TaskDiscovery:
         return (
             "You repair an invalid NixAI TaskDiscovery JSON result. Return corrected JSON only.\n\n"
             f"{runtime_meta_context(user_message)}\n\n"
+            f"{effort_context(self.settings.effort)}\n\n"
             "The prior result resolved a one-shot schedule to the past. Correct it.\n"
             "Rules:\n"
             "- Preserve the user's requested local wall-clock time.\n"

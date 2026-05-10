@@ -79,6 +79,7 @@ class UpdateChatRequest(BaseModel):
 class CreateMessageRequest(BaseModel):
     content: str = Field(min_length=1)
     mode: MessageMode = "chat"
+    effort: Optional[str] = None
 
 
 class CreateMessageResponse(BaseModel):

@@ -23,28 +23,38 @@
                 </svg>
               </span>
             </button>
-            <button id="settings-toggle" class="sidebar-tool-button" type="button" aria-label="Open settings" title="Settings">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 15.2A3.2 3.2 0 1 0 12 8.8a3.2 3.2 0 0 0 0 6.4Z" />
-                <path d="M18.7 13.6c.1-.5.1-1 .1-1.6s0-1.1-.1-1.6l2-1.5-2-3.4-2.4 1a7.4 7.4 0 0 0-2.8-1.6L13.2 2h-4l-.4 2.9a7.4 7.4 0 0 0-2.8 1.6l-2.4-1-2 3.4 2 1.5c-.1.5-.1 1-.1 1.6s0 1.1.1 1.6l-2 1.5 2 3.4 2.4-1a7.4 7.4 0 0 0 2.8 1.6l.4 2.9h4l.4-2.9a7.4 7.4 0 0 0 2.8-1.6l2.4 1 2-3.4-2.1-1.5Z" />
-              </svg>
-            </button>
           </div>
         </div>
         <nav id="chat-list" class="chat-list" aria-label="Chats"></nav>
+        <div class="sidebar-footer">
+          <button id="settings-toggle" class="sidebar-tool-button" type="button" aria-label="Open settings" title="Settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 15.2A3.2 3.2 0 1 0 12 8.8a3.2 3.2 0 0 0 0 6.4Z" />
+              <path d="M18.7 13.6c.1-.5.1-1 .1-1.6s0-1.1-.1-1.6l2-1.5-2-3.4-2.4 1a7.4 7.4 0 0 0-2.8-1.6L13.2 2h-4l-.4 2.9a7.4 7.4 0 0 0-2.8 1.6l-2.4-1-2 3.4 2 1.5c-.1.5-.1 1-.1 1.6s0 1.1.1 1.6l-2 1.5 2 3.4 2.4-1a7.4 7.4 0 0 0 2.8 1.6l.4 2.9h4l.4-2.9a7.4 7.4 0 0 0 2.8-1.6l2.4 1 2-3.4-2.1-1.5Z" />
+            </svg>
+          </button>
+        </div>
       </aside>
 
       <section class="chat">
         <header class="chat-header">
           <div>
-            <p class="eyebrow">Local Ollama Agent</p>
             <h2 id="chat-title">No Chat Selected</h2>
             <p class="chat-workspace-field">
               <span>Workspace</span>
-              <strong id="chat-workspace">Settings fallback</strong>
+              <strong id="chat-workspace">Loading workspace...</strong>
             </p>
           </div>
           <div class="chat-header-actions">
+            <div class="effort-control" aria-label="Effort">
+              <span>Effort</span>
+              <div class="effort-switch" role="group" aria-label="Effort level">
+                <button class="effort-button" type="button" data-effort="minimum">Minimum</button>
+                <button class="effort-button active" type="button" data-effort="medium">Medium</button>
+                <button class="effort-button" type="button" data-effort="high">High</button>
+                <button class="effort-button" type="button" data-effort="max">Max</button>
+              </div>
+            </div>
             <div class="mode-switch" role="group" aria-label="Mode">
               <button class="mode-button active" type="button" data-mode="chat">Chat</button>
               <button class="mode-button" type="button" data-mode="code">Code</button>

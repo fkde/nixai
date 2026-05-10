@@ -58,7 +58,7 @@ def get_messages(chat_id: str, mode: Optional[MessageMode] = Query(default=None)
 @router.post("/{chat_id}/messages", response_model=CreateMessageResponse)
 async def post_message(chat_id: str, request: CreateMessageRequest) -> CreateMessageResponse:
     try:
-        return await Agent().run(chat_id, request.content, mode=request.mode)
+        return await Agent(effort=request.effort).run(chat_id, request.content, mode=request.mode)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -67,7 +67,7 @@ async def post_message(chat_id: str, request: CreateMessageRequest) -> CreateMes
 async def post_message_stream(chat_id: str, request: CreateMessageRequest) -> StreamingResponse:
     async def events():
         try:
-            async for event in Agent().stream(chat_id, request.content, mode=request.mode):
+            async for event in Agent(effort=request.effort).stream(chat_id, request.content, mode=request.mode):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except ValueError as exc:
             yield f"data: {json.dumps({'type': 'error', 'message': str(exc)}, ensure_ascii=False)}\n\n"

@@ -5,9 +5,11 @@ from collections.abc import AsyncIterator
 from typing import Optional
 
 from app import database
+from app.agentic_context import AgenticContextBuilder
 from app.agentic_schedule import compute_next_run, utc_now_dt
 from app.code_context import CodeContextBuilder
 from app.config import load_settings
+from app.effort import effort_context, normalize_effort
 from app.llm.ollama import OllamaClient
 from app.memory import memory_context
 from app.models import CreateMessageResponse, Message, MessageMode, new_id, utc_now
@@ -23,8 +25,10 @@ DEFAULT_CHAT_TITLES = {"Neuer Chat", "New Chat"}
 
 
 class Agent:
-    def __init__(self, ollama: Optional[OllamaClient] = None) -> None:
+    def __init__(self, ollama: Optional[OllamaClient] = None, effort: str | None = None) -> None:
         self.settings = load_settings()
+        if effort is not None:
+            self.settings.effort = normalize_effort(effort)
         self.ollama = ollama or OllamaClient(self.settings)
 
     async def run(self, chat_id: str, user_message: str, mode: MessageMode = "chat") -> CreateMessageResponse:
@@ -60,6 +64,9 @@ class Agent:
             queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
 
             def on_workflow_event(event) -> None:
+                if event.node == "final" and event.type == "token":
+                    queue.put_nowait({"type": "token", "content": event.message})
+                    return
                 queue.put_nowait(
                     {
                         "type": "workflow_status",
@@ -79,9 +86,12 @@ class Agent:
                 yield workflow_event
             result = await task
             streamed = ""
-            async for chunk in self._stream_static_text(result.answer):
-                streamed += chunk
-                yield {"type": "token", "content": chunk}
+            if result.state.get("answer_streamed"):
+                streamed = result.answer
+            else:
+                async for chunk in self._stream_static_text(result.answer):
+                    streamed += chunk
+                    yield {"type": "token", "content": chunk}
             assistant = database.add_message(chat_id, "assistant", result.answer, mode=mode)
             self._schedule_chat_title_generation(chat_id, user_message, mode)
             yield {"type": "assistant_message", "message": assistant.model_dump()}
@@ -101,7 +111,9 @@ class Agent:
             return
 
         content_parts: list[str] = []
-        history = self._history_with_mode_context(chat_id, mode, user_message)
+        if mode == "agentic":
+            yield {"type": "status", "message": "Preparing agentic context..."}
+        history = await self._history_with_mode_context(chat_id, mode, user_message)
         async for event in self.ollama.stream_chat(history, model=self.settings.model_for_role(self._model_role_for_mode(mode))):
             if event.get("type") == "token":
                 content = str(event.get("content") or "")
@@ -122,7 +134,7 @@ class Agent:
         workflow_answer = await self._workflow_answer(chat_id, user_message, mode)
         if workflow_answer is not None:
             return user, workflow_answer
-        history = self._history_with_mode_context(chat_id, mode, user_message)
+        history = await self._history_with_mode_context(chat_id, mode, user_message)
         answer = await self.ollama.chat(history, model=self.settings.model_for_role(self._model_role_for_mode(mode)))
         return user, answer
 
@@ -193,7 +205,7 @@ class Agent:
                 f"- **Status:** {task.status}\n\n"
                 "Du kannst ihn in den Settings bearbeiten, pausieren, loeschen oder manuell starten."
             )
-        elif discovery and discovery.missing_info:
+        elif discovery and discovery.canonical_kind in {"recurring_task", "one_shot_task", "one_time_task"} and discovery.missing_info:
             answer = (
                 "Ich brauche noch ein paar Angaben, bevor ich daraus einen geplanten Task mache:\n\n"
                 + "\n".join(f"- {item}" for item in discovery.missing_info)
@@ -216,17 +228,19 @@ class Agent:
         result = await WorkflowRunner(self.settings, self.ollama).run(workflow, chat_id, user_message, mode)
         return result.answer
 
-    def _history_with_mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> list[Message]:
+    async def _history_with_mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> list[Message]:
         history = database.list_messages(chat_id, mode=mode)
-        return [self._system_message(chat_id, self._mode_context(chat_id, mode, user_message)), *history]
+        return [self._system_message(chat_id, await self._mode_context(chat_id, mode, user_message)), *history]
 
-    def _mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> str:
+    async def _mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> str:
         meta_context = runtime_meta_context(user_message)
+        effort_block = effort_context(self.settings.effort)
         if mode == "code":
             workspace = self._workspace_for_chat(chat_id)
             return (
                 f"{role_prompt('WORKER')}\n\n"
                 f"{meta_context}\n\n"
+                f"{effort_block}\n\n"
                 f"{self._memory_context_block()}\n\n"
                 "NixAI mode: CODE.\n"
                 f"Configured workspace: {workspace}\n"
@@ -235,18 +249,24 @@ class Agent:
                 f"{CodeContextBuilder(workspace).build(user_message)}"
             )
         if mode == "agentic":
+            agentic_context = await AgenticContextBuilder(self.settings, self.ollama).build(user_message)
+            research_block = f"\n\n{agentic_context}" if agentic_context else ""
             return (
                 f"{role_prompt('ORCHESTRATOR')}\n\n"
                 f"{meta_context}\n\n"
+                f"{effort_block}\n\n"
                 f"{self._memory_context_block()}\n\n"
                 "NixAI mode: AGENTIC.\n"
-                "Guide the user through a controlled agent workflow. If the request sounds recurring, "
-                "ask for missing schedule details or confirm the recurring task plan. "
+                "Act as an autonomous local orchestrator, not only as a scheduler. "
+                "If NixAI tool context is supplied, use it as evidence for the answer and do not fall back to training-data disclaimers. "
+                "If the request sounds recurring or one-time scheduled, TaskDiscovery may already have created the task; do not ask for schedule details unless the user is explicitly scheduling something. "
                 "The current POC can store and run scheduled Agentic Tasks with approved tools."
+                f"{research_block}"
             )
         return (
             f"{role_prompt('ASSISTANT')}\n\n"
             f"{meta_context}\n\n"
+            f"{effort_block}\n\n"
             "NixAI mode: CHAT. Answer conversationally without assuming workspace tool access."
         )
 

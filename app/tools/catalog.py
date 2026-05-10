@@ -75,6 +75,8 @@ class ToolCatalog:
             capabilities.append("command.run")
         if self._contains(text, ["notification", "notify", "desktop", "macos"]):
             capabilities.append("notification.send")
+        if self._contains(text, ["web search", "searches the public web", "research", "investigate"]):
+            capabilities.append("internet.search")
         if self._contains(text, ["web", "url", "http", "internet", "website"]):
             capabilities.append("internet.fetch")
         return sorted(set(capabilities or ["workspace.read"]))

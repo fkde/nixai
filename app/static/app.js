@@ -22,6 +22,7 @@ const state = {
   pendingToolApproval: null,
   activeSettingsSection: "basis",
   streamingAssistant: false,
+  activeStream: null,
   autoScrollLocked: true,
   toastTimer: null,
   titleWatchers: new Map(),
@@ -42,6 +43,8 @@ const newChatButton = document.querySelector("#new-chat");
 const settingsToggle = document.querySelector("#settings-toggle");
 const modeSwitch = document.querySelector(".mode-switch");
 const modeButtons = document.querySelectorAll(".mode-button");
+const effortSwitch = document.querySelector(".effort-switch");
+const effortButtons = document.querySelectorAll(".effort-button");
 const settingsClose = document.querySelector("#settings-close");
 const settingsPanel = document.querySelector("#settings-panel");
 const settingsForm = document.querySelector("#settings-form");
@@ -107,6 +110,9 @@ const approveToolCallButton = document.querySelector("#approve-tool-call");
 const alwaysAllowToolCallButton = document.querySelector("#always-allow-tool-call");
 const denyToolCallButton = document.querySelector("#deny-tool-call");
 const modeOrder = ["chat", "code", "agentic"];
+const effortOrder = ["minimum", "medium", "high", "max"];
+const runtimeStatusHistoryLimit = 16;
+const runtimeStatusStoreLimit = 64;
 const embeddingModelMarkers = ["embed", "embedding", "nomic-bert", "sentence-transformer", "bge-", "all-minilm", "e5-", "gte-"];
 const toastRegion = document.createElement("div");
 toastRegion.className = "toast-region";
@@ -286,6 +292,66 @@ function thinkingIndicatorHtml() {
   `;
 }
 
+function streamMatchesView(stream = state.activeStream) {
+  return Boolean(stream && stream.chatId === state.activeChatId && stream.mode === state.activeMode);
+}
+
+function defaultStreamStatusLabel(stream = state.activeStream) {
+  if (!stream) return "";
+  return `${stream.mode || state.activeMode} working...`;
+}
+
+function streamStatusItems(stream = state.activeStream, limit = runtimeStatusHistoryLimit) {
+  if (!stream) return [];
+  return normalizeStatusItems(stream.statusItems, defaultStreamStatusLabel(stream), limit);
+}
+
+function streamStatusLabel(stream = state.activeStream) {
+  const items = streamStatusItems(stream, runtimeStatusStoreLimit);
+  return items[items.length - 1] || "";
+}
+
+function runtimeStatusHtml(items, isOpen = false) {
+  const history = normalizeStatusItems(items, "Working...", runtimeStatusHistoryLimit);
+  const current = history[history.length - 1] || "Working...";
+  return `
+    <details class="runtime-status" ${isOpen ? "open" : ""}>
+      <summary>
+        <span class="thinking-dot" aria-hidden="true"></span>
+        <span class="runtime-status-current">${escapeHtml(current)}</span>
+        <span class="runtime-status-count">${history.length} state${history.length === 1 ? "" : "s"}</span>
+      </summary>
+      <ol class="runtime-status-history">
+        ${history.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+      </ol>
+    </details>
+  `;
+}
+
+function normalizeStatusItems(items, fallback = "", limit = runtimeStatusHistoryLimit) {
+  const rawItems = Array.isArray(items) ? items : [];
+  const history = [];
+  const seen = new Set();
+  for (const item of rawItems) {
+    const label = String(item || "").trim();
+    if (!label || history[history.length - 1] === label) continue;
+    if (seen.has(label)) {
+      const existingIndex = history.indexOf(label);
+      if (existingIndex >= 0) {
+        history.splice(existingIndex, 1);
+      }
+    } else {
+      seen.add(label);
+    }
+    history.push(label);
+  }
+  const cleanFallback = String(fallback || "").trim();
+  if (history.length === 0 && cleanFallback) {
+    history.push(cleanFallback);
+  }
+  return history.slice(-limit);
+}
+
 function firstName() {
   return (state.settings?.user_name || "").trim().split(/\s+/)[0] || "";
 }
@@ -295,20 +361,20 @@ function emptyGreeting() {
   const suffix = name ? `, ${escapeHtml(name)}` : "";
   const variants = [
     {
-      title: `Nixorious is awake${suffix}.`,
-      text: "Local context is ready. Start with a thought, a question, or a task.",
+      title: `Ready when you are${suffix}.`,
+      text: "Start a conversation, inspect a project, or hand off a task.",
     },
     {
-      title: `Ready at the local console${suffix}.`,
-      text: "Choose Chat, Code, or Agentic and NixAI will use the right workflow.",
+      title: `Local runtime online${suffix}.`,
+      text: "Ask naturally. NixAI will use the selected mode for the next step.",
     },
     {
-      title: `Empty chat. Full control${suffix}.`,
-      text: "Nothing has happened here yet. Send a message and we will change that.",
+      title: `What should we work on${suffix}?`,
+      text: "Send a message to begin.",
     },
     {
-      title: `This is NixAI${suffix}.`,
-      text: "Local, focused, and one prompt away from becoming useful.",
+      title: `NixAI is ready${suffix}.`,
+      text: "Use Chat for conversation, Code for project context, or Agentic for multi-step work.",
     },
   ];
   const seed = state.activeChatId
@@ -324,7 +390,6 @@ function emptyChatHtml(kind = "chat") {
     : "";
   return `
     <section class="empty">
-      <span>NixAI is waiting</span>
       <h3>${greeting.title}</h3>
       <p>${greeting.text}</p>
       ${helper ? `<small>${helper}</small>` : ""}
@@ -370,7 +435,7 @@ function renderChats() {
     const button = document.createElement("button");
     button.className = "chat-item";
     button.type = "button";
-    button.textContent = displayChatTitle(chat);
+    button.innerHTML = `<span class="chat-item-title">${escapeHtml(displayChatTitle(chat))}</span>`;
     button.addEventListener("click", () => selectChat(chat.id));
 
     const deleteButton = document.createElement("button");
@@ -395,7 +460,15 @@ function activeChat() {
 function workspaceLabel(chat) {
   const path = chat?.workspace_path?.trim();
   if (path) return path;
-  return "Settings fallback";
+  const fallbackPath = state.settings?.workspace_path?.trim();
+  return fallbackPath || "No workspace configured";
+}
+
+function syncHeaderWorkspace(chat = activeChat()) {
+  const label = workspaceLabel(chat);
+  chatWorkspace.textContent = label;
+  chatWorkspace.title = label;
+  chatWorkspace.classList.toggle("is-empty", label === "No workspace configured");
 }
 
 function displayChatTitle(chat) {
@@ -416,7 +489,7 @@ function mergeChat(updatedChat) {
   renderChats();
   if (state.activeChatId === updatedChat.id) {
     chatTitle.textContent = displayChatTitle(updatedChat);
-    chatWorkspace.textContent = workspaceLabel(updatedChat);
+    syncHeaderWorkspace(updatedChat);
   }
 }
 
@@ -464,11 +537,51 @@ function renderModeSwitch() {
   }[state.activeMode];
 }
 
+function currentEffort() {
+  const effort = state.settings?.effort || "medium";
+  return effortOrder.includes(effort) ? effort : "medium";
+}
+
+function renderEffortSwitch() {
+  const effort = currentEffort();
+  const activeIndex = Math.max(0, effortOrder.indexOf(effort));
+  effortSwitch?.style.setProperty("--effort-index", String(activeIndex));
+  effortButtons.forEach((button) => {
+    const active = button.dataset.effort === effort;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+async function setEffort(effort, persist = true) {
+  if (!effortOrder.includes(effort)) return;
+  state.settings = { ...(state.settings || {}), effort };
+  renderEffortSwitch();
+  if (!persist) return;
+  try {
+    const latest = await api("/api/settings");
+    state.settings = await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ ...latest, effort }),
+    });
+    renderEffortSwitch();
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
 function animateModeChange(direction) {
   if (!direction || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   messagesEl.classList.remove("mode-shift-forward", "mode-shift-back");
   void messagesEl.offsetWidth;
   messagesEl.classList.add(direction > 0 ? "mode-shift-forward" : "mode-shift-back");
+}
+
+function animateViewShift() {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  messagesEl.classList.remove("view-shift");
+  void messagesEl.offsetWidth;
+  messagesEl.classList.add("view-shift");
 }
 
 function changeMode(nextMode) {
@@ -483,7 +596,7 @@ function changeMode(nextMode) {
   } else {
     renderMessages([]);
   }
-  setStatus(`${state.activeMode} ready`);
+  setStatus(streamMatchesView() ? streamStatusLabel() : `${state.activeMode} ready`);
 }
 
 async function loadActiveModeMessages(mode = state.activeMode) {
@@ -649,7 +762,10 @@ function renderModelRoles() {
 }
 
 function workflowPresetsForMode(mode) {
-  return state.workflowPresets.filter((workflow) => workflow.mode === mode);
+  return state.workflowPresets.filter((workflow) => {
+    const modes = Array.isArray(workflow.modes) && workflow.modes.length > 0 ? workflow.modes : [workflow.mode];
+    return modes.includes(mode);
+  });
 }
 
 function workflowOptionsHtml(mode, selected) {
@@ -667,9 +783,9 @@ function workflowOptionsHtml(mode, selected) {
 function renderWorkflowSettings() {
   if (!state.settings || !workflowChat || !workflowCode || !workflowAgentic) return;
   const selected = state.settings.workflow_presets || {};
-  workflowChat.innerHTML = workflowOptionsHtml("chat", selected.chat || "chat_direct");
-  workflowCode.innerHTML = workflowOptionsHtml("code", selected.code || "code_direct_worker");
-  workflowAgentic.innerHTML = workflowOptionsHtml("agentic", selected.agentic || "agentic_direct_orchestrator");
+  workflowChat.innerHTML = workflowOptionsHtml("chat", selected.chat || "simple");
+  workflowCode.innerHTML = workflowOptionsHtml("code", selected.code || "simple");
+  workflowAgentic.innerHTML = workflowOptionsHtml("agentic", selected.agentic || "simple");
   renderWorkflowPresetList();
 }
 
@@ -684,10 +800,11 @@ function renderWorkflowPresetList() {
     const item = document.createElement("article");
     item.className = "workflow-preset-item";
     const nodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
+    const modes = Array.isArray(workflow.modes) && workflow.modes.length > 0 ? workflow.modes : [workflow.mode];
     item.innerHTML = `
       <div>
         <strong>${escapeHtml(workflow.name)}</strong>
-        <small>${escapeHtml(workflow.mode)} · ${escapeHtml(workflow.execution)} · ${escapeHtml(workflow.max_iterations || 1)} iteration(s)</small>
+        <small>${escapeHtml(modes.join(", "))} · ${escapeHtml(workflow.execution)} · ${escapeHtml(workflow.max_iterations || 1)} iteration(s)</small>
       </div>
       <p>${escapeHtml(workflow.description || "")}</p>
       <div class="workflow-node-list">
@@ -944,6 +1061,7 @@ function renderSettings() {
   renderWorkflowSettings();
   renderModelRoles();
   renderSettingsSections();
+  renderEffortSwitch();
 }
 
 async function ensureModelsLoaded(force = false) {
@@ -1046,6 +1164,7 @@ function renderMessages(messages) {
   }
   if (messages.length === 0) {
     messagesEl.innerHTML = emptyChatHtml("chat");
+    renderActiveStream();
     return;
   }
   for (const message of messages) {
@@ -1067,6 +1186,7 @@ function renderMessages(messages) {
     `;
     messagesEl.append(item);
   }
+  renderActiveStream();
   messagesEl.scrollTop = messagesEl.scrollHeight;
   state.autoScrollLocked = true;
 }
@@ -1083,7 +1203,7 @@ function scrollMessagesToBottom() {
 }
 
 messagesEl.addEventListener("scroll", () => {
-  if (state.streamingAssistant) return;
+  if (state.streamingAssistant && streamMatchesView()) return;
   state.autoScrollLocked = isMessagesNearBottom();
 });
 
@@ -1115,12 +1235,39 @@ function appendMessage(message, extraClass = "", scrollToBottom = state.autoScro
   return item;
 }
 
+function renderActiveStream() {
+  const stream = state.activeStream;
+  if (!streamMatchesView(stream)) return null;
+  if (messagesEl.querySelector(".empty")) {
+    messagesEl.innerHTML = "";
+  }
+  return ensureStreamAssistantElement(stream);
+}
+
+function ensureStreamAssistantElement(stream = state.activeStream) {
+  if (!streamMatchesView(stream)) return null;
+  let element = [...messagesEl.querySelectorAll(".message.streaming")]
+    .find((item) => item.dataset.streamId === stream.id);
+  if (!element) {
+    element = appendMessage({ role: "assistant", mode: stream.mode, content: stream.content || "" }, "streaming", false);
+    element.dataset.streamId = stream.id;
+  }
+  if (stream.content) {
+    setMessageContent(element, stream.content, false);
+  } else {
+    setRuntimeStatus(element, streamStatusItems(stream));
+  }
+  return element;
+}
+
 function setMessageContent(element, content, followScroll = true) {
   const bubble = element?.querySelector(".bubble");
   if (!bubble) return;
   element.classList.toggle("thinking", !content);
   if (content) {
     element.querySelector(".thinking-notice")?.remove();
+    element.querySelector(".runtime-status-mount")?.remove();
+    element.classList.remove("status-only");
   }
   bubble.innerHTML = formatContent(content);
   if (followScroll) {
@@ -1128,11 +1275,38 @@ function setMessageContent(element, content, followScroll = true) {
   }
 }
 
+function setRuntimeStatus(element, items) {
+  if (!element) return;
+  const previous = element.querySelector(".runtime-status");
+  const wasOpen = previous instanceof HTMLDetailsElement ? previous.open : false;
+  element.classList.add("status-only");
+  element.querySelector(".thinking-notice")?.remove();
+  let mount = element.querySelector(".runtime-status-mount");
+  if (!mount) {
+    mount = document.createElement("div");
+    mount.className = "runtime-status-mount";
+    const role = element.querySelector(".message-role");
+    if (role) {
+      role.insertAdjacentElement("afterend", mount);
+    } else {
+      element.prepend(mount);
+    }
+  }
+  mount.innerHTML = runtimeStatusHtml(items, wasOpen);
+}
+
+function clearRuntimeStatus(element) {
+  if (!element) return;
+  element.querySelector(".runtime-status-mount")?.remove();
+  element.classList.remove("status-only");
+}
+
 function finalizeAssistantMessage(element, message) {
   if (!element || !message) return;
   element.dataset.messageId = message.id;
   element.classList.remove("streaming", "thinking");
   element.querySelector(".thinking-notice")?.remove();
+  clearRuntimeStatus(element);
   if (!element.querySelector(".message-feedback")) {
     element.insertAdjacentHTML("beforeend", `
       <div class="message-feedback" aria-label="Rate response">
@@ -1165,13 +1339,14 @@ async function loadChats() {
   const chat = activeChat();
   if (chat) {
     chatTitle.textContent = displayChatTitle(chat);
-    chatWorkspace.textContent = workspaceLabel(chat);
+    syncHeaderWorkspace(chat);
   }
 }
 
 async function loadSettings() {
   state.settings = await api("/api/settings");
   renderSettings();
+  syncHeaderWorkspace();
   if (shell.classList.contains("settings-open")) {
     ensureModelsLoaded().catch((error) => {
       modelsHint.textContent = error.message;
@@ -1281,9 +1456,10 @@ async function selectChat(chatId) {
   state.activeChatId = chatId;
   const chat = activeChat();
   chatTitle.textContent = chat ? displayChatTitle(chat) : "Chat";
-  chatWorkspace.textContent = workspaceLabel(chat);
+  syncHeaderWorkspace(chat);
   renderChats();
   await loadActiveModeMessages();
+  animateViewShift();
 }
 
 async function saveChatWorkspace(workspace) {
@@ -1356,7 +1532,7 @@ async function deleteChat(chatId, title) {
     await selectChat(state.chats[0].id);
   } else {
     chatTitle.textContent = "No Chat Selected";
-    chatWorkspace.textContent = workspaceLabel(null);
+    syncHeaderWorkspace(null);
     renderMessages([]);
   }
   setStatus("Chat deleted");
@@ -1374,19 +1550,44 @@ async function sendMessage(content) {
     await createChat();
   }
   const chatId = state.activeChatId;
+  const mode = state.activeMode;
+  const stream = {
+    id: `${chatId}-${mode}-${Date.now()}`,
+    chatId,
+    mode,
+    content: "",
+    statusItems: [],
+    assistantMessage: null,
+  };
+  state.activeStream = stream;
   setLoading(true);
   const streamStartedAt = performance.now();
   let tokenChunks = 0;
-  let streamedContent = "";
-  const workflowProgress = [];
   let assistantEl = null;
   let pendingRender = false;
   let finalStatus = "";
 
   const renderWorkflowProgress = () => {
-    if (!assistantEl || streamedContent) return;
-    const recent = workflowProgress.slice(-12);
-    setMessageContent(assistantEl, `### Workflow\n${recent.map((item) => `- ${item}`).join("\n")}`, false);
+    if (stream.content) return;
+    assistantEl = ensureStreamAssistantElement(stream);
+    if (!assistantEl) return;
+    setRuntimeStatus(assistantEl, streamStatusItems(stream));
+  };
+
+  const pushRuntimeStatus = (label) => {
+    const cleanLabel = String(label || "").trim();
+    if (!cleanLabel) return;
+    const previousItems = stream.statusItems;
+    const previousLast = previousItems[previousItems.length - 1] || "";
+    stream.statusItems = normalizeStatusItems(
+      [...previousItems, cleanLabel],
+      "",
+      runtimeStatusStoreLimit,
+    );
+    const nextLast = stream.statusItems[stream.statusItems.length - 1] || "";
+    if (nextLast !== previousLast || stream.statusItems.length !== previousItems.length) {
+      renderWorkflowProgress();
+    }
   };
 
   const scheduleRender = () => {
@@ -1394,7 +1595,10 @@ async function sendMessage(content) {
     pendingRender = true;
     requestAnimationFrame(() => {
       pendingRender = false;
-      setMessageContent(assistantEl, streamedContent, false);
+      assistantEl = ensureStreamAssistantElement(stream);
+      if (assistantEl) {
+        setMessageContent(assistantEl, stream.content, false);
+      }
     });
   };
 
@@ -1402,7 +1606,7 @@ async function sendMessage(content) {
     const response = await fetch(`/api/chats/${chatId}/messages/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content, mode: state.activeMode }),
+      body: JSON.stringify({ content, mode, effort: currentEffort() }),
     });
     if (!response.ok || !response.body) {
       const body = await response.json().catch(() => ({}));
@@ -1425,29 +1629,37 @@ async function sendMessage(content) {
         if (!line) continue;
         const event = JSON.parse(line.slice(6));
         if (event.type === "user_message") {
-          appendMessage(event.message);
+          if (streamMatchesView(stream)) {
+            appendMessage(event.message);
+          }
+          watchChatTitle(chatId);
           input.value = "";
-          assistantEl = appendMessage({ role: "assistant", mode: state.activeMode, content: "" }, "streaming");
+          assistantEl = ensureStreamAssistantElement(stream);
           state.streamingAssistant = true;
           state.autoScrollLocked = false;
         } else if (event.type === "status") {
-          setStatus(event.message || `${state.activeMode} working...`);
+          const label = event.message || `${mode} working...`;
+          setStatus(label);
+          pushRuntimeStatus(label);
         } else if (event.type === "workflow_status") {
           const label = event.message || "Workflow step running...";
-          workflowProgress.push(label);
           setStatus(label);
-          renderWorkflowProgress();
+          pushRuntimeStatus(label);
         } else if (event.type === "token") {
           if (!state.streamingAssistant) {
             state.streamingAssistant = true;
             state.autoScrollLocked = false;
           }
-          streamedContent += event.content || "";
+          assistantEl = ensureStreamAssistantElement(stream);
+          clearRuntimeStatus(assistantEl);
+          stream.content += event.content || "";
           tokenChunks += 1;
           const elapsed = Math.max((performance.now() - streamStartedAt) / 1000, 0.1);
-          setStatus(`${state.activeMode} streaming · ${(tokenChunks / elapsed).toFixed(1)} tok/s`);
+          setStatus(`${mode} streaming · ${(tokenChunks / elapsed).toFixed(1)} tok/s`);
           scheduleRender();
         } else if (event.type === "assistant_message") {
+          stream.assistantMessage = event.message;
+          assistantEl = ensureStreamAssistantElement(stream);
           finalizeAssistantMessage(assistantEl, event.message);
         } else if (event.type === "done") {
           const exact = event.stats?.tokens_per_second;
@@ -1467,10 +1679,13 @@ async function sendMessage(content) {
     }
   } catch (error) {
     setStatus(error.message, true);
-    if (assistantEl && !streamedContent) {
+    if (assistantEl && !stream.content) {
       assistantEl.remove();
     }
   } finally {
+    if (state.activeStream?.id === stream.id) {
+      state.activeStream = null;
+    }
     state.streamingAssistant = false;
     setLoading(false);
     if (finalStatus) setStatus(finalStatus);
@@ -1570,6 +1785,12 @@ document.addEventListener("keydown", (event) => {
 modeButtons.forEach((button) => {
   button.addEventListener("click", () => {
     changeMode(button.dataset.mode || "chat");
+  });
+});
+
+effortButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    setEffort(button.dataset.effort || "medium").catch((error) => setStatus(error.message, true));
   });
 });
 
@@ -1858,10 +2079,11 @@ settingsForm.addEventListener("submit", async (event) => {
     embedding_model: embeddingModel.value.trim(),
     require_tool_confirmation: requireToolConfirmation.checked,
     always_allowed_tools: Array.isArray(state.settings?.always_allowed_tools) ? state.settings.always_allowed_tools : [],
+    effort: currentEffort(),
     workflow_presets: {
-      chat: workflowChat?.value || "chat_direct",
-      code: workflowCode?.value || "code_direct_worker",
-      agentic: workflowAgentic?.value || "agentic_direct_orchestrator",
+      chat: workflowChat?.value || "simple",
+      code: workflowCode?.value || "simple",
+      agentic: workflowAgentic?.value || "simple",
     },
     email_provider: {
       ...(state.settings.email_provider || {}),
@@ -1877,6 +2099,7 @@ settingsForm.addEventListener("submit", async (event) => {
     });
     await loadTools();
     renderSettings();
+    syncHeaderWorkspace();
     if (messagesEl.querySelector(".empty")) {
       renderMessages([]);
     }

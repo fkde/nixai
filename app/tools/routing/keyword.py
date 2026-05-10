@@ -155,6 +155,7 @@ class KeywordToolRouter:
             "git.diff": ["diff", "changes", "review", "patch"],
             "command.run": ["test", "phpunit", "composer", "npm", "build", "run"],
             "tools.read": ["tool", "tools", "werkzeug"],
+            "internet.search": ["search", "research", "recherche", "recherchiere", "trends", "current", "aktuell", "internet"],
             "notification.send": ["notify", "notification", "alert", "reminder", "mac", "macos", "benachrichtigung"],
             "internet.fetch": ["web", "url", "http", "https", "internet", "website", "fetch", "read"],
         }

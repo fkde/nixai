@@ -1,8 +1,8 @@
 {
-  "id": "agentic_review_loop",
-  "name": "Agentic: Review Loop",
-  "description": "Interactive agentic fallback with orchestrator, worker pool, reviewer, and judge. Scheduled runs keep their approval-safe tool policy.",
-  "mode": "agentic",
+  "id": "deep_orchestra",
+  "name": "Deep Orchestra",
+  "description": "Orchestrator, workers, reviewer, and judge collaborate in the selected mode for deeper research or analysis.",
+  "modes": ["chat", "code", "agentic"],
   "execution": "loop",
   "max_iterations": 2,
   "nodes": [

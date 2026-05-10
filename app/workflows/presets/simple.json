@@ -1,8 +1,8 @@
 {
-  "id": "chat_direct",
-  "name": "Chat: Direct Assistant",
-  "description": "Simple conversational mode with one assistant response.",
-  "mode": "chat",
+  "id": "simple",
+  "name": "Simple",
+  "description": "One direct response in the selected mode. Code and Agentic keep their mode-specific context.",
+  "modes": ["chat", "code", "agentic"],
   "execution": "direct",
   "max_iterations": 1,
   "nodes": [
