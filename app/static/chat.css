@@ -42,7 +42,8 @@ section.chat::after {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  padding: 25px 31px 24px;
+  min-height: var(--top-panel-height);
+  padding: 25px 48px 24px 54px;
   border-bottom: 1px solid rgba(69, 230, 242, 0.16);
   background:
     linear-gradient(90deg, rgba(69, 230, 242, 0.07), transparent 44%),
@@ -54,6 +55,7 @@ section.chat::after {
   position: relative;
   flex: 1 1 auto;
   min-width: 0;
+  max-width: min(820px, 100%);
   padding-left: 14px;
 }
 
@@ -136,20 +138,6 @@ section.chat::after {
   justify-content: flex-end;
   gap: 12px;
   flex-wrap: wrap;
-}
-
-.effort-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.effort-control > span {
-  color: #7895a3;
-  font-size: 10px;
-  font-weight: 860;
-  letter-spacing: 0;
-  text-transform: uppercase;
 }
 
 .header-icon-button,
@@ -250,75 +238,6 @@ section.chat::after {
 }
 
 .mode-button:focus-visible {
-  box-shadow: inset 0 0 0 1px rgba(197, 180, 255, 0.22);
-}
-
-.effort-switch {
-  --effort-index: 1;
-  position: relative;
-  display: inline-grid;
-  grid-template-columns: repeat(4, minmax(60px, 1fr));
-  gap: 4px;
-  height: 36px;
-  padding: 4px;
-  border: 1px solid rgba(69, 230, 242, 0.18);
-  border-radius: 9px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0)),
-    rgba(3, 5, 8, 0.7);
-  overflow: hidden;
-  isolation: isolate;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
-}
-
-.effort-switch::before {
-  content: "";
-  position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: 4px;
-  z-index: 0;
-  width: calc((100% - 24px) / 4);
-  border-radius: 7px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.015)),
-    linear-gradient(135deg, rgba(69, 230, 242, 0.16), rgba(155, 114, 255, 0.34));
-  box-shadow:
-    0 0 18px rgba(69, 230, 242, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.11);
-  transform: translateX(calc(var(--effort-index) * (100% + 4px)));
-  transition: transform 300ms var(--ease-out), filter 220ms var(--ease-snap);
-}
-
-.effort-button {
-  position: relative;
-  z-index: 1;
-  min-height: 0;
-  height: 28px;
-  border: 0;
-  border-radius: 7px;
-  padding: 0 9px;
-  background: transparent;
-  color: #8095a2;
-  font-size: 10px;
-  font-weight: 840;
-  text-transform: uppercase;
-  box-shadow: none;
-}
-
-.effort-button:hover {
-  background: rgba(69, 230, 242, 0.05);
-  color: var(--text);
-  transform: none;
-}
-
-.effort-button.active {
-  background: transparent;
-  color: #f3fbff;
-  text-shadow: 0 0 12px rgba(69, 230, 242, 0.2);
-}
-
-.effort-button:focus-visible {
   box-shadow: inset 0 0 0 1px rgba(197, 180, 255, 0.22);
 }
 

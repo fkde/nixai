@@ -12,8 +12,7 @@ import { effortOrder, embeddingModelMarkers, uiIcon } from "./ui.js";
 const {
   shell,
   messagesEl,
-  effortSwitch,
-  effortButtons,
+  effortSelect,
   settingsClose,
   settingsPanel,
   settingsForm,
@@ -58,13 +57,9 @@ export function createSettingsUi({
 
   function renderEffortSwitch() {
     const effort = currentEffort();
-    const activeIndex = Math.max(0, effortOrder.indexOf(effort));
-    effortSwitch?.style.setProperty("--effort-index", String(activeIndex));
-    effortButtons.forEach((button) => {
-      const active = button.dataset.effort === effort;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-pressed", active ? "true" : "false");
-    });
+    if (effortSelect) {
+      effortSelect.value = effort;
+    }
   }
 
   async function setEffort(effort, persist = true) {
@@ -541,10 +536,8 @@ export function createSettingsUi({
       });
     });
 
-    effortButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        setEffort(button.dataset.effort || "medium").catch((error) => setStatus(error.message, true));
-      });
+    effortSelect?.addEventListener("change", () => {
+      setEffort(effortSelect.value || "medium").catch((error) => setStatus(error.message, true));
     });
 
     emailProvider.addEventListener("change", () => {

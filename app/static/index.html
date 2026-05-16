@@ -49,15 +49,6 @@
             </p>
           </div>
           <div class="chat-header-actions">
-            <div class="effort-control" aria-label="Effort">
-              <span>Effort</span>
-              <div class="effort-switch" role="group" aria-label="Effort level">
-                <button class="effort-button" type="button" data-effort="minimum">Minimum</button>
-                <button class="effort-button active" type="button" data-effort="medium">Medium</button>
-                <button class="effort-button" type="button" data-effort="high">High</button>
-                <button class="effort-button" type="button" data-effort="max">Max</button>
-              </div>
-            </div>
             <div class="mode-switch" role="group" aria-label="Mode">
               <button class="mode-button active" type="button" data-mode="chat">Chat</button>
               <button class="mode-button" type="button" data-mode="code">Code</button>
@@ -90,6 +81,15 @@
             </div>
           </div>
           <textarea id="message-input" rows="3" placeholder="Write a message..."></textarea>
+          <label class="composer-effort" for="effort-select">
+            <span>Effort</span>
+            <select id="effort-select" aria-label="Effort level">
+              <option value="minimum">Minimum</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+              <option value="max">Max</option>
+            </select>
+          </label>
           <button id="send-button" type="submit">
             <span>Send</span>
             <span class="button-icon" aria-hidden="true">

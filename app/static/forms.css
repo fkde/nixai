@@ -2,9 +2,9 @@
   position: relative;
   z-index: 2;
   display: grid;
-  grid-template-columns: var(--footer-action-size) minmax(0, 1fr) 134px;
+  grid-template-columns: var(--footer-action-size) minmax(0, 1fr) 126px 134px;
   align-items: center;
-  gap: 11px;
+  gap: 10px;
   min-height: calc(var(--footer-action-size) + var(--footer-strip-top) + var(--footer-strip-bottom));
   padding: var(--footer-strip-top) 48px var(--footer-strip-bottom);
   border-top: 1px solid rgba(69, 230, 242, 0.16);
@@ -107,6 +107,41 @@
 .composer-plus-menu button:hover {
   border-color: rgba(69, 230, 242, 0.3);
   background: rgba(69, 230, 242, 0.1);
+}
+
+.composer-effort {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.composer-effort span {
+  position: absolute;
+  top: 5px;
+  left: 13px;
+  z-index: 1;
+  color: #7895a3;
+  font-size: 9px;
+  font-weight: 860;
+  line-height: 1;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.composer-effort select {
+  height: var(--footer-action-size);
+  min-height: var(--footer-action-size);
+  padding: 16px 32px 5px 12px;
+  border-color: rgba(69, 230, 242, 0.2);
+  border-radius: 8px;
+  background-color: rgba(7, 10, 16, 0.94);
+  color: #f3fbff;
+  font-size: 12px;
+  font-weight: 820;
+  text-transform: uppercase;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 12px 34px rgba(0, 0, 0, 0.18);
 }
 
 input,
@@ -249,4 +284,3 @@ textarea::placeholder {
   height: 17px;
   stroke-width: 2.25;
 }
-

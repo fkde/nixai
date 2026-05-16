@@ -33,6 +33,7 @@
   --focus: 0 0 0 3px rgba(69, 230, 242, 0.16), 0 0 26px rgba(69, 230, 242, 0.18);
   --control-height: 42px;
   --button-height: 40px;
+  --top-panel-height: 132px;
   --footer-strip-top: 17px;
   --footer-strip-bottom: 21px;
   --footer-action-size: 42px;
@@ -428,6 +429,8 @@ button > svg {
   z-index: 1;
   display: grid;
   gap: 0;
+  align-content: center;
+  min-height: var(--top-panel-height);
   padding: 20px 23px 18px;
   border-bottom: 1px solid rgba(69, 230, 242, 0.18);
 }

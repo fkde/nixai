@@ -174,17 +174,6 @@
     width: 100%;
   }
 
-  .effort-control {
-    align-items: stretch;
-    flex-direction: column;
-    width: 100%;
-  }
-
-  .effort-switch {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    width: 100%;
-  }
-
   .messages {
     padding: 24px 22px 34px;
   }
@@ -201,6 +190,10 @@
 
   #message-input {
     grid-column: 2;
+  }
+
+  .composer-effort {
+    grid-column: 1 / -1;
   }
 
   #send-button {
