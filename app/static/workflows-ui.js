@@ -267,9 +267,10 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
 
   function graphLayers(nodes, edges) {
     const ids = new Set(nodes.map((node) => node.id));
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
     const incoming = new Map(nodes.map((node) => [node.id, 0]));
     const outgoing = new Map(nodes.map((node) => [node.id, []]));
-    const layoutEdges = edges.filter((edge) => !String(edge.when || "").includes("retry"));
+    const layoutEdges = edges.filter((edge) => isMainFlowEdge(edge, nodeById));
     layoutEdges.forEach((edge) => {
       if (!ids.has(edge.from) || !ids.has(edge.to)) return;
       outgoing.get(edge.from)?.push(edge.to);
@@ -458,10 +459,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
 
   function mainFlowOrder(realNodes, edges) {
     const byId = new Map(realNodes.map((node) => [node.id, node]));
-    const flowEdges = edges.filter((edge) => {
-      const when = String(edge.when || "");
-      return byId.has(edge.from) && byId.has(edge.to) && !when.includes("retry") && when !== "error";
-    });
+    const flowEdges = edges.filter((edge) => byId.has(edge.from) && byId.has(edge.to) && isMainFlowEdge(edge, byId));
     const incoming = new Set(flowEdges.map((edge) => edge.to));
     const outgoing = new Map();
     flowEdges.forEach((edge) => {
@@ -481,6 +479,17 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       if (!seen.has(node.id)) ordered.push(node);
     });
     return ordered;
+  }
+
+  function isMainFlowEdge(edge, nodeById) {
+    const source = nodeById.get(edge.from);
+    const when = String(edge.when || "");
+    return Boolean(
+      source
+        && !when.includes("retry")
+        && when !== "error"
+        && String(source.type || "").toLowerCase() !== "pause",
+    );
   }
 
   function alignBoundaryNodes(draft) {

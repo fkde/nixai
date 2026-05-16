@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from html.parser import HTMLParser
 from typing import Any, Optional
 
@@ -10,8 +9,10 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.config import Settings
 from app.effort import effort_context, effort_tool_calls, effort_tool_steps
+from app.json_utils import parse_json_object_strict
 from app.llm.ollama import OllamaClient, OllamaError
 from app.runtime_context import runtime_meta_context
+from app.services.tool_policy import ToolPolicyService
 from app.tools.registry import registry
 
 
@@ -20,17 +21,6 @@ MAX_FETCH_CHARS = 5_500
 MAX_TOOL_RESULT_CHARS = 8_000
 MAX_TOOL_STEPS = 3
 MAX_TOOL_CALLS_PER_STEP = 4
-CONTEXT_TOOL_NAMES = {
-    "nixai_tools_search",
-    "nixai_workspace_list_files",
-    "nixai_workspace_read_file",
-    "nixai_workspace_search_files",
-    "nixai_git_status",
-    "nixai_git_diff",
-    "nixai_web_search",
-    "nixai_web_fetch_url",
-    "nixai_web_check_url",
-}
 
 
 class AgenticToolCall(BaseModel):
@@ -54,6 +44,7 @@ class AgenticContextBuilder:
     def __init__(self, settings: Settings, ollama: Optional[OllamaClient] = None) -> None:
         self.settings = settings
         self.ollama = ollama or OllamaClient(settings, timeout=45.0)
+        self.tool_policy = ToolPolicyService(settings)
 
     async def build(self, user_message: str) -> str:
         tool_results: list[dict[str, Any]] = []
@@ -140,7 +131,7 @@ class AgenticContextBuilder:
         for tool_call in tool_calls[: self._max_tool_calls()]:
             name = tool_call.name.strip()
             arguments = tool_call.arguments if isinstance(tool_call.arguments, dict) else {}
-            if name not in CONTEXT_TOOL_NAMES:
+            if not self.tool_policy.is_context_tool(name):
                 results.append(
                     {
                         "tool": name,
@@ -165,7 +156,7 @@ class AgenticContextBuilder:
                 "inputSchema": tool.get("inputSchema", {}),
             }
             for tool in registry.public_definitions()
-            if tool["name"] in CONTEXT_TOOL_NAMES
+            if self.tool_policy.is_context_tool(tool["name"])
         ]
 
     def _max_tool_steps(self) -> int:
@@ -215,20 +206,11 @@ class AgenticContextBuilder:
         return str(result)
 
     def _parse_json(self, content: str) -> dict[str, Any]:
-        clean = content.strip()
-        if clean.startswith("```"):
-            clean = re.sub(r"^```(?:json)?", "", clean, flags=re.IGNORECASE).strip()
-            clean = re.sub(r"```$", "", clean).strip()
-        try:
-            parsed = json.loads(clean)
-        except json.JSONDecodeError:
-            match = re.search(r"\{[\s\S]*\}", clean)
-            if not match:
-                raise ValueError("Research planner did not return JSON.")
-            parsed = json.loads(match.group(0))
-        if not isinstance(parsed, dict):
-            raise ValueError("Research planner JSON was not an object.")
-        return parsed
+        return parse_json_object_strict(
+            content,
+            not_found_message="Research planner did not return JSON.",
+            not_object_message="Research planner JSON was not an object.",
+        )
 
 
 class _TextExtractor(HTMLParser):

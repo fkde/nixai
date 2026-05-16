@@ -2,34 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from typing import Any, Optional
 
 from app import database
-from app.agentic_schedule import compute_next_run, is_one_shot_schedule, utc_now_dt
+from app.agentic_schedule import utc_now_dt
 from app.config import load_settings
 from app.effort import effort_context
+from app.json_utils import parse_json_object_strict
 from app.llm.ollama import OllamaClient, OllamaError
 from app.memory import memory_context
 from app.models import AgenticTask, AgenticTaskRun
 from app.roles import role_prompt
 from app.runtime_context import runtime_meta_context
+from app.services import AgenticTaskService
+from app.services.tool_policy import AUTO_TOOL_NAMES, ToolPolicyService
 from app.tools.registry import registry
 from app.workflows.presets import selected_workflow
 
 
-AUTO_TOOLS = {
-    "nixai_workspace_list_files",
-    "nixai_workspace_read_file",
-    "nixai_workspace_search_files",
-    "nixai_git_status",
-    "nixai_git_diff",
-    "nixai_tools_search",
-    "nixai_notify_desktop",
-    "nixai_web_search",
-    "nixai_web_check_url",
-    "nixai_web_fetch_url",
-}
+# Re-exported for backward compatibility with any external import.
+AUTO_TOOLS = AUTO_TOOL_NAMES
 MAX_TOOL_CALLS = 5
 MAX_ATTEMPTS = 2
 
@@ -38,6 +30,8 @@ class AgenticRunner:
     def __init__(self, ollama: Optional[OllamaClient] = None) -> None:
         self.settings = load_settings()
         self.ollama = ollama or OllamaClient(self.settings, timeout=90.0)
+        self.tool_policy = ToolPolicyService(self.settings)
+        self.task_service = AgenticTaskService(max_failure_attempts=MAX_ATTEMPTS)
 
     async def run_inline(
         self,
@@ -128,17 +122,7 @@ class AgenticRunner:
             tool_results=json.dumps(tool_results, ensure_ascii=False),
             error=error,
         )
-        one_shot = is_one_shot_schedule(task.schedule)
-        next_run_at = None if one_shot else compute_next_run(task.schedule, utc_now_dt())
-        failure_count = 0 if status == "success" else min(task.failure_count + 1, MAX_ATTEMPTS)
-        task_status = "paused" if one_shot or (failure_count >= MAX_ATTEMPTS and status != "success") else None
-        database.update_agentic_task_schedule_state(
-            task.id,
-            next_run_at=next_run_at,
-            last_run_at=utc_now_dt().isoformat(),
-            failure_count=failure_count,
-            status=task_status,
-        )
+        self.task_service.record_run_result(task, status=status)
         return finished or run
 
     async def _plan(self, task: AgenticTask, reason: str, prior_errors: list[str]) -> dict[str, Any]:
@@ -343,27 +327,14 @@ class AgenticRunner:
         ).strip()
 
     def _is_autonomous_tool_allowed(self, name: str) -> bool:
-        if name not in AUTO_TOOLS:
-            return False
-        if name == "nixai_notify_desktop":
-            return True
-        return not self.settings.require_tool_confirmation or self.settings.is_tool_always_allowed(name)
+        return self.tool_policy.is_autonomous(name)
 
     def _autonomous_tool_definitions(self) -> list[dict[str, Any]]:
         return [tool for tool in registry.public_definitions() if self._is_autonomous_tool_allowed(tool["name"])]
 
     def _parse_json(self, content: str) -> dict[str, Any]:
-        clean = content.strip()
-        if clean.startswith("```"):
-            clean = re.sub(r"^```(?:json)?", "", clean, flags=re.IGNORECASE).strip()
-            clean = re.sub(r"```$", "", clean).strip()
-        try:
-            parsed = json.loads(clean)
-        except json.JSONDecodeError:
-            match = re.search(r"\{[\s\S]*\}", clean)
-            if not match:
-                raise ValueError("Agentic model response did not contain JSON.")
-            parsed = json.loads(match.group(0))
-        if not isinstance(parsed, dict):
-            raise ValueError("Agentic model response JSON was not an object.")
-        return parsed
+        return parse_json_object_strict(
+            content,
+            not_found_message="Agentic model response did not contain JSON.",
+            not_object_message="Agentic model response JSON was not an object.",
+        )

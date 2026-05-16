@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Optional
 
 from app import database
 from app.config import load_settings
+from app.json_utils import parse_json_object_strict
 from app.llm.ollama import OllamaClient, OllamaError
 from app.mistakes import append_mistake_entry
 from app.models import Message, utc_now
@@ -61,17 +61,11 @@ class MistakeDistiller:
         )
 
     def _parse_json(self, content: str) -> dict[str, Any]:
-        clean = content.strip()
-        if clean.startswith("```"):
-            clean = re.sub(r"^```(?:json)?", "", clean, flags=re.IGNORECASE).strip()
-            clean = re.sub(r"```$", "", clean).strip()
-        try:
-            return json.loads(clean)
-        except json.JSONDecodeError:
-            match = re.search(r"\{[\s\S]*\}", clean)
-            if not match:
-                raise
-            return json.loads(match.group(0))
+        return parse_json_object_strict(
+            content,
+            not_found_message="Distiller response did not contain JSON",
+            not_object_message="Distiller response JSON was not an object",
+        )
 
     def _fallback(self, message: Message, history: list[Message]) -> dict[str, Any]:
         previous_user = next((item.content for item in reversed(history) if item.role == "user"), "")

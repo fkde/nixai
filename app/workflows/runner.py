@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from typing import Optional
 
@@ -22,6 +23,9 @@ from app.workflows.phases import (
     note,
 )
 from app.workflows.state import compact_workflow_state, initial_workflow_state
+
+
+logger = logging.getLogger(__name__)
 
 
 class WorkflowRunner:
@@ -166,7 +170,12 @@ class WorkflowRunner:
                 events_json=json.dumps([event.model_dump() for event in events], ensure_ascii=False),
             )
         except Exception:
-            return
+            logger.warning(
+                "workflow_run persistence failed (start) workflow_id=%s chat_id=%s",
+                workflow.id,
+                chat_id,
+                exc_info=True,
+            )
 
     def _persist_finished(self, result: WorkflowResult, state: dict[str, object]) -> None:
         run_id = str(state.get("workflow_run_id") or "")
@@ -185,4 +194,9 @@ class WorkflowRunner:
                 finished=finished,
             )
         except Exception:
-            return
+            logger.warning(
+                "workflow_run persistence failed (finish) run_id=%s status=%s",
+                run_id,
+                result.status,
+                exc_info=True,
+            )

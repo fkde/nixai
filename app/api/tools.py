@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.config import load_settings, save_settings
+from app.services.tool_policy import ToolPolicyService
 from app.tools.registry import registry
 from app.tools.routing.semantic import SemanticToolRouter
 from app.tools.routing.types import ToolContext
@@ -30,15 +31,8 @@ class CallToolRequest(BaseModel):
 
 @router.get("")
 def list_tools() -> dict[str, Any]:
-    settings = load_settings()
-    tools = []
-    for tool in registry.public_definitions():
-        meta = dict(tool.get("meta") or {})
-        meta["requiresConfirmation"] = settings.require_tool_confirmation and not settings.is_tool_always_allowed(tool["name"])
-        meta["alwaysAllowed"] = settings.is_tool_always_allowed(tool["name"])
-        tool["meta"] = meta
-        tools.append(tool)
-    return {"success": True, "tools": tools}
+    policy = ToolPolicyService(load_settings())
+    return {"success": True, "tools": [policy.annotate(tool) for tool in registry.public_definitions()]}
 
 
 @router.post("/select")
@@ -59,7 +53,8 @@ def call_tool(request: CallToolRequest) -> dict[str, Any]:
         return {"success": True, "tool": "", "result": {"success": False, "error": "Tool name is required."}}
 
     settings = load_settings()
-    if settings.require_tool_confirmation and not settings.is_tool_always_allowed(name) and not request.approved:
+    policy = ToolPolicyService(settings)
+    if policy.requires_confirmation(name) and not request.approved:
         definition = next((tool for tool in registry.public_definitions() if tool["name"] == name), None)
         if definition is None:
             raise HTTPException(status_code=400, detail=f"Unknown tool: {name}")
@@ -72,7 +67,7 @@ def call_tool(request: CallToolRequest) -> dict[str, Any]:
             "message": "Tool call requires user approval.",
         }
 
-    if request.always_allow and not settings.is_tool_always_allowed(name):
+    if request.always_allow and not policy.is_always_allowed(name):
         settings.always_allowed_tools.append(name)
         save_settings(settings)
 

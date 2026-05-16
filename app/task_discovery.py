@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
 from app.agentic_schedule import normalize_one_shot_schedule, parse_one_shot_schedule, utc_now_dt
 from app.config import Settings
 from app.effort import effort_context
+from app.json_utils import parse_json_object_strict
 from app.llm.ollama import OllamaClient, OllamaError
 from app.roles import role_prompt
 from app.runtime_context import runtime_meta_context
@@ -234,21 +235,13 @@ class TaskDiscovery:
         due_at = parse_one_shot_schedule(result.schedule)
         return due_at is not None and due_at <= utc_now_dt()
 
-    def _parse_json(self, content: str) -> dict[str, Any]:
-        clean = content.strip()
-        if clean.startswith("```"):
-            clean = re.sub(r"^```(?:json)?", "", clean, flags=re.IGNORECASE).strip()
-            clean = re.sub(r"```$", "", clean).strip()
-        try:
-            parsed = json.loads(clean)
-        except json.JSONDecodeError:
-            match = re.search(r"\{[\s\S]*\}", clean)
-            if not match:
-                raise OllamaError("TaskDiscovery response did not contain JSON")
-            parsed = json.loads(match.group(0))
-        if not isinstance(parsed, dict):
-            raise OllamaError("TaskDiscovery response JSON was not an object")
-        return parsed
+    def _parse_json(self, content: str) -> dict[str, object]:
+        return parse_json_object_strict(
+            content,
+            error_factory=OllamaError,
+            not_found_message="TaskDiscovery response did not contain JSON",
+            not_object_message="TaskDiscovery response JSON was not an object",
+        )
 
     def _fallback(self, text: str) -> TaskDiscoveryResult:
         return TaskDiscoveryResult(

@@ -16,13 +16,13 @@ from app.agentic_routing import (
     compact_agentic_history,
     parse_agentic_route_response,
 )
-from app.agentic_schedule import compute_next_run, utc_now_dt
 from app.config import load_settings
 from app.context_builder import ModeContextBuilder
 from app.effort import normalize_effort
 from app.json_utils import parse_json_object
 from app.llm.ollama import OllamaClient
 from app.models import CreateMessageResponse, Message, MessageMode, new_id, utc_now
+from app.services import AgenticTaskService
 from app.task_discovery import TaskDiscovery
 from app.title_generation import DEFAULT_CHAT_TITLES, build_chat_title_messages, clean_chat_title
 from app.workflows.presets import selected_workflow
@@ -312,15 +312,11 @@ class Agent:
         return "assistant"
 
     def _create_agentic_task(self, discovery):
-        task = database.create_agentic_task(
+        return AgenticTaskService().create_task(
             title=discovery.title,
             prompt=discovery.prompt,
             schedule=discovery.schedule,
         )
-        return database.update_agentic_task_schedule_state(
-            task.id,
-            next_run_at=compute_next_run(task.schedule, utc_now_dt()),
-        ) or task
 
     def _stream_stats(self, event: dict[str, object]) -> dict[str, object]:
         return StreamStatsBuilder.from_event(event)

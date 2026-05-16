@@ -288,9 +288,19 @@ export function deriveWorkflowEdgesFromNodes(nodes, existingEdges = [], includeB
   });
   if (includeBoundaryEdges && available.has(WORKFLOW_INPUT_ID) && available.has(WORKFLOW_OUTPUT_ID)) {
     const realNodes = (nodes || []).filter((node) => !isBoundaryNode(node));
-    const flowEdges = edges.filter((edge) => !String(edge.when || "").includes("retry"));
+    const nodeById = new Map(realNodes.map((node) => [node.id, node]));
+    const isMainFlowEdge = (edge) => {
+      const source = nodeById.get(edge.from);
+      const when = String(edge.when || "");
+      return source && !when.includes("retry") && when !== "error" && String(source.type || "").toLowerCase() !== "pause";
+    };
+    const flowEdges = edges.filter(isMainFlowEdge);
     const targets = new Set(flowEdges.map((edge) => edge.to));
     const sources = new Set(flowEdges.map((edge) => edge.from));
+    const answerNodes = realNodes.filter((node) => String(node.type || "").toLowerCase() === "answer");
+    const outputNodes = answerNodes.length > 0
+      ? answerNodes
+      : realNodes.filter((node) => !sources.has(node.id) && String(node.type || "").toLowerCase() !== "pause");
     realNodes
       .filter((node) => !targets.has(node.id))
       .forEach((node) => {
@@ -300,15 +310,13 @@ export function deriveWorkflowEdgesFromNodes(nodes, existingEdges = [], includeB
           edges.unshift({ from: WORKFLOW_INPUT_ID, to: node.id, when: "" });
         }
       });
-    realNodes
-      .filter((node) => !sources.has(node.id))
-      .forEach((node) => {
-        const key = `${node.id}->${WORKFLOW_OUTPUT_ID}`;
-        if (!dedupe.has(key)) {
-          dedupe.add(key);
-          edges.push({ from: node.id, to: WORKFLOW_OUTPUT_ID, when: "" });
-        }
-      });
+    outputNodes.forEach((node) => {
+      const key = `${node.id}->${WORKFLOW_OUTPUT_ID}`;
+      if (!dedupe.has(key)) {
+        dedupe.add(key);
+        edges.push({ from: node.id, to: WORKFLOW_OUTPUT_ID, when: "" });
+      }
+    });
   }
   return edges;
 }

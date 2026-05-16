@@ -5,7 +5,8 @@ from contextlib import suppress
 
 from app import database
 from app.agentic_runner import AgenticRunner
-from app.agentic_schedule import compute_next_run, utc_now_dt
+from app.agentic_schedule import utc_now_dt
+from app.services import AgenticTaskService
 
 
 class AgenticScheduler:
@@ -35,12 +36,13 @@ class AgenticScheduler:
 
     async def run_once(self) -> int:
         now = utc_now_dt()
+        service = AgenticTaskService()
         count = 0
         for task in database.list_due_agentic_tasks(now.isoformat(), limit=5):
             if task.id in self._running:
                 continue
             if task.next_run_at is None:
-                database.update_agentic_task_schedule_state(task.id, next_run_at=compute_next_run(task.schedule, now))
+                service.ensure_next_run(task)
                 continue
             self._running.add(task.id)
             try:

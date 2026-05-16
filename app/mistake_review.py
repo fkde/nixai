@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Optional
 
 from pydantic import BaseModel
 
 from app.config import load_settings
+from app.json_utils import parse_json_object_strict
 from app.llm.ollama import OllamaClient, OllamaError
 from app.memory import append_memory_entry
 from app.mistakes import MistakeEntry
@@ -52,20 +52,11 @@ class MistakeReview:
         )
 
     def _parse_json(self, content: str) -> dict[str, Any]:
-        clean = content.strip()
-        if clean.startswith("```"):
-            clean = re.sub(r"^```(?:json)?", "", clean, flags=re.IGNORECASE).strip()
-            clean = re.sub(r"```$", "", clean).strip()
-        try:
-            parsed = json.loads(clean)
-        except json.JSONDecodeError:
-            match = re.search(r"\{[\s\S]*\}", clean)
-            if not match:
-                raise
-            parsed = json.loads(match.group(0))
-        if not isinstance(parsed, dict):
-            raise ValueError("Solution response was not a JSON object.")
-        return parsed
+        return parse_json_object_strict(
+            content,
+            not_found_message="Solution response did not contain JSON.",
+            not_object_message="Solution response was not a JSON object.",
+        )
 
     def _fallback(self, entry: MistakeEntry) -> MistakeSolution:
         return MistakeSolution(
