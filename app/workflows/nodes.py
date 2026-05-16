@@ -124,7 +124,7 @@ class JudgeNodeHandler:
         )
 
 
-class FinalNodeHandler:
+class AnswerNodeHandler:
     async def run(
         self,
         workflow: WorkflowDefinition,
@@ -134,10 +134,10 @@ class FinalNodeHandler:
         resolver: NodeInputResolver,
     ) -> NodeResult:
         del resolver
-        answer = await final_answer(workflow, state, deps)
+        answer = await final_answer(workflow, state, deps, node_id=node.id)
         decision = state.get("decision") if isinstance(state.get("decision"), dict) else {}
         status = "needs_user" if str(decision.get("status") or "").lower() == "needs_user" else "done"
-        return NodeResult(node_id=node.id, status=status, output=answer, summary="Final answer ready.")
+        return NodeResult(node_id=node.id, status=status, output=answer, summary="Answer ready.")
 
 
 class ToolAgentNodeHandler:
@@ -177,7 +177,12 @@ class PauseNodeHandler:
     ) -> NodeResult:
         del workflow
         inputs = resolver.resolve(node, state)
-        prompt = node.prompt or node.title or "The workflow needs user input before it can continue."
+        decision = state.get("decision") if isinstance(state.get("decision"), dict) else {}
+        feedback = decision.get("feedback") if isinstance(decision.get("feedback"), list) else []
+        prompt_parts = [str(decision.get("reason") or "").strip()]
+        prompt_parts.extend(f"- {item}" for item in feedback if str(item).strip())
+        decision_prompt = "\n".join(part for part in prompt_parts if part).strip()
+        prompt = node.prompt or decision_prompt or node.title or "The workflow needs user input before it can continue."
         output = {"status": "paused", "prompt": prompt, "node": node.id, "inputs": inputs}
         state["pause"] = output
         deps.event_sink.emit(node.id, "paused", prompt, {"pause": output})
@@ -186,15 +191,16 @@ class PauseNodeHandler:
 
 def default_node_handlers() -> dict[str, NodeHandler]:
     role = RoleNodeHandler()
+    answer = AnswerNodeHandler()
     return {
         "role": role,
         "orchestrator": role,
         "worker_pool": WorkerPoolNodeHandler(),
         "reviewer": ReviewerNodeHandler(),
         "judge": JudgeNodeHandler(),
-        "final": FinalNodeHandler(),
-        "end": FinalNodeHandler(),
-        "needs_user": FinalNodeHandler(),
+        "answer": answer,
+        "end": answer,
+        "needs_user": answer,
         "pause": PauseNodeHandler(),
         "tool_agent": ToolAgentNodeHandler(),
     }

@@ -119,7 +119,14 @@ export function ensureWorkflowBoundaryNodes(nodes) {
 }
 
 export function normalizeWorkflowNodes(workflow) {
-  const nodes = (Array.isArray(workflow?.nodes) ? workflow.nodes : []).map((node, index) => {
+  const rawNodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
+  const hasAnswerNode = rawNodes.some((node) => String(node.id || "").trim().toLowerCase() === "answer");
+  const migrateNodeId = (id) => {
+    const clean = String(id || "").trim();
+    return !hasAnswerNode && clean.toLowerCase() === "final" ? "answer" : clean;
+  };
+  const migrateNodeRefs = (items) => dedupeList(items.map((item) => migrateNodeId(item)).filter(Boolean));
+  const nodes = rawNodes.map((node, index) => {
     const inputValues = Array.isArray(node.input)
       ? node.input.map((item) => String(item).trim()).filter(Boolean)
       : String(node.input || "").trim()
@@ -128,9 +135,12 @@ export function normalizeWorkflowNodes(workflow) {
     const rawPos = node.position && typeof node.position === "object" ? node.position : {};
     const px = Number(rawPos.x);
     const py = Number(rawPos.y);
+    const rawType = String(node.type || "role").trim().toLowerCase();
+    const type = rawType === "final" ? "answer" : rawType || "role";
+    const rawId = migrateNodeId(node.id || `node_${index + 1}`);
     return {
-      id: String(node.id || `node_${index + 1}`),
-      type: String(node.type || "role"),
+      id: rawId || `node_${index + 1}`,
+      type,
       role: String(node.role || ""),
       title: String(node.title || ""),
       input: inputValues,
@@ -138,10 +148,10 @@ export function normalizeWorkflowNodes(workflow) {
       max_parallel: Math.min(8, Math.max(1, Number(node.max_parallel || 1))),
       max_items: Math.min(12, Math.max(1, Number(node.max_items || 4))),
       expects_json: Boolean(node.expects_json),
-      receive_from: dedupeList(
+      receive_from: migrateNodeRefs(
         Array.isArray(node.receive_from) ? node.receive_from : parseCsvList(node.receive_from || ""),
       ),
-      reports_to: dedupeList(
+      reports_to: migrateNodeRefs(
         Array.isArray(node.reports_to) ? node.reports_to : parseCsvList(node.reports_to || ""),
       ),
       worker_instances: Math.min(8, Math.max(1, Number(node.worker_instances || node.max_parallel || 1))),
@@ -156,8 +166,8 @@ export function normalizeWorkflowNodes(workflow) {
   const nodeIds = new Set(nodes.map((node) => node.id));
   const edges = Array.isArray(workflow?.edges) ? workflow.edges : [];
   edges.forEach((edge) => {
-    const source = String(edge.from || edge.from_node || "").trim();
-    const target = String(edge.to || "").trim();
+    const source = migrateNodeId(edge.from || edge.from_node || "");
+    const target = migrateNodeId(edge.to || "");
     if (!source || !target || !nodeIds.has(source) || !nodeIds.has(target)) return;
     const targetNode = nodes.find((node) => node.id === target);
     const sourceNode = nodes.find((node) => node.id === source);
@@ -170,11 +180,16 @@ export function normalizeWorkflowNodes(workflow) {
 export function normalizeWorkflowEdges(workflow, nodes = normalizeWorkflowNodes(workflow || {})) {
   const available = new Set((nodes || []).map((node) => node.id));
   const edges = Array.isArray(workflow?.edges) ? workflow.edges : [];
+  const shouldMigrateAnswer = available.has("answer") && !available.has("final");
+  const migrateNodeId = (id) => {
+    const clean = String(id || "").trim();
+    return shouldMigrateAnswer && clean.toLowerCase() === "final" ? "answer" : clean;
+  };
   const dedupe = new Set();
   const normalized = [];
   edges.forEach((edge) => {
-    const source = String(edge.from || edge.from_node || "").trim();
-    const target = String(edge.to || "").trim();
+    const source = migrateNodeId(edge.from || edge.from_node || "");
+    const target = migrateNodeId(edge.to || "");
     if (!source || !target || !available.has(source) || !available.has(target)) return;
     const when = String(edge.when || "").trim();
     const key = `${source}->${target}->${when}`;
@@ -273,8 +288,9 @@ export function deriveWorkflowEdgesFromNodes(nodes, existingEdges = [], includeB
   });
   if (includeBoundaryEdges && available.has(WORKFLOW_INPUT_ID) && available.has(WORKFLOW_OUTPUT_ID)) {
     const realNodes = (nodes || []).filter((node) => !isBoundaryNode(node));
-    const targets = new Set(edges.map((edge) => edge.to));
-    const sources = new Set(edges.map((edge) => edge.from));
+    const flowEdges = edges.filter((edge) => !String(edge.when || "").includes("retry"));
+    const targets = new Set(flowEdges.map((edge) => edge.to));
+    const sources = new Set(flowEdges.map((edge) => edge.from));
     realNodes
       .filter((node) => !targets.has(node.id))
       .forEach((node) => {
@@ -311,10 +327,21 @@ export function canvasPortPoint(node, portType) {
   };
 }
 
-export function canvasConnectionPath(sourcePoint, targetPoint) {
+export function canvasConnectionPath(sourcePoint, targetPoint, isLoop = false, laneOffset = 0) {
   const dx = targetPoint.x - sourcePoint.x;
+  if (isLoop) {
+    const stub = 24;
+    const laneY = Math.max(sourcePoint.y, targetPoint.y) + 38 + laneOffset;
+    const r = 14;
+    return `M ${sourcePoint.x} ${sourcePoint.y} L ${sourcePoint.x + stub} ${sourcePoint.y} Q ${sourcePoint.x + stub + r} ${sourcePoint.y}, ${sourcePoint.x + stub + r} ${sourcePoint.y + r} L ${sourcePoint.x + stub + r} ${laneY - r} Q ${sourcePoint.x + stub + r} ${laneY}, ${sourcePoint.x + stub} ${laneY} L ${targetPoint.x - stub} ${laneY} Q ${targetPoint.x - stub - r} ${laneY}, ${targetPoint.x - stub - r} ${laneY - r} L ${targetPoint.x - stub - r} ${targetPoint.y + r} Q ${targetPoint.x - stub - r} ${targetPoint.y}, ${targetPoint.x - stub} ${targetPoint.y} L ${targetPoint.x} ${targetPoint.y}`;
+  }
+  if (dx <= 0) {
+    const midY = (sourcePoint.y + targetPoint.y) / 2 + laneOffset;
+    return `M ${sourcePoint.x} ${sourcePoint.y} C ${sourcePoint.x + 44} ${sourcePoint.y}, ${sourcePoint.x + 44} ${midY}, ${sourcePoint.x + 10} ${midY} L ${targetPoint.x - 10} ${midY} C ${targetPoint.x - 44} ${midY}, ${targetPoint.x - 44} ${targetPoint.y}, ${targetPoint.x} ${targetPoint.y}`;
+  }
   const curve = Math.max(50, Math.min(160, Math.abs(dx) * 0.5));
-  return `M ${sourcePoint.x} ${sourcePoint.y} C ${sourcePoint.x + curve} ${sourcePoint.y}, ${targetPoint.x - curve} ${targetPoint.y}, ${targetPoint.x} ${targetPoint.y}`;
+  const bend = laneOffset * 0.35;
+  return `M ${sourcePoint.x} ${sourcePoint.y} C ${sourcePoint.x + curve} ${sourcePoint.y + bend}, ${targetPoint.x - curve} ${targetPoint.y + bend}, ${targetPoint.x} ${targetPoint.y}`;
 }
 
 export function addUniqueNodeListValue(node, key, value) {
@@ -385,17 +412,24 @@ export function incomingEdgeForNode(draft, targetId) {
 }
 
 export function nodeTileMarkup(node) {
-  const isWorker = String(node.type || "").toLowerCase() === "worker_pool";
-  const isIteration = ["for_each", "while"].includes(String(node.type || "").toLowerCase());
+  const nodeType = String(node.type || "").toLowerCase();
+  const isWorker = nodeType === "worker_pool";
+  const isAnswer = nodeType === "answer";
+  const isIteration = ["for_each", "while"].includes(nodeType);
   const boundary = boundaryKind(node);
-  const title = String(node.title || node.role || node.id || "node");
+  const rawTitle = String(node.title || node.role || node.id || "node");
+  const title = isAnswer && rawTitle.toLowerCase() === "answer" ? "Answer" : rawTitle;
   const safeTitle = escapeHtml(title);
   const outputIdentifier = nodeOutputIdentifier(node);
   const role = String(node.role || "").trim();
   const metaParts = [];
-  if (role) metaParts.push(role);
+  if (isAnswer) {
+    metaParts.push("assistant response");
+  } else if (role) {
+    metaParts.push(role);
+  }
   if (isWorker) {
-    metaParts.push(`×${Math.max(1, Number(node.worker_instances || node.max_parallel || 1))}`);
+    metaParts.push(`≤${Math.max(1, Number(node.worker_instances || node.max_parallel || 1))}`);
   }
   if (isIteration) metaParts.push("iteration");
   if (boundary === PORT_INPUT) metaParts.push("assistant input");

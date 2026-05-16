@@ -45,10 +45,17 @@
       "expects_json": true
     },
     {
-      "id": "final",
-      "type": "final",
+      "id": "ask_user",
+      "type": "pause",
+      "title": "Ask User",
+      "input": ["decision"],
+      "output": "pause"
+    },
+    {
+      "id": "answer",
+      "type": "answer",
       "role": "orchestrator",
-      "title": "Final",
+      "title": "Answer",
       "input": ["plan", "worker_reports", "review", "decision"],
       "output": "final_answer"
     }
@@ -58,7 +65,8 @@
     {"from": "workers", "to": "reviewer"},
     {"from": "reviewer", "to": "judge"},
     {"from": "judge", "to": "orchestrator", "when": "decision.status == 'retry'"},
-    {"from": "judge", "to": "final", "when": "decision.status == 'done'"},
-    {"from": "judge", "to": "final", "when": "decision.status == 'needs_user'"}
+    {"from": "judge", "to": "answer", "when": "decision.status == 'done'"},
+    {"from": "judge", "to": "ask_user", "when": "decision.status == 'needs_user'"},
+    {"from": "ask_user", "to": "orchestrator"}
   ]
 }

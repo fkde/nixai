@@ -346,6 +346,7 @@
                         </defs>
                         <g class="workflow-canvas-edge-layer"></g>
                       </svg>
+                      <div id="workflow-canvas-labels" class="workflow-canvas-labels" aria-hidden="true"></div>
                       <div id="workflow-canvas-nodes" class="workflow-canvas-nodes"></div>
                     </div>
                     <aside id="workflow-node-edit-panel" class="workflow-node-edit-panel" hidden aria-hidden="true">
@@ -372,7 +373,7 @@
                         </div>
                         <div class="settings-grid two node-edit-role-row">
                           <label class="field">
-                            <span class="field-label">Role <span class="info-tip" tabindex="0" role="button" aria-label="What is the role for?" data-tip="The **Markdown role prompt** that defines this agent's behavior. Each role lives as a file under **Prompts**. The role name also implies execution semantics: `judge` returns decisions that drive branching, `reviewer` critiques prior work, and anything with **Worker Instances** > 1 runs as a parallel worker pool.">?</span></span>
+                            <span class="field-label">Role <span class="info-tip" tabindex="0" role="button" aria-label="What is the role for?" data-tip="The **Markdown role prompt** that defines this agent's behavior. Each role lives as a file under **Prompts**. The role name also implies execution semantics: `judge` returns decisions that drive branching, `reviewer` critiques prior work, and anything with **Max Worker Instances** > 1 may run as a parallel worker pool when the planner recommends it.">?</span></span>
                             <select id="node-edit-role"></select>
                             <small class="field-hint" id="node-edit-role-hint">Roles come from your Markdown role files. Add or rename them under <strong>Prompts</strong>.</small>
                           </label>
@@ -404,7 +405,7 @@
                         </div>
                         <div class="settings-grid two">
                           <label class="field">
-                            <span class="field-label">Worker Instances <span class="info-tip" tabindex="0" role="button" aria-label="What are Worker Instances for?" data-tip="How many **parallel copies** of this node to run. Set above `1` to turn the node into a **parallel worker pool**: each instance picks one item from the input list and runs concurrently. Capped at `8` to keep Ollama responsive on local hardware.">?</span></span>
+                            <span class="field-label">Max Worker Instances <span class="info-tip" tabindex="0" role="button" aria-label="What are Max Worker Instances for?" data-tip="Upper bound for how many **parallel workers** this node may use. The planner decides the actual `recommended_workers` for each run, and the executor caps it by this value, Max Parallel, effort level, and the number of work items. Small tasks can still run with one worker.">?</span></span>
                             <input id="node-edit-workers" type="number" min="1" max="8" value="1" />
                           </label>
                           <label class="field">
@@ -418,7 +419,7 @@
                   <section class="workflow-edge-rules" aria-label="Workflow connection rules">
                     <div>
                       <strong>Connection Rules</strong>
-                      <small>Choose when each connection is followed. Leave empty for always.</small>
+                      <small>Rules follow node outputs. Run another pass means the Judge returned retry; ready to answer means done; ask user means needs_user.</small>
                     </div>
                     <div id="workflow-edge-rules-list" class="workflow-edge-rules-list"></div>
                   </section>

@@ -8,7 +8,7 @@ def test_workflow_event_sink_records_and_callbacks() -> None:
     sink = WorkflowEventSink(callback=callbacks.append)
 
     recorded = sink.emit("node", "status", "Working")
-    transient = sink.emit("final", "token", "chunk", record=False)
+    transient = sink.emit("answer", "token", "chunk", record=False)
 
     assert sink.events == [recorded]
     assert callbacks == [recorded, transient]

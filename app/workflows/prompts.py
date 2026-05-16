@@ -26,10 +26,14 @@ def build_plan_prompt(
         "\"title\":\"2-6 word chat title\","
         "\"summary\":\"...\","
         "\"confidence\":0.0,"
+        "\"complexity\":\"low|medium|high\","
+        "\"recommended_workers\":1,"
         "\"acceptance_criteria\":[\"...\"],"
         "\"work_items\":[{\"id\":\"short-id\",\"title\":\"...\",\"instructions\":\"...\",\"owned_paths\":[\"optional/path\"]}]"
         "}\n"
         f"Maximum work items for this effort level: {max_items}.\n"
+        "Create only as many work items as the task genuinely needs; simple tasks should usually use one. "
+        "Set recommended_workers to the useful parallelism for this plan, never more than the number of work items. "
         "Keep work items independent when possible so worker_pool can run them in parallel."
     )
 
@@ -57,10 +61,14 @@ def build_retry_plan_prompt(
         "\"title\":\"2-6 word chat title\","
         "\"summary\":\"...\","
         "\"confidence\":0.0,"
+        "\"complexity\":\"low|medium|high\","
+        "\"recommended_workers\":1,"
         "\"acceptance_criteria\":[\"...\"],"
         "\"work_items\":[{\"id\":\"short-id\",\"title\":\"...\",\"instructions\":\"...\",\"owned_paths\":[\"optional/path\"]}]"
         "}\n"
-        f"Maximum work items for this effort level: {max_items}."
+        f"Maximum work items for this effort level: {max_items}.\n"
+        "Create only as many retry work items as the missing evidence genuinely needs. "
+        "Set recommended_workers to the useful retry parallelism, never more than the number of work items."
     )
 
 

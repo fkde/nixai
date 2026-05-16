@@ -8,7 +8,15 @@ from app.config import Settings
 from app.workflow_scratch import InMemoryWorkflowScratchpad
 from app.workflows.events import WorkflowEventSink
 from app.workflows.models import WorkflowDefinition
-from app.workflows.phases import WorkflowPhaseDeps, build_plan, final_answer, judge, replan_for_retry, review, run_workers
+from app.workflows.phases import (
+    WorkflowPhaseDeps,
+    build_plan,
+    final_answer,
+    judge,
+    replan_for_retry,
+    review,
+    run_workers,
+)
 from app.workflows.state import WorkflowState
 from tests.fakes.ollama import FakeOllamaClient
 
@@ -24,6 +32,8 @@ def test_build_plan_phase_uses_fake_ollama_and_records_note() -> None:
 
     assert plan["title"] == "Fake plan"
     assert plan["work_items"][0]["id"] == "main"
+    assert plan["complexity"] == "low"
+    assert plan["recommended_workers"] == 1
     assert title_updates[0][0] == "chat-1"
     assert deps.event_sink.events[-1].message == "Orchestrator created 1 work item(s)."
     assert "Initial workflow plan" in scratchpad.read_notes("run-1")
@@ -63,6 +73,30 @@ def test_run_workers_phase_returns_individual_reports(fake_ollama) -> None:
     assert all(report["content"] == "worker report" for report in reports)
     assert deps.event_sink.events[-1].message == "Worker pool completed 2 report(s)."
     assert fake_ollama.chat_payload_calls[-1]["response_format"] is None
+
+
+def test_run_workers_phase_uses_planner_recommended_parallelism(fake_ollama) -> None:
+    scratchpad = InMemoryWorkflowScratchpad()
+    state = workflow_state(scratchpad)
+    state["plan"] = {
+        "recommended_workers": 1,
+        "work_items": [
+            {"id": "alpha", "title": "Alpha", "instructions": "Do alpha"},
+            {"id": "beta", "title": "Beta", "instructions": "Do beta"},
+        ],
+    }
+    fake_ollama.response_text = "worker report"
+    deps = phase_deps(fake_ollama, scratchpad)
+
+    reports = run_async(run_workers(workflow_definition(), state, deps))
+
+    assert [report["worker"] for report in reports] == ["worker-1", "worker-1"]
+    status = next(
+        event.message for event in deps.event_sink.events if event.node == "workers" and event.type == "status"
+    )
+    assert "recommended workers 1" in status
+    assert "max worker instances 2" in status
+    assert "active parallel 1" in status
 
 
 def test_review_phase_parses_json_review(fake_ollama) -> None:
@@ -212,13 +246,7 @@ def workflow_definition() -> WorkflowDefinition:
             "name": "Test Workflow",
             "nodes": [
                 {"id": "orchestrator", "type": "role", "role": "ORCHESTRATOR", "expects_json": True, "max_items": 2},
-                {
-                    "id": "workers",
-                    "type": "worker_pool",
-                    "role": "WORKER",
-                    "worker_instances": 2,
-                    "max_parallel": 2,
-                },
+                {"id": "workers", "type": "worker_pool", "role": "WORKER", "worker_instances": 2, "max_parallel": 2},
                 {"id": "reviewer", "type": "reviewer", "role": "REVIEWER", "expects_json": True},
                 {"id": "judge", "type": "judge", "role": "JUDGE", "expects_json": True},
             ],
@@ -230,14 +258,11 @@ def plan_payload() -> dict[str, Any]:
     return {
         "title": "Fake plan",
         "summary": "Fake workflow plan.",
+        "complexity": "low",
+        "recommended_workers": 1,
         "acceptance_criteria": ["Return a deterministic answer."],
         "work_items": [
-            {
-                "id": "main",
-                "title": "Answer",
-                "instructions": "Return a deterministic answer.",
-                "owned_paths": [],
-            }
+            {"id": "main", "title": "Answer", "instructions": "Return a deterministic answer.", "owned_paths": []}
         ],
     }
 
@@ -262,12 +287,7 @@ def workflow_state(scratchpad: InMemoryWorkflowScratchpad) -> WorkflowState:
 
 
 def phase_deps(
-    ollama,
-    scratchpad: InMemoryWorkflowScratchpad,
-    *,
-    callback=None,
-    update_chat_title=None,
-    final_ollama_factory=None,
+    ollama, scratchpad: InMemoryWorkflowScratchpad, *, callback=None, update_chat_title=None, final_ollama_factory=None
 ) -> WorkflowPhaseDeps:
     return WorkflowPhaseDeps(
         settings=Settings(effort="medium"),

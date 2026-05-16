@@ -72,7 +72,7 @@ class WorkflowNode(BaseModel):
         default=1,
         ge=1,
         le=8,
-        description="Worker pool size; max_parallel remains the concurrency cap.",
+        description="Maximum worker instances the planner may use; max_parallel remains the hard concurrency cap.",
     )
     position: NodePosition = Field(default_factory=NodePosition)
     config: dict[str, Any] = Field(default_factory=dict)
@@ -85,7 +85,13 @@ class WorkflowNode(BaseModel):
     def _validate_id(cls, value: Any) -> str:
         return validate_slug(value, field_name="node id")
 
-    @field_validator("type", "role", "output", mode="before")
+    @field_validator("type", mode="before")
+    @classmethod
+    def _clean_type(cls, value: Any) -> str:
+        node_type = clean_single_line(value or "", max_length=MAX_NAME_LENGTH, field_name="value").lower()
+        return "answer" if node_type == "final" else node_type
+
+    @field_validator("role", "output", mode="before")
     @classmethod
     def _clean_short(cls, value: Any) -> str:
         return clean_single_line(value or "", max_length=MAX_NAME_LENGTH, field_name="value")
@@ -193,6 +199,7 @@ class WorkflowDefinition(BaseModel):
     @model_validator(mode="after")
     def sync_node_links_and_edges(self) -> "WorkflowDefinition":
         """Keep links and edges aligned; explicit edges are the canonical source."""
+        self._migrate_answer_node_id()
         node_ids = {node.id for node in self.nodes if node.id}
         if not node_ids:
             return self
@@ -230,6 +237,21 @@ class WorkflowDefinition(BaseModel):
                 add_edge(node.id, str(target).strip())
         self.edges = derived
         return self
+
+    def _migrate_answer_node_id(self) -> None:
+        node_ids = {node.id for node in self.nodes if node.id}
+        if "final" not in node_ids or "answer" in node_ids:
+            return
+        for node in self.nodes:
+            if node.id == "final":
+                node.id = "answer"
+            node.receive_from = ["answer" if item == "final" else item for item in node.receive_from]
+            node.reports_to = ["answer" if item == "final" else item for item in node.reports_to]
+        for edge in self.edges:
+            if edge.from_node == "final":
+                edge.from_node = "answer"
+            if edge.to == "final":
+                edge.to = "answer"
 
 
 class WorkflowEvent(BaseModel):

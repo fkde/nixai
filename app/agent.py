@@ -91,7 +91,7 @@ class Agent:
             queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
 
             def on_workflow_event(event) -> None:
-                if event.node == "final" and event.type == "token":
+                if event.node == "answer" and event.type == "token":
                     queue.put_nowait({"type": "token", "content": event.message})
                     return
                 queue.put_nowait(

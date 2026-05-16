@@ -59,7 +59,7 @@ class WorkflowGraphExecutor:
             final_status = result.status if result.status in {"failed", "needs_user"} else final_status
             self._apply_compatible_state(node.output, result, state, deps, workflow, event_sink)
 
-            if node.type in {"final", "end", "needs_user"}:
+            if node.type in {"answer", "end", "needs_user"}:
                 final_status = result.status
                 break
             if node.type == "pause" or result.status == "needs_user":
@@ -393,7 +393,7 @@ class WorkflowGraphExecutor:
             "worker_pool": "worker_reports",
             "reviewer": "review",
             "judge": "decision",
-            "final": "final_answer",
+            "answer": "final_answer",
             "end": "final_answer",
             "needs_user": "final_answer",
             "pause": "pause",

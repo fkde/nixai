@@ -17,23 +17,25 @@ from app.workflows.state import WorkflowState
 from tests.fakes.ollama import FakeOllamaClient
 
 
-def test_deep_orchestra_like_graph_runs_until_final() -> None:
+def test_deep_orchestra_like_graph_runs_until_answer() -> None:
     handlers = {
         "role": StaticNodeHandler("plan", {"summary": "Plan", "work_items": [{"id": "main"}]}),
         "worker_pool": StaticNodeHandler("worker_reports", [{"id": "main", "content": "Report"}]),
         "reviewer": StaticNodeHandler("review", {"status": "approved", "summary": "Looks good"}),
         "judge": StaticNodeHandler("decision", {"status": "done", "reason": "Complete"}),
-        "final": StaticNodeHandler("final_answer", "Final answer."),
+        "answer": StaticNodeHandler("final_answer", "Final answer."),
     }
 
-    result = run_async(WorkflowGraphExecutor(handlers=handlers).run(workflow_definition(), state(), deps(), event_sink()))
+    result = run_async(
+        WorkflowGraphExecutor(handlers=handlers).run(workflow_definition(), state(), deps(), event_sink())
+    )
 
     assert result.status == "done"
     assert result.answer == "Final answer."
-    assert result.state["node_results"]["final"]["output"] == "Final answer."
+    assert result.state["node_results"]["answer"]["output"] == "Final answer."
 
 
-def test_retry_edge_runs_another_pass_then_final() -> None:
+def test_retry_edge_runs_another_pass_then_answer() -> None:
     worker = CountingNodeHandler("worker_reports", lambda count: [{"id": f"run-{count}", "content": "Report"}])
     judge = SequenceNodeHandler(
         "decision",
@@ -47,10 +49,12 @@ def test_retry_edge_runs_another_pass_then_final() -> None:
         "worker_pool": worker,
         "reviewer": StaticNodeHandler("review", {"status": "approved"}),
         "judge": judge,
-        "final": StaticNodeHandler("final_answer", "Final answer."),
+        "answer": StaticNodeHandler("final_answer", "Final answer."),
     }
 
-    result = run_async(WorkflowGraphExecutor(handlers=handlers).run(workflow_definition(), state(), deps(), event_sink()))
+    result = run_async(
+        WorkflowGraphExecutor(handlers=handlers).run(workflow_definition(), state(), deps(), event_sink())
+    )
 
     assert result.status == "done"
     assert worker.count == 2
@@ -65,7 +69,7 @@ def test_retry_edge_is_limited_by_workflow_max_iterations() -> None:
         "worker_pool": worker,
         "reviewer": StaticNodeHandler("review", {"status": "approved"}),
         "judge": StaticNodeHandler("decision", {"status": "retry", "reason": "Again"}),
-        "final": StaticNodeHandler("final_answer", "Best available answer."),
+        "answer": StaticNodeHandler("final_answer", "Best available answer."),
     }
     workflow = workflow_definition(max_iterations=1)
 
@@ -82,10 +86,12 @@ def test_needs_user_finishes_cleanly() -> None:
         "worker_pool": StaticNodeHandler("worker_reports", []),
         "reviewer": StaticNodeHandler("review", {"status": "changes_requested"}),
         "judge": StaticNodeHandler("decision", {"status": "needs_user", "reason": "Which workspace?"}),
-        "final": StaticNodeHandler("final_answer", "Which workspace?", status="needs_user"),
+        "answer": StaticNodeHandler("final_answer", "Which workspace?", status="needs_user"),
     }
 
-    result = run_async(WorkflowGraphExecutor(handlers=handlers).run(workflow_definition(), state(), deps(), event_sink()))
+    result = run_async(
+        WorkflowGraphExecutor(handlers=handlers).run(workflow_definition(), state(), deps(), event_sink())
+    )
 
     assert result.status == "needs_user"
     assert result.answer == "Which workspace?"
@@ -93,11 +99,7 @@ def test_needs_user_finishes_cleanly() -> None:
 
 def test_unsupported_node_is_controlled_failure() -> None:
     workflow = WorkflowDefinition.model_validate(
-        {
-            "id": "bad",
-            "name": "Bad",
-            "nodes": [{"id": "mystery", "type": "mystery"}],
-        }
+        {"id": "bad", "name": "Bad", "nodes": [{"id": "mystery", "type": "mystery"}]}
     )
 
     result = run_async(WorkflowGraphExecutor().run(workflow, state(), deps(), event_sink()))
@@ -108,17 +110,14 @@ def test_unsupported_node_is_controlled_failure() -> None:
 
 
 def test_failed_node_can_follow_error_edge() -> None:
-    handlers = {
-        "role": FailingOnceNodeHandler("boom"),
-        "final": StaticNodeHandler("final_answer", "Recovered."),
-    }
+    handlers = {"role": FailingOnceNodeHandler("boom"), "answer": StaticNodeHandler("final_answer", "Recovered.")}
     workflow = WorkflowDefinition.model_validate(
         {
             "id": "error-edge",
             "name": "Error Edge",
             "nodes": [
                 {"id": "start", "type": "role", "output": "plan"},
-                {"id": "fallback", "type": "final", "output": "final_answer"},
+                {"id": "fallback", "type": "answer", "output": "final_answer"},
             ],
             "edges": [{"from": "start", "to": "fallback", "when": "error"}],
         }
@@ -133,23 +132,17 @@ def test_failed_node_can_follow_error_edge() -> None:
 
 def test_node_retry_recovers_before_error_edge() -> None:
     handler = FailingOnceNodeHandler("plan", output={"summary": "Recovered"})
-    handlers = {
-        "role": handler,
-        "final": StaticNodeHandler("final_answer", "Done."),
-    }
+    handlers = {"role": handler, "answer": StaticNodeHandler("final_answer", "Done.")}
     workflow = WorkflowDefinition.model_validate(
         {
             "id": "retry-node",
             "name": "Retry Node",
             "nodes": [
                 {"id": "start", "type": "role", "output": "plan", "retry": {"max": 1, "backoff": 0}},
-                {"id": "final", "type": "final", "output": "final_answer"},
-                {"id": "fallback", "type": "final", "output": "final_answer"},
+                {"id": "answer", "type": "answer", "output": "final_answer"},
+                {"id": "fallback", "type": "answer", "output": "final_answer"},
             ],
-            "edges": [
-                {"from": "start", "to": "final"},
-                {"from": "start", "to": "fallback", "when": "error"},
-            ],
+            "edges": [{"from": "start", "to": "answer"}, {"from": "start", "to": "fallback", "when": "error"}],
         }
     )
 
@@ -176,16 +169,16 @@ def test_for_each_node_runs_configured_body_for_each_item() -> None:
                     "config": {"body": ["worker"]},
                 },
                 {"id": "worker", "type": "role", "output": "report"},
-                {"id": "final", "type": "final", "output": "final_answer"},
+                {"id": "answer", "type": "answer", "output": "final_answer"},
             ],
-            "edges": [{"from": "loop", "to": "final"}],
+            "edges": [{"from": "loop", "to": "answer"}],
         }
     )
     initial = state()
     initial["plan"] = {"work_items": [{"id": "a"}, {"id": "b"}]}
 
     result = run_async(
-        WorkflowGraphExecutor(handlers={"role": worker, "final": StaticNodeHandler("final_answer", "Done.")}).run(
+        WorkflowGraphExecutor(handlers={"role": worker, "answer": StaticNodeHandler("final_answer", "Done.")}).run(
             workflow, initial, deps(), event_sink()
         )
     )
@@ -209,16 +202,16 @@ def test_while_node_runs_until_break_condition() -> None:
                     "config": {"body": ["increment"], "max_iterations": 4},
                 },
                 {"id": "increment", "type": "role", "output": "counter"},
-                {"id": "final", "type": "final", "output": "final_answer"},
+                {"id": "answer", "type": "answer", "output": "final_answer"},
             ],
-            "edges": [{"from": "loop", "to": "final"}],
+            "edges": [{"from": "loop", "to": "answer"}],
         }
     )
     initial = state()
     initial["counter"] = 0
 
     result = run_async(
-        WorkflowGraphExecutor(handlers={"role": increment, "final": StaticNodeHandler("final_answer", "Done.")}).run(
+        WorkflowGraphExecutor(handlers={"role": increment, "answer": StaticNodeHandler("final_answer", "Done.")}).run(
             workflow, initial, deps(), event_sink()
         )
     )
@@ -236,9 +229,9 @@ def test_pause_node_stops_mid_workflow_with_prompt() -> None:
             "nodes": [
                 {"id": "start", "type": "role", "output": "plan"},
                 {"id": "ask", "type": "pause", "prompt": "Which source should I use?", "output": "pause"},
-                {"id": "final", "type": "final", "output": "final_answer"},
+                {"id": "answer", "type": "answer", "output": "final_answer"},
             ],
-            "edges": [{"from": "start", "to": "ask"}, {"from": "ask", "to": "final"}],
+            "edges": [{"from": "start", "to": "ask"}, {"from": "ask", "to": "answer"}],
         }
     )
 
@@ -250,16 +243,54 @@ def test_pause_node_stops_mid_workflow_with_prompt() -> None:
 
     assert result.status == "needs_user"
     assert result.state["pause"]["prompt"] == "Which source should I use?"
-    assert "final" not in result.state["node_results"]
+    assert "answer" not in result.state["node_results"]
+
+
+def test_judge_needs_user_routes_to_pause_node() -> None:
+    handlers = {
+        "role": StaticNodeHandler("plan", {"summary": "Plan", "work_items": [{"id": "main"}]}),
+        "worker_pool": StaticNodeHandler("worker_reports", []),
+        "reviewer": StaticNodeHandler("review", {"status": "approved"}),
+        "judge": StaticNodeHandler(
+            "decision",
+            {"status": "needs_user", "reason": "Which source should I use?", "feedback": ["Pick docs or code."]},
+        ),
+    }
+    workflow = WorkflowDefinition.model_validate(
+        {
+            "id": "needs-user-pause",
+            "name": "Needs User Pause",
+            "nodes": [
+                {"id": "orchestrator", "type": "role", "output": "plan"},
+                {"id": "workers", "type": "worker_pool", "output": "worker_reports"},
+                {"id": "reviewer", "type": "reviewer", "output": "review"},
+                {"id": "judge", "type": "judge", "output": "decision"},
+                {"id": "ask_user", "type": "pause", "input": ["decision"], "output": "pause"},
+                {"id": "answer", "type": "answer", "output": "final_answer"},
+            ],
+            "edges": [
+                {"from": "orchestrator", "to": "workers"},
+                {"from": "workers", "to": "reviewer"},
+                {"from": "reviewer", "to": "judge"},
+                {"from": "judge", "to": "ask_user", "when": "decision.status == 'needs_user'"},
+                {"from": "ask_user", "to": "orchestrator"},
+                {"from": "judge", "to": "answer", "when": "decision.status == 'done'"},
+            ],
+        }
+    )
+
+    result = run_async(WorkflowGraphExecutor(handlers=handlers).run(workflow, state(), deps(), event_sink()))
+
+    assert result.status == "needs_user"
+    assert result.state["pause"]["node"] == "ask_user"
+    assert "Which source should I use?" in result.state["pause"]["prompt"]
+    assert "Pick docs or code." in result.state["pause"]["prompt"]
+    assert "answer" not in result.state["node_results"]
 
 
 def test_workflow_node_runs_referenced_subworkflow(monkeypatch: pytest.MonkeyPatch) -> None:
     child = WorkflowDefinition.model_validate(
-        {
-            "id": "child",
-            "name": "Child",
-            "nodes": [{"id": "child_final", "type": "final", "output": "final_answer"}],
-        }
+        {"id": "child", "name": "Child", "nodes": [{"id": "child_answer", "type": "answer", "output": "final_answer"}]}
     )
 
     def fake_get_workflow(workflow_id: str, mode: str | None = None) -> WorkflowDefinition | None:
@@ -273,14 +304,14 @@ def test_workflow_node_runs_referenced_subworkflow(monkeypatch: pytest.MonkeyPat
             "name": "Parent",
             "nodes": [
                 {"id": "sub", "type": "workflow", "ref": "child", "output": "child_result"},
-                {"id": "final", "type": "final", "output": "final_answer"},
+                {"id": "answer", "type": "answer", "output": "final_answer"},
             ],
-            "edges": [{"from": "sub", "to": "final"}],
+            "edges": [{"from": "sub", "to": "answer"}],
         }
     )
 
     result = run_async(
-        WorkflowGraphExecutor(handlers={"final": StaticNodeHandler("final_answer", "Child done.")}).run(
+        WorkflowGraphExecutor(handlers={"answer": StaticNodeHandler("final_answer", "Child done.")}).run(
             workflow, state(), deps(), event_sink()
         )
     )
@@ -304,20 +335,13 @@ def test_tool_agent_node_uses_inline_agentic_runner(monkeypatch: pytest.MonkeyPa
             "name": "Tool Agent",
             "nodes": [
                 {"id": "research", "type": "tool_agent", "title": "Research", "output": "research_result"},
-                {"id": "final", "type": "final", "output": "final_answer"},
+                {"id": "answer", "type": "answer", "output": "final_answer"},
             ],
-            "edges": [{"from": "research", "to": "final"}],
+            "edges": [{"from": "research", "to": "answer"}],
         }
     )
 
-    result = run_async(
-        WorkflowGraphExecutor().run(
-            workflow,
-            state(),
-            deps(),
-            event_sink(),
-        )
-    )
+    result = run_async(WorkflowGraphExecutor().run(workflow, state(), deps(), event_sink()))
 
     assert result.status == "done"
     assert result.state["research_result"]["status"] == "success"
@@ -433,15 +457,15 @@ def workflow_definition(max_iterations: int = 2) -> WorkflowDefinition:
                 {"id": "workers", "type": "worker_pool", "output": "worker_reports"},
                 {"id": "reviewer", "type": "reviewer", "output": "review"},
                 {"id": "judge", "type": "judge", "output": "decision"},
-                {"id": "final", "type": "final", "output": "final_answer"},
+                {"id": "answer", "type": "answer", "output": "final_answer"},
             ],
             "edges": [
                 {"from": "orchestrator", "to": "workers"},
                 {"from": "workers", "to": "reviewer"},
                 {"from": "reviewer", "to": "judge"},
                 {"from": "judge", "to": "workers", "when": "decision.status == 'retry'"},
-                {"from": "judge", "to": "final", "when": "decision.status == 'done'"},
-                {"from": "judge", "to": "final", "when": "decision.status == 'needs_user'"},
+                {"from": "judge", "to": "answer", "when": "decision.status == 'done'"},
+                {"from": "judge", "to": "answer", "when": "decision.status == 'needs_user'"},
             ],
         }
     )

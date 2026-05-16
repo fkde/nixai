@@ -66,6 +66,7 @@ const {
   workflowEditorAddNode,
   workflowCanvas,
   workflowCanvasNodes,
+  workflowCanvasLabels,
   workflowCanvasEdges,
   workflowCanvasEdgeLayer,
   workflowEdgeRulesList,
@@ -88,11 +89,12 @@ const {
 const WORKFLOW_NAME_MAX = 200;
 const WORKFLOW_DESCRIPTION_MAX = 1000;
 const WORKFLOW_FIELD_MAX = 120;
+const CANVAS_LAYOUT_X = NODE_TILE_WIDTH + 36;
 const EDGE_CONDITION_PRESETS = [
   { label: "Always", value: "" },
-  { label: "Retry requested", value: "decision.status == 'retry'" },
-  { label: "Done", value: "decision.status == 'done'" },
-  { label: "Needs user", value: "decision.status == 'needs_user'" },
+  { label: "Run another pass", value: "decision.status == 'retry'" },
+  { label: "Ready to answer", value: "decision.status == 'done'" },
+  { label: "Ask user", value: "decision.status == 'needs_user'" },
   { label: "Error", value: "error" },
   { label: "Low confidence", value: "plan.confidence < 0.7" },
   { label: "Enough reports", value: "worker_reports.length >= 3" },
@@ -212,6 +214,57 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     return clean.length > 28 ? `${clean.slice(0, 25)}...` : clean;
   }
 
+  function nodeById(draft, nodeId) {
+    return draft?.nodes?.find((node) => node.id === nodeId) || null;
+  }
+
+  function isAnswerNode(node) {
+    return String(node?.type || "").toLowerCase() === "answer" || String(node?.id || "").toLowerCase() === "answer";
+  }
+
+  function edgeConditionPresets(edge, draft) {
+    const source = nodeById(draft, edge.from);
+    const target = nodeById(draft, edge.to);
+    const sourceType = String(source?.type || "").toLowerCase();
+    const targetType = String(target?.type || "").toLowerCase();
+    const presets = [{ label: "Always", value: "" }];
+
+    if (sourceType === "judge") {
+      if (targetType === "pause") {
+        presets.push({ label: "Ask user", value: "decision.status == 'needs_user'" });
+      } else if (isAnswerNode(target)) {
+        presets.push(
+          { label: "Ready to answer", value: "decision.status == 'done'" },
+        );
+      } else {
+        presets.push({ label: "Run another pass", value: "decision.status == 'retry'" });
+      }
+    }
+    if (sourceType === "role" || sourceType === "orchestrator") {
+      presets.push({ label: "Low confidence", value: "plan.confidence < 0.7" });
+    }
+    if (targetType === "reviewer") {
+      presets.push({ label: "Enough reports", value: "worker_reports.length >= 3" });
+    }
+    presets.push({ label: "Error", value: "error" });
+    return dedupeConditionPresets(presets);
+  }
+
+  function dedupeConditionPresets(presets) {
+    const seen = new Set();
+    return presets.filter((preset) => {
+      if (seen.has(preset.value)) return false;
+      seen.add(preset.value);
+      return true;
+    });
+  }
+
+  function edgeDisplayName(edge, draft) {
+    const source = nodeById(draft, edge.from);
+    const target = nodeById(draft, edge.to);
+    return `${source?.title || source?.id || edge.from} -> ${target?.title || target?.id || edge.to}`;
+  }
+
   function graphLayers(nodes, edges) {
     const ids = new Set(nodes.map((node) => node.id));
     const incoming = new Map(nodes.map((node) => [node.id, 0]));
@@ -256,15 +309,22 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     if (nodes.length === 0) {
       return '<p class="settings-empty">No nodes to display.</p>';
     }
-    const nodeWidth = compact ? 142 : 176;
+    const nodeWidth = compact ? 126 : 176;
     const nodeHeight = compact ? 56 : 68;
-    const gapX = compact ? 54 : 44;
+    const gapX = compact ? 32 : 44;
     const gapY = compact ? 36 : 30;
     const pad = compact ? 22 : 18;
     const graphEdges = deriveWorkflowEdgesFromNodes(nodes, workflow.edges || [], true);
     const layers = graphLayers(nodes, graphEdges);
+    const hasBackEdges = graphEdges.some((edge) => {
+      const sourceNode = layers.nodes.find((node) => node.id === edge.from);
+      const targetNode = layers.nodes.find((node) => node.id === edge.to);
+      return sourceNode && targetNode && targetNode._graphCol <= sourceNode._graphCol;
+    });
     const width = pad * 2 + (layers.cols * nodeWidth) + ((layers.cols - 1) * gapX);
-    const height = pad * 2 + (layers.rows * nodeHeight) + ((layers.rows - 1) * gapY);
+    const baseHeight = pad * 2 + (layers.rows * nodeHeight) + ((layers.rows - 1) * gapY);
+    const loopLaneY = baseHeight + (hasBackEdges ? (compact ? 42 : 50) : 0);
+    const height = baseHeight + (hasBackEdges ? (compact ? 68 : 78) : 0);
     const positions = {};
     layers.nodes.forEach((node) => {
       const col = node._graphCol;
@@ -286,28 +346,32 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
           const sy = source.y + nodeHeight / 2;
           const tx = target.x;
           const ty = target.y + nodeHeight / 2;
-          const label = labelText ? `<text class="workflow-graph-edge-label" x="${(sx + tx) / 2}" y="${(sy + ty) / 2 - 8 - ((index % 2) * 12)}">${escapeHtml(labelText)}</text>` : "";
+          const label = labelText ? graphEdgeLabel(labelText, (sx + tx) / 2, (sy + ty) / 2 - 14 - ((index % 2) * 14)) : "";
           return `<path class="workflow-graph-edge${edge.when === "error" ? " error" : ""}" d="M ${sx} ${sy} C ${sx + 30} ${sy}, ${tx - 30} ${ty}, ${tx} ${ty}" />${label}`;
         }
         const sx = source.x + nodeWidth / 2;
         const sy = source.y + nodeHeight;
         const tx = target.x + nodeWidth / 2;
-        const ty = target.y;
-        const label = labelText ? `<text class="workflow-graph-edge-label" x="${(sx + tx) / 2}" y="${(sy + ty) / 2 - 8 - ((index % 2) * 12)}">${escapeHtml(labelText)}</text>` : "";
-        return `<path class="workflow-graph-edge loop${edge.when === "error" ? " error" : ""}" d="M ${sx} ${sy} C ${sx} ${sy + 30}, ${tx} ${ty - 30}, ${tx} ${ty}" />${label}`;
+        const ty = target.y + nodeHeight;
+        const laneY = loopLaneY + (index % 2) * 10;
+        const label = labelText ? graphEdgeLabel(labelText, (sx + tx) / 2, laneY - 14) : "";
+        return `<path class="workflow-graph-edge loop${edge.when === "error" ? " error" : ""}" d="M ${sx} ${sy} C ${sx} ${laneY - 20}, ${sx} ${laneY}, ${sx - 24} ${laneY} L ${tx + 24} ${laneY} C ${tx} ${laneY}, ${tx} ${laneY - 20}, ${tx} ${ty}" />${label}`;
       })
       .join("");
 
     const nodeSvg = layers.nodes
       .map((node) => {
         const pos = positions[node.id];
-        const isWorker = String(node.type || "").toLowerCase() === "worker_pool";
-        const isIteration = ["for_each", "while"].includes(String(node.type || "").toLowerCase());
+        const nodeType = String(node.type || "").toLowerCase();
+        const isWorker = nodeType === "worker_pool";
+        const isAnswer = nodeType === "answer";
+        const isIteration = ["for_each", "while"].includes(nodeType);
         const boundary = boundaryKind(node);
-        const title = escapeHtml(String(node.title || node.role || node.id || "node"));
-        const metaParts = [String(node.type || "role")];
+        const rawTitle = String(node.title || node.role || node.id || "node");
+        const title = escapeHtml(isAnswer && rawTitle.toLowerCase() === "answer" ? "Answer" : rawTitle);
+        const metaParts = [isAnswer ? "assistant response" : String(node.type || "role")];
         if (isWorker) {
-          metaParts.push(`x${Math.max(1, Number(node.worker_instances || node.max_parallel || 1))}`);
+          metaParts.push(`<=${Math.max(1, Number(node.worker_instances || node.max_parallel || 1))}`);
         }
         if (boundary === PORT_INPUT) metaParts.splice(0, metaParts.length, "assistant input");
         if (boundary === PORT_OUTPUT) metaParts.splice(0, metaParts.length, "assistant output");
@@ -337,6 +401,16 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     `;
   }
 
+  function graphEdgeLabel(label, x, y) {
+    const width = Math.min(170, Math.max(54, label.length * 7 + 18));
+    return `
+      <g class="workflow-graph-edge-label">
+        <rect x="${x - width / 2}" y="${y - 13}" width="${width}" height="20"></rect>
+        <text x="${x}" y="${y + 1}">${escapeHtml(label)}</text>
+      </g>
+    `;
+  }
+
   function activeWorkflowDraft() {
     if (state.workflowEditorDraft) return state.workflowEditorDraft;
     const first = state.workflowPresets[0] || null;
@@ -361,17 +435,82 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
           y: Number.isFinite(Number(pos.y)) ? Number(pos.y) : 0,
         };
       });
+      alignBoundaryNodes(draft);
       return;
     }
-    const cols = Math.min(3, Math.max(1, draft.nodes.length));
-    draft.nodes.forEach((node, index) => {
-      const col = index % cols;
-      const row = Math.floor(index / cols);
+    layoutCanvasNodes(realWorkflowNodes(draft.nodes), deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []));
+    alignBoundaryNodes(draft);
+  }
+
+  function layoutCanvasNodes(realNodes, edges) {
+    const ordered = mainFlowOrder(realNodes, edges);
+    const topRowCount = ordered.length > 4 ? 3 : Math.min(ordered.length, 4);
+    ordered.forEach((node, index) => {
+      const bottom = index >= topRowCount;
+      const col = bottom ? index - topRowCount + Math.max(0, topRowCount - 2) : index;
+      const row = bottom ? 1 : 0;
       node.position = {
-        x: CANVAS_PAD + col * NODE_GRID_X,
+        x: CANVAS_PAD + CANVAS_LAYOUT_X + col * CANVAS_LAYOUT_X,
         y: CANVAS_PAD + row * NODE_GRID_Y,
       };
     });
+  }
+
+  function mainFlowOrder(realNodes, edges) {
+    const byId = new Map(realNodes.map((node) => [node.id, node]));
+    const flowEdges = edges.filter((edge) => {
+      const when = String(edge.when || "");
+      return byId.has(edge.from) && byId.has(edge.to) && !when.includes("retry") && when !== "error";
+    });
+    const incoming = new Set(flowEdges.map((edge) => edge.to));
+    const outgoing = new Map();
+    flowEdges.forEach((edge) => {
+      if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
+      outgoing.get(edge.from).push(edge.to);
+    });
+    const start = realNodes.find((node) => !incoming.has(node.id)) || realNodes[0];
+    const ordered = [];
+    const seen = new Set();
+    let current = start?.id || "";
+    while (current && byId.has(current) && !seen.has(current)) {
+      seen.add(current);
+      ordered.push(byId.get(current));
+      current = (outgoing.get(current) || []).find((id) => !seen.has(id)) || "";
+    }
+    realNodes.forEach((node) => {
+      if (!seen.has(node.id)) ordered.push(node);
+    });
+    return ordered;
+  }
+
+  function alignBoundaryNodes(draft) {
+    const inputNode = draft.nodes.find((node) => boundaryKind(node) === PORT_INPUT);
+    const outputNode = draft.nodes.find((node) => boundaryKind(node) === PORT_OUTPUT);
+    const realNodes = realWorkflowNodes(draft.nodes);
+    if (!realNodes.length) return;
+
+    const realEdges = deriveWorkflowEdgesFromNodes(realNodes, draft.edges || []).filter(
+      (edge) => !String(edge.when || "").includes("retry"),
+    );
+    const incoming = new Set(realEdges.map((edge) => edge.to));
+    const outgoing = new Set(realEdges.map((edge) => edge.from));
+    const starts = realNodes.filter((node) => !incoming.has(node.id));
+    const terminals = realNodes.filter((node) => !outgoing.has(node.id));
+    const firstStart = starts[0] || realNodes[0];
+    const firstTerminal = terminals[0] || realNodes[realNodes.length - 1];
+
+    if (inputNode && firstStart?.position) {
+      inputNode.position = {
+        x: Math.max(CANVAS_PAD, Number(firstStart.position.x) - CANVAS_LAYOUT_X),
+        y: Number(firstStart.position.y),
+      };
+    }
+    if (outputNode && firstTerminal?.position) {
+      outputNode.position = {
+        x: Number(firstTerminal.position.x),
+        y: Number(firstTerminal.position.y) + NODE_GRID_Y,
+      };
+    }
   }
 
   function pointerPointInCanvas(event) {
@@ -586,8 +725,17 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       maxRight = Math.max(maxRight, node.position.x + NODE_TILE_WIDTH + CANVAS_PAD);
       maxBottom = Math.max(maxBottom, node.position.y + NODE_TILE_HEIGHT + CANVAS_PAD);
     });
+    const canvasEdges = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || [], true);
+    const loopCount = canvasEdges.filter((edge) => isLoopCanvasEdge(edge, draft)).length;
+    if (loopCount > 0) {
+      maxBottom += 56 + (loopCount - 1) * 28;
+    }
     workflowCanvasNodes.style.minWidth = `${maxRight}px`;
     workflowCanvasNodes.style.minHeight = `${maxBottom}px`;
+    if (workflowCanvasLabels) {
+      workflowCanvasLabels.style.minWidth = `${maxRight}px`;
+      workflowCanvasLabels.style.minHeight = `${maxBottom}px`;
+    }
     workflowCanvasEdges?.setAttribute("viewBox", `0 0 ${maxRight} ${maxBottom}`);
     workflowCanvasEdges?.setAttribute("width", String(maxRight));
     workflowCanvasEdges?.setAttribute("height", String(maxBottom));
@@ -595,15 +743,27 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     renderEdgeRules(draft);
   }
 
+  function isLoopCanvasEdge(edge, draft) {
+    const source = draft.nodes.find((node) => node.id === edge.from)?.position;
+    const target = draft.nodes.find((node) => node.id === edge.to)?.position;
+    if (!source || !target) return false;
+    const sourcePoint = canvasPortPoint({ position: source }, PORT_OUTPUT);
+    const targetPoint = canvasPortPoint({ position: target }, PORT_INPUT);
+    return String(edge.when || "").includes("retry") || targetPoint.x <= sourcePoint.x && targetPoint.y <= sourcePoint.y;
+  }
+
   function renderCanvasEdges(draft) {
     if (!workflowCanvasEdgeLayer || !draft) return;
     workflowCanvasEdgeLayer.innerHTML = "";
+    if (workflowCanvasLabels) workflowCanvasLabels.innerHTML = "";
     const edges = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || [], true);
     const ns = "http://www.w3.org/2000/svg";
     const positions = {};
     draft.nodes.forEach((node) => {
       if (node.position) positions[node.id] = node.position;
     });
+    let loopLane = 0;
+    let crossingLane = 0;
     edges.forEach((edge) => {
       const source = positions[edge.from];
       const target = positions[edge.to];
@@ -611,7 +771,9 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       const sourcePoint = canvasPortPoint({ position: source }, PORT_OUTPUT);
       const targetPoint = canvasPortPoint({ position: target }, PORT_INPUT);
       let cls = "workflow-canvas-edge";
-      if (targetPoint.x <= sourcePoint.x) {
+      const isLoop = String(edge.when || "").includes("retry") || targetPoint.x <= sourcePoint.x && targetPoint.y <= sourcePoint.y;
+      const laneOffset = isLoop ? loopLane++ * 28 : edge.when ? (crossingLane++ % 3 - 1) * 18 : 0;
+      if (isLoop) {
         cls += " loop";
       }
       if (edge.when === "error") {
@@ -619,18 +781,26 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       }
       const path = document.createElementNS(ns, "path");
       path.setAttribute("class", cls);
-      path.setAttribute("d", canvasConnectionPath(sourcePoint, targetPoint));
+      path.setAttribute("d", canvasConnectionPath(sourcePoint, targetPoint, isLoop, laneOffset));
       path.setAttribute("marker-end", "url(#wf-canvas-arrow)");
       workflowCanvasEdgeLayer.append(path);
-      if (edge.when) {
-        const label = document.createElementNS(ns, "text");
-        label.setAttribute("class", "workflow-canvas-edge-label");
-        label.setAttribute("x", String((sourcePoint.x + targetPoint.x) / 2));
-        label.setAttribute("y", String((sourcePoint.y + targetPoint.y) / 2 - 8));
-        label.textContent = edgeLabel(edge.when);
-        workflowCanvasEdgeLayer.append(label);
-      }
+      if (edge.when) renderCanvasEdgeLabel(edge, sourcePoint, targetPoint, isLoop, laneOffset);
     });
+  }
+
+  function renderCanvasEdgeLabel(edge, sourcePoint, targetPoint, isLoop = false, laneOffset = 0) {
+    if (!workflowCanvasLabels) return;
+    const label = edgeLabel(edge.when);
+    const x = (sourcePoint.x + targetPoint.x) / 2;
+    const y = isLoop
+      ? Math.max(sourcePoint.y, targetPoint.y) + 38 + laneOffset
+      : (sourcePoint.y + targetPoint.y) / 2 - 18 + laneOffset * 0.35;
+    const badge = document.createElement("span");
+    badge.className = `workflow-canvas-edge-label${edge.when === "error" ? " error" : ""}`;
+    badge.textContent = label;
+    badge.style.left = `${x}px`;
+    badge.style.top = `${y}px`;
+    workflowCanvasLabels.append(badge);
   }
 
   function renderEdgeRules(draft) {
@@ -644,13 +814,15 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     workflowEdgeRulesList.innerHTML = edges
       .map((edge, index) => {
         const current = String(edge.when || "");
-        const presetValue = EDGE_CONDITION_PRESETS.some((item) => item.value === current) ? current : "__custom";
+        const presets = edgeConditionPresets(edge, draft);
+        const presetValue = presets.some((item) => item.value === current) ? current : "__custom";
         const customHidden = presetValue !== "__custom" ? " hidden" : "";
+        const path = edgeDisplayName(edge, draft);
         return `
           <div class="workflow-edge-rule" data-edge-index="${index}">
-            <span class="workflow-edge-rule-path">${escapeHtml(edge.from)} -> ${escapeHtml(edge.to)}</span>
-            <select class="workflow-edge-rule-preset" aria-label="Condition preset for ${escapeHtml(edge.from)} to ${escapeHtml(edge.to)}">
-              ${EDGE_CONDITION_PRESETS.map((item) => `<option value="${escapeHtml(item.value)}"${presetValue === item.value ? " selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
+            <span class="workflow-edge-rule-path">${escapeHtml(path)}</span>
+            <select class="workflow-edge-rule-preset" aria-label="Condition preset for ${escapeHtml(path)}">
+              ${presets.map((item) => `<option value="${escapeHtml(item.value)}"${presetValue === item.value ? " selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
               <option value="__custom"${presetValue === "__custom" ? " selected" : ""}>Custom expression</option>
             </select>
             <input class="workflow-edge-rule-expression"${customHidden} type="text" value="${escapeHtml(current)}" placeholder="plan.confidence < 0.7" aria-label="Custom condition expression" />
@@ -983,7 +1155,8 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     const chosenRole = String(nodeEditRole.value || "").trim();
     node.role = clampLength(chosenRole || "orchestrator", WORKFLOW_FIELD_MAX);
     const workers = clampInt(nodeEditWorkers.value, 1, 8);
-    node.type = deriveNodeTypeFromRole(node.role, workers);
+    const previousType = String(node.type || "").toLowerCase();
+    node.type = previousType === "answer" ? "answer" : deriveNodeTypeFromRole(node.role, workers);
     node.receive_from = dedupeList(parseCsvList(nodeEditReceive.value));
     node.reports_to = dedupeList(parseCsvList(nodeEditReports.value));
     node.input = parseCsvList(nodeEditInput.value);

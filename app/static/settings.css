@@ -136,6 +136,10 @@
   padding: 0 4px 28px 0;
 }
 
+.settings-section[data-settings-panel="workflows"] {
+  overflow-x: hidden;
+}
+
 .settings-section.active {
   display: grid;
   animation: settingsSectionEnter 360ms var(--ease-out);

@@ -58,6 +58,7 @@ export const dom = {
   workflowEditorAddNode: document.querySelector("#workflow-editor-add-node"),
   workflowCanvas: document.querySelector("#workflow-canvas"),
   workflowCanvasNodes: document.querySelector("#workflow-canvas-nodes"),
+  workflowCanvasLabels: document.querySelector("#workflow-canvas-labels"),
   workflowCanvasEdges,
   workflowCanvasEdgeLayer: workflowCanvasEdges?.querySelector(".workflow-canvas-edge-layer") ?? null,
   workflowEdgeRulesList: document.querySelector("#workflow-edge-rules-list"),

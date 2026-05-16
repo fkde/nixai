@@ -115,6 +115,7 @@ class WorkflowRunner:
                 state=compact_workflow_state(state, scratchpad=self.scratchpad),
             )
         event_sink.emit(paused_node, "resume", "Resuming workflow from paused node.")
+        state.pop("pause", None)
         result = await WorkflowGraphExecutor().run(workflow, state, deps, event_sink, start_node_ids=next_nodes)
         self._persist_finished(result, state)
         return result

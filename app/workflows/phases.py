@@ -67,6 +67,7 @@ async def build_plan(workflow: WorkflowDefinition, state: WorkflowState, deps: W
     content = await role_call(node, prompt, state_payload(state, deps), deps)
     plan = parse_json_object(content, fallback=fallback_plan(state["user_message"]))
     plan["work_items"] = normalize_work_items(plan.get("work_items"), state["user_message"], max_items)
+    plan = normalize_plan_metadata(plan, len(plan["work_items"]), max_items)
     deps.update_chat_title(str(state.get("chat_id") or ""), plan)
     deps.event_sink.emit(node.id, "done", f"Orchestrator created {len(plan['work_items'])} work item(s).")
     note(deps, state, "Initial workflow plan", markdown_data(plan))
@@ -92,6 +93,7 @@ async def replan_for_retry(
     content = await role_call(node, prompt, state_payload(state, deps), deps)
     plan = parse_json_object(content, fallback=fallback_plan(state["user_message"]))
     plan["work_items"] = normalize_work_items(plan.get("work_items"), state["user_message"], max_items)
+    plan = normalize_plan_metadata(plan, len(plan["work_items"]), max_items)
     deps.event_sink.emit(node.id, "done", f"Orchestrator replanned {len(plan['work_items'])} retry item(s).")
     note(deps, state, "Retry workflow plan", markdown_data(plan))
     return plan
@@ -111,7 +113,8 @@ async def run_workers(
     )
     pool_size = max(1, node.worker_instances)
     concurrency_cap = max(1, node.max_parallel)
-    configured_parallel = min(pool_size, concurrency_cap)
+    recommended_workers = recommended_worker_count(state.get("plan"), len(work_items))
+    configured_parallel = min(pool_size, concurrency_cap, recommended_workers)
     limit = max(1, min(effort_max_parallel(configured_parallel, state.get("effort")), len(work_items)))
     semaphore = asyncio.Semaphore(limit)
     deps.event_sink.emit(
@@ -119,7 +122,8 @@ async def run_workers(
         "status",
         (
             f"Orchestrator spawned {len(work_items)} worker item(s), "
-            f"worker pool {pool_size}, concurrency cap {concurrency_cap}, active parallel {limit}."
+            f"recommended workers {recommended_workers}, max worker instances {pool_size}, "
+            f"concurrency cap {concurrency_cap}, active parallel {limit}."
         ),
     )
 
@@ -174,7 +178,9 @@ async def judge(workflow: WorkflowDefinition, state: WorkflowState, deps: Workfl
     return decision
 
 
-async def final_answer(workflow: WorkflowDefinition, state: WorkflowState, deps: WorkflowPhaseDeps) -> str:
+async def final_answer(
+    workflow: WorkflowDefinition, state: WorkflowState, deps: WorkflowPhaseDeps, node_id: str = "answer"
+) -> str:
     del workflow
     decision = state.get("decision") if isinstance(state.get("decision"), dict) else {}
     status = str(decision.get("status") or "done").strip().lower()
@@ -185,7 +191,7 @@ async def final_answer(workflow: WorkflowDefinition, state: WorkflowState, deps:
         lines.extend(f"- {item}" for item in feedback if str(item).strip())
         return "\n".join(lines).strip()
 
-    deps.event_sink.emit("final", "status", "Preparing final answer.")
+    deps.event_sink.emit(node_id, "status", "Preparing final answer.")
     prompt = build_final_answer_prompt(runtime_context=state["runtime_context"], effort_context=state["effort_context"])
     messages = [
         {"role": "system", "content": prompt},
@@ -198,7 +204,7 @@ async def final_answer(workflow: WorkflowDefinition, state: WorkflowState, deps:
             content = str(event.get("content") or "")
             if content:
                 chunks.append(content)
-                deps.event_sink.emit("final", "token", content, record=False)
+                deps.event_sink.emit(node_id, "token", content, record=False)
     answer = "".join(chunks).strip()
     if not answer:
         raise RuntimeError("Final synthesis completed without text.")
@@ -268,11 +274,45 @@ def normalize_work_items(raw_items: Any, user_message: str, limit: int) -> list[
     return items or [default_work_item(user_message)]
 
 
+def normalize_plan_metadata(plan: dict[str, Any], work_item_count: int, max_items: int) -> dict[str, Any]:
+    complexity = str(plan.get("complexity") or "").strip().lower()
+    if complexity not in {"low", "medium", "high"}:
+        complexity = complexity_from_work_items(work_item_count)
+    plan["complexity"] = complexity
+    plan["recommended_workers"] = clamp_int(plan.get("recommended_workers"), 1, min(max_items, work_item_count))
+    return plan
+
+
+def recommended_worker_count(plan: Any, work_item_count: int) -> int:
+    if not isinstance(plan, dict):
+        return max(1, work_item_count)
+    return clamp_int(plan.get("recommended_workers"), 1, work_item_count)
+
+
+def complexity_from_work_items(work_item_count: int) -> str:
+    if work_item_count <= 1:
+        return "low"
+    if work_item_count <= 3:
+        return "medium"
+    return "high"
+
+
+def clamp_int(value: Any, minimum: int, maximum: int) -> int:
+    upper = max(minimum, int(maximum or minimum))
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = upper
+    return max(minimum, min(upper, parsed))
+
+
 def fallback_plan(user_message: str) -> dict[str, Any]:
     return {
         "title": "Handle Request",
         "summary": "Handle the user's request directly.",
         "confidence": 0.5,
+        "complexity": "low",
+        "recommended_workers": 1,
         "acceptance_criteria": ["Answer the user's request accurately and transparently."],
         "work_items": [default_work_item(user_message)],
     }
@@ -297,5 +337,11 @@ def first_node(workflow: WorkflowDefinition, node_type: str) -> WorkflowNode | N
 
 
 def role_for_node_type(node_type: str) -> str:
-    mapping = {"worker_pool": "worker", "reviewer": "reviewer", "judge": "judge", "role": "orchestrator"}
+    mapping = {
+        "worker_pool": "worker",
+        "reviewer": "reviewer",
+        "judge": "judge",
+        "role": "orchestrator",
+        "answer": "orchestrator",
+    }
     return mapping.get(node_type, "assistant")
