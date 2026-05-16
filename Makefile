@@ -5,7 +5,7 @@ PIP ?= pip
 HOST ?= 127.0.0.1
 PORT ?= 8765
 
-.PHONY: help install install-desktop install-editable install-editable-desktop serve desktop desktop-check check check-python check-ruff check-js test diff-check build build-cli build-linux-binary build-macos-app build-windows-binary verify-macos-app install-macos-app clean
+.PHONY: help install install-desktop install-editable install-editable-desktop serve desktop desktop-check check check-python check-ruff check-js check-css test diff-check build build-cli build-linux-binary build-macos-app build-windows-binary verify-macos-app install-macos-app clean
 
 help:
 	@printf "NixAI build commands\n\n"
@@ -48,7 +48,7 @@ desktop:
 desktop-check:
 	$(PYTHON) -m app.cli desktop --check
 
-check: check-python check-ruff check-js test diff-check
+check: check-python check-ruff check-js check-css test diff-check
 
 check-python:
 	PYTHONPYCACHEPREFIX=/private/tmp/nixai-pycache $(PYTHON) -m compileall app
@@ -59,6 +59,9 @@ check-ruff:
 
 check-js:
 	@for file in app/static/*.js; do node --check "$$file"; done
+
+check-css:
+	node scripts/check_static_css.js
 
 test:
 	PYTHONPYCACHEPREFIX=/private/tmp/nixai-pycache $(PYTHON) -m pytest

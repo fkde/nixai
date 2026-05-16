@@ -889,3 +889,13 @@
 }
 
 #save-settings.is-hidden {
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-width: 0;
+  opacity: 0;
+  transform: translateY(9px) scale(0.94);
+  pointer-events: none;
+  visibility: hidden;
+  box-shadow: none;
+}
