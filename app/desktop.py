@@ -13,6 +13,7 @@ from app.database import init_db
 
 
 TEMPLATE_DIR = Path(__file__).with_name("templates")
+FRAMELESS_DESKTOP = True
 
 
 class DesktopApi:
@@ -45,8 +46,10 @@ class DesktopApi:
     def desktop_info(self) -> dict[str, object]:
         return {
             "platform": sys.platform,
-            "native_chrome": sys.platform == "darwin",
-            "native_traffic_lights": sys.platform == "darwin",
+            "frameless": FRAMELESS_DESKTOP,
+            "native_chrome": False,
+            "native_traffic_lights": False,
+            "window_controls": FRAMELESS_DESKTOP,
         }
 
     def close_window(self) -> None:
@@ -132,7 +135,7 @@ def _wait_until_ready(url: str, timeout: float = 10.0) -> None:
     raise RuntimeError(f"NixAI desktop server did not become ready at {url}")
 
 
-def _configure_macos_chrome(window: object) -> None:
+def _configure_macos_chrome(window: object, show_native_buttons: bool = True) -> None:
     try:
         import AppKit
     except Exception:
@@ -159,12 +162,12 @@ def _configure_macos_chrome(window: object) -> None:
         ):
             button = native.standardWindowButton_(button_type)
             if button is not None:
-                button.setHidden_(False)
+                button.setHidden_(not show_native_buttons)
     except Exception:
         return
 
 
-def _schedule_macos_chrome(window: object) -> None:
+def _schedule_macos_chrome(window: object, show_native_buttons: bool = True) -> None:
     if sys.platform != "darwin":
         return
     try:
@@ -172,7 +175,7 @@ def _schedule_macos_chrome(window: object) -> None:
     except Exception:
         return
     try:
-        AppHelper.callAfter(_configure_macos_chrome, window)
+        AppHelper.callAfter(_configure_macos_chrome, window, show_native_buttons)
     except Exception:
         return
 
@@ -195,6 +198,7 @@ def run_desktop(host: str = "127.0.0.1", port: int = 0) -> None:
     import webview
     import uvicorn
 
+    webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
     settings = load_settings()
     init_db()
 
@@ -212,7 +216,7 @@ def run_desktop(host: str = "127.0.0.1", port: int = 0) -> None:
         width=1280,
         height=820,
         min_size=(920, 640),
-        frameless=False,
+        frameless=FRAMELESS_DESKTOP,
         easy_drag=False,
         vibrancy=is_macos,
         background_color="#08090d",
@@ -222,7 +226,7 @@ def run_desktop(host: str = "127.0.0.1", port: int = 0) -> None:
     api.window = window
     window.events.closing += lambda: setattr(server, "should_exit", True)
     if is_macos:
-        window.events.shown += lambda: _schedule_macos_chrome(window)
+        window.events.shown += lambda: _schedule_macos_chrome(window, not FRAMELESS_DESKTOP)
 
     print(f"NixAI desktop at {url}")
     print(f"Config: {config_path()}")

@@ -32,11 +32,11 @@
 .composer-plus-button {
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
-  min-height: 46px;
+  width: var(--footer-action-size);
+  height: var(--footer-action-size);
+  min-height: var(--footer-action-size);
   padding: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   border-color: rgba(69, 230, 242, 0.2);
   color: var(--cyan-soft);
   background:
@@ -75,7 +75,7 @@
 }
 
 .composer-plus-button[aria-expanded="true"] svg {
-  transform: rotate(45deg);
+  transform: translateY(-1px);
 }
 
 .composer-plus-menu {
@@ -226,14 +226,15 @@ textarea::placeholder {
   min-height: var(--footer-action-size);
   height: var(--footer-action-size);
   max-height: 150px;
-  padding: 14px 17px;
+  padding: 10px 17px;
   border-radius: 8px;
   border-color: rgba(69, 230, 242, 0.2);
   background:
     linear-gradient(90deg, rgba(69, 230, 242, 0.035), transparent 48%, rgba(155, 114, 255, 0.035)),
     rgba(7, 10, 16, 0.94);
   font-size: 15px;
-  line-height: 1.45;
+  line-height: 20px;
+  overflow-y: hidden;
   resize: none;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.055),
@@ -246,6 +247,7 @@ textarea::placeholder {
   justify-content: center;
   width: 100%;
   min-height: var(--footer-action-size);
+  height: var(--footer-action-size);
   padding: 0 17px;
   border-radius: 12px;
   border-color: rgba(69, 230, 242, 0.42);

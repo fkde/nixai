@@ -287,6 +287,147 @@ body.desktop-shell .thinking-dot {
   transform: none;
 }
 
+.desktop-titlebar,
+.desktop-window-controls {
+  display: none;
+}
+
+body.desktop-shell.frameless-window {
+  --top-panel-height: 146px;
+}
+
+body.desktop-shell.frameless-window .desktop-titlebar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 10;
+  display: block;
+  height: 44px;
+  cursor: default;
+  user-select: none;
+}
+
+body.desktop-shell.frameless-window .desktop-titlebar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent),
+    linear-gradient(90deg, rgba(69, 230, 242, 0.06), transparent 40%, rgba(155, 114, 255, 0.045));
+  opacity: 0.8;
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-controls {
+  position: absolute;
+  top: 14px;
+  left: 18px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-button {
+  width: 13px;
+  height: 13px;
+  min-height: 13px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  box-shadow:
+    inset 0 0 0 0.5px rgba(0, 0, 0, 0.32),
+    0 1px 3px rgba(0, 0, 0, 0.36);
+  transform: none;
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-button:hover {
+  border: 0;
+  transform: none;
+  box-shadow:
+    inset 0 0 0 0.5px rgba(0, 0, 0, 0.36),
+    0 1px 4px rgba(0, 0, 0, 0.42);
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-button.close {
+  background: #ff5f57;
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-button.minimize {
+  background: #ffbd2e;
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-button.zoom {
+  background: #28c840;
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-button span {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  color: rgba(60, 38, 31, 0.66);
+  opacity: 0;
+  transition: opacity 120ms var(--ease-snap);
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-controls:hover .desktop-window-button span,
+body.desktop-shell.custom-window-controls .desktop-window-button:focus-visible span {
+  opacity: 1;
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-button.close span::before,
+body.desktop-shell.custom-window-controls .desktop-window-button.close span::after,
+body.desktop-shell.custom-window-controls .desktop-window-button.minimize span::before,
+body.desktop-shell.custom-window-controls .desktop-window-button.zoom span::before,
+body.desktop-shell.custom-window-controls .desktop-window-button.zoom span::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 1.35px;
+  border-radius: 99px;
+  background: currentColor;
+  transform-origin: center;
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-button.close span::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-button.close span::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-button.minimize span::before {
+  transform: translate(-50%, -50%);
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-button.zoom span::before {
+  width: 6px;
+  transform: translate(-50%, -50%);
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-button.zoom span::after {
+  width: 1.35px;
+  height: 6px;
+  transform: translate(-50%, -50%);
+}
+
+body.desktop-shell.frameless-window .brand {
+  padding-top: 48px;
+}
+
+body.desktop-shell.frameless-window .chat-header {
+  padding-top: 36px;
+}
+
+body.desktop-shell.frameless-window .settings-header {
+  padding-top: 48px;
+}
+
 body.desktop-macos.native-traffic-lights .brand {
   padding-top: 47px;
 }

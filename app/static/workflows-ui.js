@@ -61,9 +61,21 @@ const NODE_GRID_X = 220;
 const NODE_GRID_Y = 130;
 const CANVAS_PAD = 24;
 const DRAG_THRESHOLD = 4;
+const PORT_INPUT = "input";
+const PORT_OUTPUT = "output";
+const BOUNDARY_NODE_TYPE = "io";
+const WORKFLOW_INPUT_ID = "input";
+const WORKFLOW_OUTPUT_ID = "output";
 
 export function createWorkflowsUi({ setStatus, getSettingsUi }) {
   const canvasDrag = { id: null, tile: null, originX: 0, originY: 0, pointerX: 0, pointerY: 0, moved: false };
+  const linkDrag = {
+    sourceId: null,
+    pointerId: null,
+    path: null,
+    validTargetId: null,
+    detached: null,
+  };
 
   function workflowPresetsForMode(mode) {
     return state.workflowPresets.filter((workflow) => {
@@ -78,6 +90,110 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
 
   function isCustomWorkflow(workflowId) {
     return state.customWorkflowIds.includes(workflowId);
+  }
+
+  function boundaryKind(node) {
+    const id = String(node?.id || "").trim().toLowerCase();
+    const type = String(node?.type || "").trim().toLowerCase();
+    if (type === BOUNDARY_NODE_TYPE && id === WORKFLOW_INPUT_ID) return PORT_INPUT;
+    if (type === BOUNDARY_NODE_TYPE && id === WORKFLOW_OUTPUT_ID) return PORT_OUTPUT;
+    return "";
+  }
+
+  function isBoundaryNode(node) {
+    return Boolean(boundaryKind(node));
+  }
+
+  function hasInputPort(node) {
+    return boundaryKind(node) !== PORT_INPUT;
+  }
+
+  function hasOutputPort(node) {
+    return boundaryKind(node) !== PORT_OUTPUT;
+  }
+
+  function realWorkflowNodes(nodes) {
+    return (nodes || []).filter((node) => !isBoundaryNode(node));
+  }
+
+  function boundaryNodeTemplate(kind) {
+    const isInput = kind === PORT_INPUT;
+    return {
+      id: isInput ? WORKFLOW_INPUT_ID : WORKFLOW_OUTPUT_ID,
+      type: BOUNDARY_NODE_TYPE,
+      role: "",
+      title: isInput ? "Input" : "Output",
+      input: [],
+      output: isInput ? "user_message" : "",
+      max_parallel: 1,
+      max_items: 1,
+      expects_json: false,
+      receive_from: [],
+      reports_to: [],
+      worker_instances: 1,
+      position: {
+        x: isInput ? CANVAS_PAD : CANVAS_PAD + NODE_GRID_X * 2,
+        y: CANVAS_PAD,
+      },
+      config: { boundary: kind },
+    };
+  }
+
+  function ensureWorkflowBoundaryNodes(nodes) {
+    const normalized = Array.isArray(nodes) ? nodes : [];
+    const hadInput = normalized.some((node) => String(node.id || "") === WORKFLOW_INPUT_ID);
+    const hadOutput = normalized.some((node) => String(node.id || "") === WORKFLOW_OUTPUT_ID);
+    const realNodes = normalized.filter((node) => {
+      const id = String(node.id || "");
+      return id !== WORKFLOW_INPUT_ID && id !== WORKFLOW_OUTPUT_ID;
+    });
+
+    if (!hadInput && realNodes.some((node) => Number(node.position?.x || 0) < CANVAS_PAD + NODE_GRID_X)) {
+      realNodes.forEach((node) => {
+        const x = Number(node.position?.x || 0);
+        const y = Number(node.position?.y || 0);
+        if (Number.isFinite(x) && Number.isFinite(y) && (x !== 0 || y !== 0)) {
+          node.position = { x: x + NODE_GRID_X, y };
+        }
+      });
+    }
+
+    let inputNode = normalized.find((node) => String(node.id || "") === WORKFLOW_INPUT_ID) || boundaryNodeTemplate(PORT_INPUT);
+    let outputNode = normalized.find((node) => String(node.id || "") === WORKFLOW_OUTPUT_ID) || boundaryNodeTemplate(PORT_OUTPUT);
+    inputNode = {
+      ...boundaryNodeTemplate(PORT_INPUT),
+      ...inputNode,
+      id: WORKFLOW_INPUT_ID,
+      type: BOUNDARY_NODE_TYPE,
+      role: "",
+      title: "Input",
+      input: [],
+      output: "user_message",
+      receive_from: [],
+      config: { ...(inputNode.config || {}), boundary: PORT_INPUT },
+    };
+    outputNode = {
+      ...boundaryNodeTemplate(PORT_OUTPUT),
+      ...outputNode,
+      id: WORKFLOW_OUTPUT_ID,
+      type: BOUNDARY_NODE_TYPE,
+      role: "",
+      title: "Output",
+      output: "",
+      reports_to: [],
+      config: { ...(outputNode.config || {}), boundary: PORT_OUTPUT },
+    };
+
+    if (realNodes.length > 0) {
+      const maxX = Math.max(...realNodes.map((node) => Number(node.position?.x || 0)));
+      const minY = Math.min(...realNodes.map((node) => Number(node.position?.y || CANVAS_PAD)));
+      const outputX = Number(outputNode.position?.x || 0);
+      if (Number.isFinite(maxX) && maxX > 0 && (!hadOutput || outputX <= maxX)) {
+        outputNode.position = { x: maxX + NODE_GRID_X, y: Number.isFinite(minY) ? minY : CANVAS_PAD };
+      }
+    }
+
+    return [inputNode, ...realNodes, outputNode];
   }
 
   function normalizeWorkflowNodes(workflow) {
@@ -126,7 +242,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       if (targetNode) targetNode.receive_from = dedupeList([...targetNode.receive_from, source]);
       if (sourceNode) sourceNode.reports_to = dedupeList([...sourceNode.reports_to, target]);
     });
-    return nodes;
+    return ensureWorkflowBoundaryNodes(nodes);
   }
 
   function normalizeWorkflowDraft(workflow) {
@@ -176,10 +292,10 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
 
   function newWorkflowDraftFrom(workflow) {
     const draft = normalizeWorkflowDraft(workflow || {});
-    if (draft.nodes.length > 0) return draft;
+    if (realWorkflowNodes(draft.nodes).length > 0) return draft;
     return {
       ...draft,
-      nodes: [{
+      nodes: ensureWorkflowBoundaryNodes([{
         id: "orchestrator",
         type: "role",
         role: "orchestrator",
@@ -192,8 +308,9 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
         receive_from: [],
         reports_to: [],
         worker_instances: 1,
+        position: { x: CANVAS_PAD + NODE_GRID_X, y: CANVAS_PAD },
         config: {},
-      }],
+      }]),
     };
   }
 
@@ -232,6 +349,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       item.className = "workflow-preset-item";
       item.dataset.workflowId = workflow.id;
       const nodes = normalizeWorkflowNodes(workflow);
+      const listedNodes = realWorkflowNodes(nodes);
       const modes = Array.isArray(workflow.modes) && workflow.modes.length > 0 ? workflow.modes : [workflow.mode];
       const customBadge = isCustomWorkflow(workflow.id) ? " · custom" : "";
       item.innerHTML = `
@@ -249,7 +367,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
         </div>
         <p>${escapeHtml(workflow.description || "")}</p>
         <div class="workflow-node-list">
-          ${nodes.map((node) => `<span>${escapeHtml(node.title || node.role || node.type || node.id)}</span>`).join("")}
+          ${listedNodes.map((node) => `<span>${escapeHtml(node.title || node.role || node.type || node.id)}</span>`).join("")}
         </div>
         <div class="workflow-graph-preview">
           ${workflowGraphMarkup(normalizeWorkflowDraft(workflow), true)}
@@ -308,14 +426,17 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       .map((node) => {
         const pos = positions[node.id];
         const isWorker = String(node.type || "").toLowerCase() === "worker_pool";
+        const boundary = boundaryKind(node);
         const title = escapeHtml(String(node.title || node.role || node.id || "node"));
         const metaParts = [String(node.type || "role")];
         if (isWorker) {
           metaParts.push(`x${Math.max(1, Number(node.worker_instances || node.max_parallel || 1))}`);
         }
+        if (boundary === PORT_INPUT) metaParts.splice(0, metaParts.length, "assistant input");
+        if (boundary === PORT_OUTPUT) metaParts.splice(0, metaParts.length, "assistant output");
         const meta = escapeHtml(metaParts.join(" · "));
         return `
-          <g class="workflow-graph-node${isWorker ? " worker" : ""}">
+          <g class="workflow-graph-node${isWorker ? " worker" : ""}${boundary ? " boundary" : ""}">
             <rect x="${pos.x}" y="${pos.y}" width="${nodeWidth}" height="${nodeHeight}"></rect>
             <text x="${pos.x + 10}" y="${pos.y + 24}">
               <tspan>${title}</tspan>
@@ -368,6 +489,10 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     return edges;
   }
 
+  function nodeOutputIdentifier(node) {
+    return String(node?.output || node?.id || "").trim();
+  }
+
   function activeWorkflowDraft() {
     if (state.workflowEditorDraft) return state.workflowEditorDraft;
     const first = state.workflowPresets[0] || null;
@@ -377,7 +502,10 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
 
   function ensureNodePositions(draft) {
     if (!draft?.nodes?.length) return;
-    const allMissing = draft.nodes.every((node) => {
+    draft.nodes = ensureWorkflowBoundaryNodes(draft.nodes);
+    const positionedNodes = realWorkflowNodes(draft.nodes);
+    const nodesToCheck = positionedNodes.length > 0 ? positionedNodes : draft.nodes;
+    const allMissing = nodesToCheck.every((node) => {
       const pos = node.position;
       return !pos || (Number(pos.x) === 0 && Number(pos.y) === 0);
     });
@@ -404,25 +532,312 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
 
   function nodeTileMarkup(node) {
     const isWorker = String(node.type || "").toLowerCase() === "worker_pool";
+    const boundary = boundaryKind(node);
     const title = String(node.title || node.role || node.id || "node");
+    const safeTitle = escapeHtml(title);
+    const outputIdentifier = nodeOutputIdentifier(node);
     const role = String(node.role || "").trim();
     const metaParts = [];
     if (role) metaParts.push(role);
     if (isWorker) {
       metaParts.push(`×${Math.max(1, Number(node.worker_instances || node.max_parallel || 1))}`);
     }
+    if (boundary === PORT_INPUT) metaParts.push("assistant input");
+    if (boundary === PORT_OUTPUT) metaParts.push("assistant output");
     if (!metaParts.length) metaParts.push(String(node.type || "role"));
+    const inputPort = hasInputPort(node)
+      ? `<button class="workflow-canvas-port input${(node.receive_from || []).length ? " is-connected" : ""}" data-port-type="${PORT_INPUT}" type="button" aria-label="Input for ${safeTitle}" title="${(node.receive_from || []).length ? "Drag to rewire or remove" : "Input"}"></button>`
+      : "";
+    const outputPort = hasOutputPort(node)
+      ? `<button class="workflow-canvas-port output${(node.reports_to || []).length ? " is-connected" : ""}" data-port-type="${PORT_OUTPUT}" type="button" aria-label="Output ${escapeHtml(outputIdentifier)} from ${safeTitle}" title="Output: ${escapeHtml(outputIdentifier)}"></button>`
+      : "";
+    const editButton = isBoundaryNode(node)
+      ? ""
+      : `
+        <button class="workflow-canvas-node-edit" type="button" aria-label="Edit node" title="Edit">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 20l4-1 11-11-3-3-11 11-1 4z" />
+            <path d="M14 6l3 3" />
+          </svg>
+        </button>
+      `;
     return `
-      <button class="workflow-canvas-node-edit" type="button" aria-label="Edit node" title="Edit">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 20l4-1 11-11-3-3-11 11-1 4z" />
-          <path d="M14 6l3 3" />
-        </svg>
-      </button>
-      <strong>${escapeHtml(title)}</strong>
+      ${inputPort}
+      ${outputPort}
+      ${editButton}
+      <strong>${safeTitle}</strong>
       <small>${escapeHtml(metaParts.join(" · "))}</small>
       <span class="workflow-canvas-node-id">${escapeHtml(node.id)}</span>
     `;
+  }
+
+  function canvasPortPoint(node, portType) {
+    const pos = node?.position || {};
+    const x = Number.isFinite(Number(pos.x)) ? Number(pos.x) : 0;
+    const y = Number.isFinite(Number(pos.y)) ? Number(pos.y) : 0;
+    return {
+      x: x + (portType === PORT_OUTPUT ? NODE_TILE_WIDTH : 0),
+      y: y + NODE_TILE_HEIGHT / 2,
+    };
+  }
+
+  function pointerPointInCanvas(event) {
+    const rect = workflowCanvas?.getBoundingClientRect();
+    if (!rect || !workflowCanvas) return { x: 0, y: 0 };
+    return {
+      x: event.clientX - rect.left + workflowCanvas.scrollLeft,
+      y: event.clientY - rect.top + workflowCanvas.scrollTop,
+    };
+  }
+
+  function canvasConnectionPath(sourcePoint, targetPoint) {
+    const dx = targetPoint.x - sourcePoint.x;
+    const curve = Math.max(50, Math.min(160, Math.abs(dx) * 0.5));
+    return `M ${sourcePoint.x} ${sourcePoint.y} C ${sourcePoint.x + curve} ${sourcePoint.y}, ${targetPoint.x - curve} ${targetPoint.y}, ${targetPoint.x} ${targetPoint.y}`;
+  }
+
+  function canvasPortFromPoint(event) {
+    const element = document.elementFromPoint(event.clientX, event.clientY);
+    const port = element?.closest?.(".workflow-canvas-port");
+    if (!port || !workflowCanvas?.contains(port)) return null;
+    return port;
+  }
+
+  function canvasLinkTargetIdFromPointer(event) {
+    const port = canvasPortFromPoint(event);
+    if (!port || port.dataset.portType !== PORT_INPUT) return null;
+    const targetId = port.closest(".workflow-canvas-node")?.dataset.nodeId || "";
+    if (!targetId || targetId === linkDrag.sourceId) return null;
+    const draft = activeWorkflowDraft();
+    const target = draft?.nodes.find((node) => node.id === targetId);
+    if (!target || !hasInputPort(target)) return null;
+    return targetId;
+  }
+
+  function clearCanvasLinkHighlights() {
+    workflowCanvasNodes
+      ?.querySelectorAll(".is-link-target, .is-linking-source")
+      .forEach((el) => el.classList.remove("is-link-target", "is-linking-source"));
+  }
+
+  function ensureLinkPreviewPath() {
+    if (linkDrag.path?.isConnected) return linkDrag.path;
+    const ns = "http://www.w3.org/2000/svg";
+    const path = document.createElementNS(ns, "path");
+    path.setAttribute("class", "workflow-canvas-edge preview");
+    path.setAttribute("marker-end", "url(#wf-canvas-arrow)");
+    workflowCanvasEdgeLayer?.append(path);
+    linkDrag.path = path;
+    return path;
+  }
+
+  function updateCanvasLinkPreview(event) {
+    const draft = activeWorkflowDraft();
+    const source = draft?.nodes.find((node) => node.id === linkDrag.sourceId);
+    if (!source) return;
+    const targetId = canvasLinkTargetIdFromPointer(event);
+    linkDrag.validTargetId = targetId;
+    clearCanvasLinkHighlights();
+    workflowCanvasNodes
+      ?.querySelector(`.workflow-canvas-node[data-node-id="${cssEscape(source.id)}"]`)
+      ?.classList.add("is-linking-source");
+    if (targetId) {
+      workflowCanvasNodes
+        ?.querySelector(`.workflow-canvas-node[data-node-id="${cssEscape(targetId)}"]`)
+        ?.classList.add("is-link-target");
+    }
+    const target = targetId ? draft.nodes.find((node) => node.id === targetId) : null;
+    const start = canvasPortPoint(source, PORT_OUTPUT);
+    const end = target ? canvasPortPoint(target, PORT_INPUT) : pointerPointInCanvas(event);
+    const path = ensureLinkPreviewPath();
+    path.setAttribute("d", canvasConnectionPath(start, end));
+    path.setAttribute("class", `workflow-canvas-edge preview${target ? " is-valid" : ""}`);
+  }
+
+  function startCanvasLinkDrag(event, port) {
+    const sourceId = port.closest(".workflow-canvas-node")?.dataset.nodeId || "";
+    if (!sourceId) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    linkDrag.sourceId = sourceId;
+    linkDrag.pointerId = event.pointerId;
+    linkDrag.validTargetId = null;
+    workflowCanvas?.classList.add("is-linking");
+    try {
+      workflowCanvas?.setPointerCapture?.(event.pointerId);
+    } catch (_error) {
+      /* ignore */
+    }
+    updateCanvasLinkPreview(event);
+    return true;
+  }
+
+  function incomingEdgeForNode(draft, targetId) {
+    if (!draft || !targetId) return null;
+    const incoming = deriveWorkflowEdgesFromNodes(draft.nodes).filter((edge) => edge.to === targetId);
+    if (incoming.length === 0) return null;
+    const target = draft.nodes.find((node) => node.id === targetId);
+    const preferredSources = [...(target?.receive_from || [])].reverse();
+    for (const sourceId of preferredSources) {
+      const match = incoming.find((edge) => edge.from === sourceId);
+      if (match) return match;
+    }
+    return incoming[incoming.length - 1];
+  }
+
+  function startCanvasRelinkDrag(event, port) {
+    const targetId = port.closest(".workflow-canvas-node")?.dataset.nodeId || "";
+    const draft = activeWorkflowDraft();
+    const target = draft?.nodes.find((node) => node.id === targetId);
+    if (!draft || !target || !hasInputPort(target)) return false;
+    const edge = incomingEdgeForNode(draft, targetId);
+    if (!edge) return false;
+    const source = draft.nodes.find((node) => node.id === edge.from);
+    if (!source || !hasOutputPort(source)) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    linkDrag.sourceId = source.id;
+    linkDrag.pointerId = event.pointerId;
+    linkDrag.validTargetId = null;
+    linkDrag.detached = { from: source.id, to: target.id };
+    workflowCanvas?.classList.add("is-linking");
+    try {
+      workflowCanvas?.setPointerCapture?.(event.pointerId);
+    } catch (_error) {
+      /* ignore */
+    }
+    removeCanvasConnection(source.id, target.id);
+    refreshWorkflowCanvasAfterLinkChange();
+    updateCanvasLinkPreview(event);
+    return true;
+  }
+
+  function addUniqueNodeListValue(node, key, value) {
+    const current = Array.isArray(node[key]) ? node[key] : parseCsvList(node[key] || "");
+    const next = dedupeList([...current, value]);
+    node[key] = next;
+    return next.length !== current.length;
+  }
+
+  function removeNodeListValue(node, key, value) {
+    const current = Array.isArray(node[key]) ? node[key] : parseCsvList(node[key] || "");
+    const next = current.filter((item) => item !== value);
+    node[key] = next;
+    return next.length !== current.length;
+  }
+
+  function linkedSourcesForTarget(draft, targetId) {
+    if (!draft || !targetId) return [];
+    const target = draft.nodes.find((node) => node.id === targetId);
+    const fromReceive = target?.receive_from || [];
+    const fromReports = draft.nodes
+      .filter((node) => (node.reports_to || []).includes(targetId))
+      .map((node) => node.id);
+    return dedupeList([...fromReceive, ...fromReports]);
+  }
+
+  function targetStillUsesInputIdentifier(draft, targetId, inputIdentifier) {
+    if (!draft || !targetId || !inputIdentifier) return false;
+    return linkedSourcesForTarget(draft, targetId).some((sourceId) => {
+      const source = draft.nodes.find((node) => node.id === sourceId);
+      return source && nodeOutputIdentifier(source) === inputIdentifier;
+    });
+  }
+
+  function removeAutoInputReference(draft, target, inputIdentifier) {
+    if (!target || !inputIdentifier || !Array.isArray(target.input)) return false;
+    if (targetStillUsesInputIdentifier(draft, target.id, inputIdentifier)) return false;
+    const next = target.input.filter((field) => field !== inputIdentifier);
+    const changed = next.length !== target.input.length;
+    target.input = next;
+    return changed;
+  }
+
+  function updateDownstreamInputReferences(draft, sourceId, previousKey, nextKey) {
+    if (!draft || !previousKey || !nextKey || previousKey === nextKey) return;
+    draft.nodes.forEach((node) => {
+      if (node.id === sourceId || !Array.isArray(node.input)) return;
+      const receivesFromSource = (node.receive_from || []).includes(sourceId);
+      const sourceReportsToNode = draft.nodes
+        .find((candidate) => candidate.id === sourceId)
+        ?.reports_to?.includes(node.id);
+      if (!receivesFromSource && !sourceReportsToNode) return;
+      node.input = dedupeList(node.input.map((field) => (field === previousKey ? nextKey : field)));
+    });
+  }
+
+  function connectCanvasNodes(sourceId, targetId) {
+    const draft = activeWorkflowDraft();
+    if (!draft || !sourceId || !targetId || sourceId === targetId) return false;
+    const source = draft.nodes.find((node) => node.id === sourceId);
+    const target = draft.nodes.find((node) => node.id === targetId);
+    if (!source || !target) return false;
+    if (!hasOutputPort(source) || !hasInputPort(target)) return false;
+    const outputIdentifier = nodeOutputIdentifier(source);
+    const changed = [
+      addUniqueNodeListValue(source, "reports_to", target.id),
+      addUniqueNodeListValue(target, "receive_from", source.id),
+      outputIdentifier ? addUniqueNodeListValue(target, "input", outputIdentifier) : false,
+    ].some(Boolean);
+    renderWorkflowCanvas();
+    if (state.workflowEditorSelectedNodeId) {
+      selectWorkflowNode(state.workflowEditorSelectedNodeId);
+    }
+    setStatus(changed ? "Nodes linked" : "Nodes already linked");
+    return true;
+  }
+
+  function removeCanvasConnection(sourceId, targetId) {
+    const draft = activeWorkflowDraft();
+    if (!draft || !sourceId || !targetId) return false;
+    const source = draft.nodes.find((node) => node.id === sourceId);
+    const target = draft.nodes.find((node) => node.id === targetId);
+    if (!source || !target) return false;
+    const inputIdentifier = nodeOutputIdentifier(source);
+    const changed = [
+      removeNodeListValue(source, "reports_to", target.id),
+      removeNodeListValue(target, "receive_from", source.id),
+    ].some(Boolean);
+    const inputChanged = removeAutoInputReference(draft, target, inputIdentifier);
+    return changed || inputChanged;
+  }
+
+  function refreshWorkflowCanvasAfterLinkChange() {
+    renderWorkflowCanvas();
+    if (state.workflowEditorSelectedNodeId) {
+      selectWorkflowNode(state.workflowEditorSelectedNodeId);
+    }
+  }
+
+  function finishCanvasLinkDrag(event) {
+    if (!linkDrag.sourceId) return false;
+    const targetId = linkDrag.validTargetId || canvasLinkTargetIdFromPointer(event);
+    if (targetId) {
+      connectCanvasNodes(linkDrag.sourceId, targetId);
+    } else if (linkDrag.detached) {
+      refreshWorkflowCanvasAfterLinkChange();
+      setStatus("Nodes unlinked");
+    }
+    cleanupCanvasLinkDrag();
+    return true;
+  }
+
+  function cleanupCanvasLinkDrag() {
+    if (linkDrag.pointerId !== null) {
+      try {
+        workflowCanvas?.releasePointerCapture?.(linkDrag.pointerId);
+      } catch (_error) {
+        /* ignore */
+      }
+    }
+    linkDrag.path?.remove();
+    linkDrag.sourceId = null;
+    linkDrag.pointerId = null;
+    linkDrag.path = null;
+    linkDrag.validTargetId = null;
+    linkDrag.detached = null;
+    workflowCanvas?.classList.remove("is-linking");
+    clearCanvasLinkHighlights();
   }
 
   function renderWorkflowCanvas() {
@@ -435,7 +850,9 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     draft.nodes.forEach((node) => {
       const isWorker = String(node.type || "").toLowerCase() === "worker_pool";
       const tile = document.createElement("article");
-      tile.className = "workflow-canvas-node" + (isWorker ? " worker" : "");
+      tile.className = "workflow-canvas-node"
+        + (isWorker ? " worker" : "")
+        + (isBoundaryNode(node) ? " boundary" : "");
       if (state.workflowEditorSelectedNodeId === node.id) tile.classList.add("is-selected");
       tile.dataset.nodeId = node.id;
       tile.style.left = `${node.position.x}px`;
@@ -466,25 +883,15 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       const source = positions[edge.from];
       const target = positions[edge.to];
       if (!source || !target) return;
-      let d;
+      const sourcePoint = canvasPortPoint({ position: source }, PORT_OUTPUT);
+      const targetPoint = canvasPortPoint({ position: target }, PORT_INPUT);
       let cls = "workflow-canvas-edge";
-      if (target.x > source.x + NODE_TILE_WIDTH / 2) {
-        const sx = source.x + NODE_TILE_WIDTH;
-        const sy = source.y + NODE_TILE_HEIGHT / 2;
-        const tx = target.x;
-        const ty = target.y + NODE_TILE_HEIGHT / 2;
-        d = `M ${sx} ${sy} C ${sx + 50} ${sy}, ${tx - 50} ${ty}, ${tx} ${ty}`;
-      } else {
-        const sx = source.x + NODE_TILE_WIDTH / 2;
-        const sy = source.y + NODE_TILE_HEIGHT;
-        const tx = target.x + NODE_TILE_WIDTH / 2;
-        const ty = target.y;
-        d = `M ${sx} ${sy} C ${sx} ${sy + 40}, ${tx} ${ty - 40}, ${tx} ${ty}`;
+      if (targetPoint.x <= sourcePoint.x) {
         cls += " loop";
       }
       const path = document.createElementNS(ns, "path");
       path.setAttribute("class", cls);
-      path.setAttribute("d", d);
+      path.setAttribute("d", canvasConnectionPath(sourcePoint, targetPoint));
       path.setAttribute("marker-end", "url(#wf-canvas-arrow)");
       workflowCanvasEdgeLayer.append(path);
     });
@@ -543,7 +950,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       modes: ["chat", "code", "agentic"],
       execution: "loop",
       max_iterations: 1,
-      nodes: [
+      nodes: ensureWorkflowBoundaryNodes([
         {
           id: "orchestrator",
           type: "role",
@@ -557,10 +964,10 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
           receive_from: [],
           reports_to: [],
           worker_instances: 1,
-          position: { x: CANVAS_PAD, y: CANVAS_PAD },
+          position: { x: CANVAS_PAD + NODE_GRID_X, y: CANVAS_PAD },
           config: {},
         },
-      ],
+      ]),
     };
   }
 
@@ -579,6 +986,10 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     if (!workflowNodeEditPanel) return;
     const draft = activeWorkflowDraft();
     const node = draft?.nodes.find((n) => n.id === nodeId);
+    if (node && isBoundaryNode(node)) {
+      closeNodeEditPanel();
+      return;
+    }
     if (!node) {
       closeNodeEditPanel();
       return;
@@ -721,7 +1132,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       setStatus("Workflow id and name are required.", true);
       return;
     }
-    if (!Array.isArray(draft.nodes) || draft.nodes.length === 0) {
+    if (!Array.isArray(draft.nodes) || realWorkflowNodes(draft.nodes).length === 0) {
       setStatus("At least one node is required.", true);
       return;
     }
@@ -779,6 +1190,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     const desiredId = slugifyWorkflowId(nodeEditId.value) || node.id;
     const safeId = otherIds.has(desiredId) ? node.id : desiredId;
     const oldId = node.id;
+    const previousOutputIdentifier = nodeOutputIdentifier(node);
     node.id = safeId;
     node.title = clampLength(nodeEditTitleInput.value.trim(), WORKFLOW_NAME_MAX);
     const chosenRole = String(nodeEditRole.value || "").trim();
@@ -793,6 +1205,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     node.max_parallel = workers;
     node.max_items = clampInt(nodeEditMaxItems.value, 1, 12);
     node.expects_json = Boolean(nodeEditJson.checked);
+    const nextOutputIdentifier = nodeOutputIdentifier(node);
     if (safeId !== oldId) {
       draft.nodes.forEach((other) => {
         if (other === node) return;
@@ -801,6 +1214,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       });
       state.workflowEditorSelectedNodeId = safeId;
     }
+    updateDownstreamInputReferences(draft, safeId, previousOutputIdentifier, nextOutputIdentifier);
     if (workflowNodeEditTitle) workflowNodeEditTitle.textContent = node.title || node.id;
     renderWorkflowCanvas();
   }
@@ -846,13 +1260,14 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       if (!draft) return;
       const baseId = "node";
       const taken = new Set(draft.nodes.map((node) => node.id));
-      let id = `${baseId}_${draft.nodes.length + 1}`;
-      let i = draft.nodes.length + 1;
+      const existingNodes = realWorkflowNodes(draft.nodes);
+      let id = `${baseId}_${existingNodes.length + 1}`;
+      let i = existingNodes.length + 1;
       while (taken.has(id)) {
         i += 1;
         id = `${baseId}_${i}`;
       }
-      const lastPos = draft.nodes[draft.nodes.length - 1]?.position || { x: CANVAS_PAD, y: CANVAS_PAD };
+      const lastPos = existingNodes[existingNodes.length - 1]?.position || { x: CANVAS_PAD + NODE_GRID_X, y: CANVAS_PAD };
       const position = { x: lastPos.x + NODE_GRID_X, y: lastPos.y };
       draft.nodes.push({
         id,
@@ -870,7 +1285,10 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
         position,
         config: {},
       });
-      state.workflowEditorDraft = draft;
+      state.workflowEditorDraft = {
+        ...draft,
+        nodes: ensureWorkflowBoundaryNodes(draft.nodes),
+      };
       renderWorkflowCanvas();
       selectWorkflowNode(id);
     });
@@ -895,6 +1313,15 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
 
     workflowCanvas?.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
+      const portTarget = event.target.closest?.(".workflow-canvas-port");
+      if (portTarget) {
+        if (portTarget.dataset.portType === PORT_OUTPUT) {
+          startCanvasLinkDrag(event, portTarget);
+        } else if (portTarget.dataset.portType === PORT_INPUT) {
+          startCanvasRelinkDrag(event, portTarget);
+        }
+        return;
+      }
       const editTarget = event.target.closest?.(".workflow-canvas-node-edit");
       const tile = event.target.closest?.(".workflow-canvas-node");
       if (!tile) return;
@@ -917,6 +1344,10 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     });
 
     workflowCanvas?.addEventListener("pointermove", (event) => {
+      if (linkDrag.sourceId) {
+        updateCanvasLinkPreview(event);
+        return;
+      }
       if (!canvasDrag.tile) return;
       const dx = event.clientX - canvasDrag.pointerX;
       const dy = event.clientY - canvasDrag.pointerY;
@@ -933,6 +1364,10 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     });
 
     workflowCanvas?.addEventListener("pointerup", (event) => {
+      if (linkDrag.sourceId) {
+        finishCanvasLinkDrag(event);
+        return;
+      }
       if (!canvasDrag.tile) return;
       const wasClick = !canvasDrag.moved;
       const id = canvasDrag.id;
@@ -949,6 +1384,15 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     });
 
     workflowCanvas?.addEventListener("pointercancel", () => {
+      if (linkDrag.sourceId) {
+        const removedConnection = Boolean(linkDrag.detached);
+        cleanupCanvasLinkDrag();
+        if (removedConnection) {
+          refreshWorkflowCanvasAfterLinkChange();
+          setStatus("Nodes unlinked");
+        }
+        return;
+      }
       if (canvasDrag.tile) canvasDrag.tile.classList.remove("is-dragging");
       canvasDrag.tile = null;
       canvasDrag.id = null;
@@ -965,6 +1409,11 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       if (!draft || !id) return;
       const index = draft.nodes.findIndex((n) => n.id === id);
       if (index < 0) return;
+      deriveWorkflowEdgesFromNodes(draft.nodes)
+        .filter((edge) => edge.from === id || edge.to === id)
+        .forEach((edge) => {
+          removeCanvasConnection(edge.from, edge.to);
+        });
       draft.nodes.splice(index, 1);
       draft.nodes.forEach((node) => {
         node.receive_from = (node.receive_from || []).filter((r) => r !== id);

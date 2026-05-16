@@ -240,12 +240,14 @@
   top: 0;
   left: 0;
   pointer-events: none;
+  z-index: 1;
 }
 
 .workflow-canvas-nodes {
   position: relative;
   width: 100%;
   height: 100%;
+  z-index: 2;
 }
 
 .workflow-canvas-node {
@@ -260,6 +262,7 @@
     rgba(8, 14, 22, 0.94);
   color: var(--text);
   cursor: grab;
+  overflow: visible;
   user-select: none;
   transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
@@ -282,11 +285,38 @@
   box-shadow: 0 0 0 1px rgba(155, 114, 255, 0.45), 0 8px 22px rgba(0, 0, 0, 0.3);
 }
 
+.workflow-canvas.is-linking .workflow-canvas-node {
+  cursor: default;
+}
+
+.workflow-canvas-node.is-linking-source {
+  border-color: rgba(69, 230, 242, 0.72);
+  box-shadow: 0 0 0 1px rgba(69, 230, 242, 0.34), 0 8px 22px rgba(0, 0, 0, 0.3);
+}
+
+.workflow-canvas-node.is-link-target {
+  border-color: rgba(143, 255, 184, 0.78);
+  box-shadow: 0 0 0 1px rgba(143, 255, 184, 0.4), 0 8px 22px rgba(0, 0, 0, 0.3);
+}
+
 .workflow-canvas-node.worker {
   border-color: rgba(155, 114, 255, 0.55);
   background:
     linear-gradient(135deg, rgba(155, 114, 255, 0.12), transparent 60%),
     rgba(10, 12, 22, 0.94);
+}
+
+.workflow-canvas-node.boundary {
+  border-style: dashed;
+  border-color: rgba(143, 255, 184, 0.46);
+  background:
+    linear-gradient(135deg, rgba(143, 255, 184, 0.1), transparent 62%),
+    rgba(7, 13, 18, 0.94);
+}
+
+.workflow-canvas-node.boundary:hover {
+  border-color: rgba(143, 255, 184, 0.7);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3), 0 0 18px rgba(143, 255, 184, 0.16);
 }
 
 .workflow-canvas-node strong {
@@ -295,6 +325,10 @@
   font-size: 13px;
   color: var(--text);
   line-height: 1.25;
+}
+
+.workflow-canvas-node.boundary strong {
+  padding-right: 0;
 }
 
 .workflow-canvas-node small {
@@ -352,6 +386,72 @@
   stroke-linejoin: round;
 }
 
+.workflow-canvas-port {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  gap: 0;
+  padding: 0;
+  border: 1px solid rgba(157, 250, 255, 0.62);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at center, rgba(157, 250, 255, 0.88) 0 3px, rgba(7, 12, 20, 0.96) 4px),
+    rgba(7, 12, 20, 0.96);
+  color: transparent;
+  overflow: visible;
+  transform: translateY(-50%);
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.workflow-canvas-port::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 999px;
+}
+
+.workflow-canvas-port.input {
+  left: -8px;
+  cursor: default;
+}
+
+.workflow-canvas-port.input.is-connected {
+  cursor: grab;
+}
+
+.workflow-canvas-port.output {
+  right: -8px;
+  cursor: crosshair;
+}
+
+.workflow-canvas-port:hover,
+.workflow-canvas-port:focus-visible {
+  border-color: rgba(69, 230, 242, 0.95);
+  background:
+    radial-gradient(circle at center, rgba(246, 248, 255, 0.95) 0 3px, rgba(69, 230, 242, 0.25) 4px),
+    rgba(7, 12, 20, 0.98);
+  box-shadow: 0 0 0 4px rgba(69, 230, 242, 0.14), 0 0 18px rgba(69, 230, 242, 0.3);
+  outline: none;
+}
+
+.workflow-canvas-node.is-linking-source .workflow-canvas-port.output,
+.workflow-canvas-node.is-link-target .workflow-canvas-port.input {
+  border-color: rgba(143, 255, 184, 0.96);
+  background:
+    radial-gradient(circle at center, rgba(246, 248, 255, 0.95) 0 3px, rgba(143, 255, 184, 0.28) 4px),
+    rgba(7, 12, 20, 0.98);
+  box-shadow: 0 0 0 5px rgba(143, 255, 184, 0.16), 0 0 20px rgba(143, 255, 184, 0.26);
+}
+
+.workflow-canvas-port.is-connected {
+  border-color: rgba(157, 250, 255, 0.84);
+  box-shadow: 0 0 0 3px rgba(69, 230, 242, 0.1);
+}
+
 .workflow-canvas-edge {
   stroke: rgba(157, 250, 255, 0.55);
   stroke-width: 1.6;
@@ -360,6 +460,17 @@
 
 .workflow-canvas-edge.loop {
   stroke: rgba(155, 114, 255, 0.62);
+}
+
+.workflow-canvas-edge.preview {
+  stroke: rgba(157, 250, 255, 0.78);
+  stroke-width: 2;
+  stroke-dasharray: 7 6;
+}
+
+.workflow-canvas-edge.preview.is-valid {
+  stroke: rgba(143, 255, 184, 0.86);
+  stroke-dasharray: none;
 }
 
 .workflow-node-edit-panel {
@@ -613,6 +724,12 @@
   stroke: rgba(155, 114, 255, 0.6);
 }
 
+.workflow-graph-node.boundary rect {
+  fill: rgba(8, 18, 18, 0.95);
+  stroke: rgba(143, 255, 184, 0.58);
+  stroke-dasharray: 5 4;
+}
+
 .workflow-graph-node text {
   fill: var(--text-soft);
   font-family: var(--font-code);
@@ -629,4 +746,3 @@
 .workflow-graph-edge.loop {
   stroke: rgba(155, 114, 255, 0.62);
 }
-

@@ -19,6 +19,37 @@ export const embeddingModelMarkers = [
   "gte-",
 ];
 
+let desktopWindowControlsBound = false;
+
+function bindDesktopWindowControls(api) {
+  if (desktopWindowControlsBound || !api) return;
+
+  const actionMethods = {
+    close: "close_window",
+    minimize: "minimize_window",
+    zoom: "zoom_window",
+  };
+  const buttons = [...document.querySelectorAll("[data-window-action]")];
+  buttons.forEach((button) => {
+    const methodName = actionMethods[button.dataset.windowAction];
+    if (!methodName || typeof api[methodName] !== "function") {
+      button.disabled = true;
+      return;
+    }
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        await api[methodName]();
+      } catch (error) {
+        console.warn(error);
+      }
+    });
+  });
+
+  desktopWindowControlsBound = buttons.length > 0;
+}
+
 export function createStatusController() {
   const toastRegion = document.createElement("div");
   toastRegion.className = "toast-region";
@@ -68,12 +99,15 @@ export async function initDesktopChrome(stabilizeMessagesBottomScroll) {
     if (isMac) {
       document.body.classList.add("desktop-macos");
     }
+    document.body.classList.toggle("frameless-window", Boolean(info?.frameless));
     document.body.classList.toggle("native-chrome", Boolean(info?.native_chrome ?? isMac));
     document.body.classList.toggle("native-traffic-lights", Boolean(info?.native_traffic_lights ?? isMac));
+    document.body.classList.toggle("custom-window-controls", Boolean(info?.window_controls));
     return true;
   };
 
   const api = window.pywebview?.api;
+  bindDesktopWindowControls(api);
   if (!api?.desktop_info) {
     const applied = addDesktopClasses();
     if (!applied) {
@@ -93,6 +127,7 @@ export async function initDesktopChrome(stabilizeMessagesBottomScroll) {
   try {
     const info = await api.desktop_info();
     addDesktopClasses(info);
+    bindDesktopWindowControls(api);
     stabilizeMessagesBottomScroll();
   } catch (error) {
     console.warn(error);

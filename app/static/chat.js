@@ -291,6 +291,19 @@ export function createChatUi({ setStatus, toolApprovals, getSettingsUi, getAgent
       code: "Ask a code question or describe a project task...",
       agentic: "Describe an agentic task or recurring run...",
     }[state.activeMode];
+    resizeMessageInput();
+  }
+
+  function resizeMessageInput() {
+    if (!input) return;
+    const rootStyles = getComputedStyle(document.documentElement);
+    const inputStyles = getComputedStyle(input);
+    const minHeight = parseFloat(rootStyles.getPropertyValue("--footer-action-size")) || 42;
+    const maxHeight = parseFloat(inputStyles.maxHeight) || 150;
+    input.style.height = `${minHeight}px`;
+    const nextHeight = Math.min(Math.max(input.scrollHeight, minHeight), maxHeight);
+    input.style.height = `${nextHeight}px`;
+    input.style.overflowY = input.scrollHeight > maxHeight ? "auto" : "hidden";
   }
 
   function animateModeChange(direction) {
@@ -774,6 +787,7 @@ export function createChatUi({ setStatus, toolApprovals, getSettingsUi, getAgent
           }
           watchChatTitle(chatId);
           input.value = "";
+          resizeMessageInput();
           assistantEl = ensureStreamAssistantElement(stream);
           state.streamingAssistant = true;
           state.autoScrollLocked = true;
@@ -993,6 +1007,9 @@ export function createChatUi({ setStatus, toolApprovals, getSettingsUi, getAgent
         form.requestSubmit();
       }
     });
+
+    input.addEventListener("input", resizeMessageInput);
+    resizeMessageInput();
   }
 
   return {
