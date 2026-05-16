@@ -68,6 +68,7 @@ const {
   workflowCanvasNodes,
   workflowCanvasEdges,
   workflowCanvasEdgeLayer,
+  workflowEdgeRulesList,
   workflowNodeEditPanel,
   workflowNodeEditTitle,
   workflowNodeEditClose,
@@ -87,6 +88,15 @@ const {
 const WORKFLOW_NAME_MAX = 200;
 const WORKFLOW_DESCRIPTION_MAX = 1000;
 const WORKFLOW_FIELD_MAX = 120;
+const EDGE_CONDITION_PRESETS = [
+  { label: "Always", value: "" },
+  { label: "Retry requested", value: "decision.status == 'retry'" },
+  { label: "Done", value: "decision.status == 'done'" },
+  { label: "Needs user", value: "decision.status == 'needs_user'" },
+  { label: "Error", value: "error" },
+  { label: "Low confidence", value: "plan.confidence < 0.7" },
+  { label: "Enough reports", value: "worker_reports.length >= 3" },
+];
 
 export function createWorkflowsUi({ setStatus, getSettingsUi }) {
   const canvasDrag = { id: null, tile: null, originX: 0, originY: 0, pointerX: 0, pointerY: 0, moved: false };
@@ -194,55 +204,105 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     });
   }
 
+  function edgeLabel(condition) {
+    const clean = String(condition || "").trim();
+    if (!clean) return "";
+    const preset = EDGE_CONDITION_PRESETS.find((item) => item.value === clean);
+    if (preset && preset.value) return preset.label;
+    return clean.length > 28 ? `${clean.slice(0, 25)}...` : clean;
+  }
+
+  function graphLayers(nodes, edges) {
+    const ids = new Set(nodes.map((node) => node.id));
+    const incoming = new Map(nodes.map((node) => [node.id, 0]));
+    const outgoing = new Map(nodes.map((node) => [node.id, []]));
+    const layoutEdges = edges.filter((edge) => !String(edge.when || "").includes("retry"));
+    layoutEdges.forEach((edge) => {
+      if (!ids.has(edge.from) || !ids.has(edge.to)) return;
+      outgoing.get(edge.from)?.push(edge.to);
+      incoming.set(edge.to, (incoming.get(edge.to) || 0) + 1);
+    });
+
+    const queue = nodes.filter((node) => (incoming.get(node.id) || 0) === 0).map((node) => node.id);
+    const depth = new Map(nodes.map((node) => [node.id, 0]));
+    const seen = new Set();
+    while (queue.length) {
+      const id = queue.shift();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      (outgoing.get(id) || []).forEach((target) => {
+        depth.set(target, Math.max(depth.get(target) || 0, (depth.get(id) || 0) + 1));
+        incoming.set(target, Math.max(0, (incoming.get(target) || 0) - 1));
+        if ((incoming.get(target) || 0) === 0) queue.push(target);
+      });
+    }
+
+    const layerCounts = new Map();
+    const layered = nodes.map((node) => {
+      const col = depth.get(node.id) || 0;
+      const row = layerCounts.get(col) || 0;
+      layerCounts.set(col, row + 1);
+      return { ...node, _graphCol: col, _graphRow: row };
+    });
+    return {
+      nodes: layered,
+      cols: Math.max(1, ...layered.map((node) => node._graphCol + 1)),
+      rows: Math.max(1, ...layerCounts.values()),
+    };
+  }
+
   function workflowGraphMarkup(workflow, compact = false) {
     const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
     if (nodes.length === 0) {
       return '<p class="settings-empty">No nodes to display.</p>';
     }
-    const nodeWidth = compact ? 150 : 176;
-    const nodeHeight = compact ? 58 : 68;
-    const gapX = compact ? 34 : 44;
-    const gapY = compact ? 24 : 30;
-    const pad = 18;
-    const cols = compact ? Math.min(3, Math.max(1, nodes.length)) : Math.min(4, Math.max(1, nodes.length));
-    const rows = Math.ceil(nodes.length / cols);
-    const width = pad * 2 + (cols * nodeWidth) + ((cols - 1) * gapX);
-    const height = pad * 2 + (rows * nodeHeight) + ((rows - 1) * gapY);
+    const nodeWidth = compact ? 142 : 176;
+    const nodeHeight = compact ? 56 : 68;
+    const gapX = compact ? 54 : 44;
+    const gapY = compact ? 36 : 30;
+    const pad = compact ? 22 : 18;
+    const graphEdges = deriveWorkflowEdgesFromNodes(nodes, workflow.edges || [], true);
+    const layers = graphLayers(nodes, graphEdges);
+    const width = pad * 2 + (layers.cols * nodeWidth) + ((layers.cols - 1) * gapX);
+    const height = pad * 2 + (layers.rows * nodeHeight) + ((layers.rows - 1) * gapY);
     const positions = {};
-    nodes.forEach((node, index) => {
-      const col = index % cols;
-      const row = Math.floor(index / cols);
+    layers.nodes.forEach((node) => {
+      const col = node._graphCol;
+      const row = node._graphRow;
       positions[node.id] = {
         x: pad + col * (nodeWidth + gapX),
         y: pad + row * (nodeHeight + gapY),
       };
     });
 
-    const edges = deriveWorkflowEdgesFromNodes(nodes);
-    const edgeSvg = edges
-      .map((edge) => {
+    const edgeSvg = graphEdges
+      .map((edge, index) => {
         const source = positions[edge.from];
         const target = positions[edge.to];
         if (!source || !target) return "";
+        const labelText = edgeLabel(edge.when);
         if (target.x > source.x) {
           const sx = source.x + nodeWidth;
           const sy = source.y + nodeHeight / 2;
           const tx = target.x;
           const ty = target.y + nodeHeight / 2;
-          return `<path class="workflow-graph-edge" d="M ${sx} ${sy} C ${sx + 30} ${sy}, ${tx - 30} ${ty}, ${tx} ${ty}" />`;
+          const label = labelText ? `<text class="workflow-graph-edge-label" x="${(sx + tx) / 2}" y="${(sy + ty) / 2 - 8 - ((index % 2) * 12)}">${escapeHtml(labelText)}</text>` : "";
+          return `<path class="workflow-graph-edge${edge.when === "error" ? " error" : ""}" d="M ${sx} ${sy} C ${sx + 30} ${sy}, ${tx - 30} ${ty}, ${tx} ${ty}" />${label}`;
         }
         const sx = source.x + nodeWidth / 2;
         const sy = source.y + nodeHeight;
         const tx = target.x + nodeWidth / 2;
         const ty = target.y;
-        return `<path class="workflow-graph-edge loop" d="M ${sx} ${sy} C ${sx} ${sy + 30}, ${tx} ${ty - 30}, ${tx} ${ty}" />`;
+        const label = labelText ? `<text class="workflow-graph-edge-label" x="${(sx + tx) / 2}" y="${(sy + ty) / 2 - 8 - ((index % 2) * 12)}">${escapeHtml(labelText)}</text>` : "";
+        return `<path class="workflow-graph-edge loop${edge.when === "error" ? " error" : ""}" d="M ${sx} ${sy} C ${sx} ${sy + 30}, ${tx} ${ty - 30}, ${tx} ${ty}" />${label}`;
       })
       .join("");
 
-    const nodeSvg = nodes
+    const nodeSvg = layers.nodes
       .map((node) => {
         const pos = positions[node.id];
         const isWorker = String(node.type || "").toLowerCase() === "worker_pool";
+        const isIteration = ["for_each", "while"].includes(String(node.type || "").toLowerCase());
         const boundary = boundaryKind(node);
         const title = escapeHtml(String(node.title || node.role || node.id || "node"));
         const metaParts = [String(node.type || "role")];
@@ -253,7 +313,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
         if (boundary === PORT_OUTPUT) metaParts.splice(0, metaParts.length, "assistant output");
         const meta = escapeHtml(metaParts.join(" · "));
         return `
-          <g class="workflow-graph-node${isWorker ? " worker" : ""}${boundary ? " boundary" : ""}">
+          <g class="workflow-graph-node${isWorker ? " worker" : ""}${isIteration ? " iteration" : ""}${boundary ? " boundary" : ""}">
             <rect x="${pos.x}" y="${pos.y}" width="${nodeWidth}" height="${nodeHeight}"></rect>
             <text x="${pos.x + 10}" y="${pos.y + 24}">
               <tspan>${title}</tspan>
@@ -439,6 +499,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       addUniqueNodeListValue(target, "receive_from", source.id),
       outputIdentifier ? addUniqueNodeListValue(target, "input", outputIdentifier) : false,
     ].some(Boolean);
+    draft.edges = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []);
     renderWorkflowCanvas();
     if (state.workflowEditorSelectedNodeId) {
       selectWorkflowNode(state.workflowEditorSelectedNodeId);
@@ -459,6 +520,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       removeNodeListValue(target, "receive_from", source.id),
     ].some(Boolean);
     const inputChanged = removeAutoInputReference(draft, target, inputIdentifier);
+    draft.edges = (draft.edges || []).filter((edge) => (edge.from || edge.from_node) !== sourceId || edge.to !== targetId);
     return changed || inputChanged;
   }
 
@@ -509,9 +571,11 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     let maxBottom = CANVAS_PAD + NODE_TILE_HEIGHT + CANVAS_PAD;
     draft.nodes.forEach((node) => {
       const isWorker = String(node.type || "").toLowerCase() === "worker_pool";
+      const isIteration = ["for_each", "while"].includes(String(node.type || "").toLowerCase());
       const tile = document.createElement("article");
       tile.className = "workflow-canvas-node"
         + (isWorker ? " worker" : "")
+        + (isIteration ? " iteration" : "")
         + (isBoundaryNode(node) ? " boundary" : "");
       if (state.workflowEditorSelectedNodeId === node.id) tile.classList.add("is-selected");
       tile.dataset.nodeId = node.id;
@@ -528,12 +592,13 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     workflowCanvasEdges?.setAttribute("width", String(maxRight));
     workflowCanvasEdges?.setAttribute("height", String(maxBottom));
     renderCanvasEdges(draft);
+    renderEdgeRules(draft);
   }
 
   function renderCanvasEdges(draft) {
     if (!workflowCanvasEdgeLayer || !draft) return;
     workflowCanvasEdgeLayer.innerHTML = "";
-    const edges = deriveWorkflowEdgesFromNodes(draft.nodes);
+    const edges = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || [], true);
     const ns = "http://www.w3.org/2000/svg";
     const positions = {};
     draft.nodes.forEach((node) => {
@@ -549,12 +614,73 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       if (targetPoint.x <= sourcePoint.x) {
         cls += " loop";
       }
+      if (edge.when === "error") {
+        cls += " error";
+      }
       const path = document.createElementNS(ns, "path");
       path.setAttribute("class", cls);
       path.setAttribute("d", canvasConnectionPath(sourcePoint, targetPoint));
       path.setAttribute("marker-end", "url(#wf-canvas-arrow)");
       workflowCanvasEdgeLayer.append(path);
+      if (edge.when) {
+        const label = document.createElementNS(ns, "text");
+        label.setAttribute("class", "workflow-canvas-edge-label");
+        label.setAttribute("x", String((sourcePoint.x + targetPoint.x) / 2));
+        label.setAttribute("y", String((sourcePoint.y + targetPoint.y) / 2 - 8));
+        label.textContent = edgeLabel(edge.when);
+        workflowCanvasEdgeLayer.append(label);
+      }
     });
+  }
+
+  function renderEdgeRules(draft) {
+    if (!workflowEdgeRulesList || !draft) return;
+    const edges = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []);
+    draft.edges = edges;
+    if (edges.length === 0) {
+      workflowEdgeRulesList.innerHTML = '<p class="settings-empty">No connections yet.</p>';
+      return;
+    }
+    workflowEdgeRulesList.innerHTML = edges
+      .map((edge, index) => {
+        const current = String(edge.when || "");
+        const presetValue = EDGE_CONDITION_PRESETS.some((item) => item.value === current) ? current : "__custom";
+        const customHidden = presetValue !== "__custom" ? " hidden" : "";
+        return `
+          <div class="workflow-edge-rule" data-edge-index="${index}">
+            <span class="workflow-edge-rule-path">${escapeHtml(edge.from)} -> ${escapeHtml(edge.to)}</span>
+            <select class="workflow-edge-rule-preset" aria-label="Condition preset for ${escapeHtml(edge.from)} to ${escapeHtml(edge.to)}">
+              ${EDGE_CONDITION_PRESETS.map((item) => `<option value="${escapeHtml(item.value)}"${presetValue === item.value ? " selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
+              <option value="__custom"${presetValue === "__custom" ? " selected" : ""}>Custom expression</option>
+            </select>
+            <input class="workflow-edge-rule-expression"${customHidden} type="text" value="${escapeHtml(current)}" placeholder="plan.confidence < 0.7" aria-label="Custom condition expression" />
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  function applyEdgeRuleChange(target) {
+    const row = target.closest?.(".workflow-edge-rule");
+    const draft = activeWorkflowDraft();
+    if (!row || !draft) return;
+    const index = Number(row.dataset.edgeIndex);
+    const edges = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []);
+    const edge = edges[index];
+    if (!edge) return;
+    const preset = row.querySelector(".workflow-edge-rule-preset");
+    const expression = row.querySelector(".workflow-edge-rule-expression");
+    let when = String(preset?.value || "");
+    if (when === "__custom") {
+      expression.hidden = false;
+      when = String(expression?.value || "").trim();
+    } else {
+      expression.hidden = true;
+      if (expression) expression.value = when;
+    }
+    edges[index] = { ...edge, when };
+    draft.edges = edges;
+    renderCanvasEdges(draft);
   }
 
   function renderWorkflowEditor() {
@@ -610,6 +736,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       modes: ["chat", "code", "agentic"],
       execution: "loop",
       max_iterations: 1,
+      edges: [],
       nodes: ensureWorkflowBoundaryNodes([
         {
           id: "orchestrator",
@@ -796,7 +923,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       setStatus("At least one node is required.", true);
       return;
     }
-    const edges = deriveWorkflowEdgesFromNodes(draft.nodes);
+    const edges = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []);
     const payload = {
       ...draft,
       mode: draft.modes[0] || "chat",
@@ -872,6 +999,11 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
         other.receive_from = (other.receive_from || []).map((r) => (r === oldId ? safeId : r));
         other.reports_to = (other.reports_to || []).map((r) => (r === oldId ? safeId : r));
       });
+      draft.edges = (draft.edges || []).map((edge) => ({
+        ...edge,
+        from: (edge.from || edge.from_node) === oldId ? safeId : (edge.from || edge.from_node),
+        to: edge.to === oldId ? safeId : edge.to,
+      }));
       state.workflowEditorSelectedNodeId = safeId;
     }
     updateDownstreamInputReferences(draft, safeId, previousOutputIdentifier, nextOutputIdentifier);
@@ -913,6 +1045,21 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       const workflowId = card?.dataset.workflowId;
       if (!workflowId) return;
       showWorkflowBuilderView(workflowId);
+    });
+
+    workflowEdgeRulesList?.addEventListener("change", (event) => {
+      const target = event.target;
+      if (target?.classList?.contains("workflow-edge-rule-preset")) {
+        applyEdgeRuleChange(target);
+        renderEdgeRules(activeWorkflowDraft());
+      }
+    });
+
+    workflowEdgeRulesList?.addEventListener("input", (event) => {
+      const target = event.target;
+      if (target?.classList?.contains("workflow-edge-rule-expression")) {
+        applyEdgeRuleChange(target);
+      }
     });
 
     workflowEditorAddNode?.addEventListener("click", () => {

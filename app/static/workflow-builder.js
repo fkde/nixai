@@ -167,12 +167,31 @@ export function normalizeWorkflowNodes(workflow) {
   return ensureWorkflowBoundaryNodes(nodes);
 }
 
+export function normalizeWorkflowEdges(workflow, nodes = normalizeWorkflowNodes(workflow || {})) {
+  const available = new Set((nodes || []).map((node) => node.id));
+  const edges = Array.isArray(workflow?.edges) ? workflow.edges : [];
+  const dedupe = new Set();
+  const normalized = [];
+  edges.forEach((edge) => {
+    const source = String(edge.from || edge.from_node || "").trim();
+    const target = String(edge.to || "").trim();
+    if (!source || !target || !available.has(source) || !available.has(target)) return;
+    const when = String(edge.when || "").trim();
+    const key = `${source}->${target}->${when}`;
+    if (dedupe.has(key)) return;
+    dedupe.add(key);
+    normalized.push({ from: source, to: target, when });
+  });
+  return normalized;
+}
+
 export function normalizeWorkflowDraft(workflow) {
   const modes = Array.isArray(workflow?.modes) && workflow.modes.length > 0
     ? workflow.modes
     : [workflow?.mode || "chat"];
   const uniqueModes = dedupeList(modes.map((mode) => String(mode || "").toLowerCase()))
     .filter((mode) => modeOrder.includes(mode));
+  const nodes = normalizeWorkflowNodes(workflow || {});
   return {
     id: String(workflow?.id || ""),
     name: String(workflow?.name || ""),
@@ -181,7 +200,8 @@ export function normalizeWorkflowDraft(workflow) {
     modes: uniqueModes.length > 0 ? uniqueModes : ["chat"],
     execution: workflow?.execution === "direct" ? "direct" : "loop",
     max_iterations: Math.min(8, Math.max(1, Number(workflow?.max_iterations || 1))),
-    nodes: normalizeWorkflowNodes(workflow || {}),
+    nodes,
+    edges: normalizeWorkflowEdges(workflow || {}, nodes),
   };
 }
 
@@ -218,10 +238,17 @@ export function deriveNodeTypeFromRole(roleName, workerInstances = 1) {
   return "role";
 }
 
-export function deriveWorkflowEdgesFromNodes(nodes) {
+export function deriveWorkflowEdgesFromNodes(nodes, existingEdges = [], includeBoundaryEdges = false) {
   const available = new Set((nodes || []).map((node) => node.id));
   const dedupe = new Set();
   const edges = [];
+  const existingByPair = new Map();
+  (existingEdges || []).forEach((edge) => {
+    const source = String(edge.from || edge.from_node || "").trim();
+    const target = String(edge.to || "").trim();
+    const when = String(edge.when || "").trim();
+    if (source && target && when) existingByPair.set(`${source}->${target}`, when);
+  });
   (nodes || []).forEach((node) => {
     const source = String(node.id || "").trim();
     if (!source) return;
@@ -232,7 +259,7 @@ export function deriveWorkflowEdgesFromNodes(nodes) {
       const key = `${source}->${to}`;
       if (dedupe.has(key)) return;
       dedupe.add(key);
-      edges.push({ from: source, to });
+      edges.push({ from: source, to, when: existingByPair.get(key) || "" });
     });
     const incoming = dedupeList(Array.isArray(node.receive_from) ? node.receive_from : parseCsvList(node.receive_from || ""));
     incoming.forEach((from) => {
@@ -241,9 +268,32 @@ export function deriveWorkflowEdgesFromNodes(nodes) {
       const key = `${cleanFrom}->${source}`;
       if (dedupe.has(key)) return;
       dedupe.add(key);
-      edges.push({ from: cleanFrom, to: source });
+      edges.push({ from: cleanFrom, to: source, when: existingByPair.get(key) || "" });
     });
   });
+  if (includeBoundaryEdges && available.has(WORKFLOW_INPUT_ID) && available.has(WORKFLOW_OUTPUT_ID)) {
+    const realNodes = (nodes || []).filter((node) => !isBoundaryNode(node));
+    const targets = new Set(edges.map((edge) => edge.to));
+    const sources = new Set(edges.map((edge) => edge.from));
+    realNodes
+      .filter((node) => !targets.has(node.id))
+      .forEach((node) => {
+        const key = `${WORKFLOW_INPUT_ID}->${node.id}`;
+        if (!dedupe.has(key)) {
+          dedupe.add(key);
+          edges.unshift({ from: WORKFLOW_INPUT_ID, to: node.id, when: "" });
+        }
+      });
+    realNodes
+      .filter((node) => !sources.has(node.id))
+      .forEach((node) => {
+        const key = `${node.id}->${WORKFLOW_OUTPUT_ID}`;
+        if (!dedupe.has(key)) {
+          dedupe.add(key);
+          edges.push({ from: node.id, to: WORKFLOW_OUTPUT_ID, when: "" });
+        }
+      });
+  }
   return edges;
 }
 
@@ -336,6 +386,7 @@ export function incomingEdgeForNode(draft, targetId) {
 
 export function nodeTileMarkup(node) {
   const isWorker = String(node.type || "").toLowerCase() === "worker_pool";
+  const isIteration = ["for_each", "while"].includes(String(node.type || "").toLowerCase());
   const boundary = boundaryKind(node);
   const title = String(node.title || node.role || node.id || "node");
   const safeTitle = escapeHtml(title);
@@ -346,6 +397,7 @@ export function nodeTileMarkup(node) {
   if (isWorker) {
     metaParts.push(`×${Math.max(1, Number(node.worker_instances || node.max_parallel || 1))}`);
   }
+  if (isIteration) metaParts.push("iteration");
   if (boundary === PORT_INPUT) metaParts.push("assistant input");
   if (boundary === PORT_OUTPUT) metaParts.push("assistant output");
   if (!metaParts.length) metaParts.push(String(node.type || "role"));

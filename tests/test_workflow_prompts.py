@@ -29,8 +29,10 @@ def test_plan_prompts_include_json_schema_and_limits() -> None:
     assert "Create a compact execution plan" in prompt
     assert "Maximum work items for this effort level: 3" in prompt
     assert '"work_items"' in prompt
+    assert '"confidence"' in prompt
     assert "Revise the workflow plan" in retry
     assert "Maximum work items for this effort level: 2" in retry
+    assert '"confidence"' in retry
 
 
 def test_review_judge_and_final_prompts_keep_contracts() -> None:

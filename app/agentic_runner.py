@@ -39,6 +39,55 @@ class AgenticRunner:
         self.settings = load_settings()
         self.ollama = ollama or OllamaClient(self.settings, timeout=90.0)
 
+    async def run_inline(
+        self,
+        *,
+        title: str,
+        prompt: str,
+        reason: str = "workflow",
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        task = AgenticTask(
+            id="workflow-inline",
+            title=title.strip() or "Workflow tool agent",
+            prompt=self._inline_prompt(prompt, context or {}),
+            schedule="once",
+            status="active",
+            next_run_at=None,
+            last_run_at=None,
+            failure_count=0,
+            created_at=utc_now_dt().isoformat(),
+            updated_at=utc_now_dt().isoformat(),
+        )
+        tool_results: list[dict[str, Any]] = []
+        status = "success"
+        summary = ""
+        error = ""
+
+        try:
+            plan = await self._plan(task, reason, [])
+            action = str(plan.get("action") or "").strip().lower()
+            if action in {"needs_review", "unsupported"}:
+                status = "needs_review"
+                summary = str(plan.get("summary") or "Tool agent needs review.")
+            else:
+                tool_results = self._execute_tool_calls(plan.get("tool_calls"))
+                summary = await self._summarize(task, reason, tool_results)
+                if any(not item.get("success") for item in tool_results):
+                    status = "needs_review"
+                judge = await self._judge(task, reason, tool_results, summary)
+                if judge and str(judge.get("status") or "").strip().lower() != "done":
+                    status = "needs_review"
+                    summary = self._summary_with_judge(summary, judge)
+        except Exception as exc:
+            failover = await self._failover(task, reason, exc)
+            status = failover["status"]
+            summary = failover["summary"]
+            tool_results = failover["tool_results"]
+            error = str(exc)
+
+        return {"status": status, "summary": summary, "tool_results": tool_results, "error": error}
+
     async def run_task(self, task: AgenticTask, reason: str = "scheduled") -> AgenticTaskRun:
         attempt = max(task.failure_count + 1, 1)
         run = database.create_agentic_task_run(task.id, attempt=attempt)
@@ -283,6 +332,15 @@ class AgenticRunner:
 
     def _task_language_source(self, task: AgenticTask) -> str:
         return "\n".join(part for part in [task.title.strip(), task.prompt.strip()] if part)
+
+    def _inline_prompt(self, prompt: str, context: dict[str, Any]) -> str:
+        if not context:
+            return prompt.strip()
+        return (
+            f"{prompt.strip()}\n\n"
+            "Workflow node context:\n"
+            f"{json.dumps(context, ensure_ascii=False, indent=2)[:12000]}"
+        ).strip()
 
     def _is_autonomous_tool_allowed(self, name: str) -> bool:
         if name not in AUTO_TOOLS:

@@ -19,6 +19,11 @@ from app.validation import (
 WorkflowExecution = Literal["direct", "loop"]
 
 
+class WorkflowRetryPolicy(BaseModel):
+    max: int = Field(default=0, ge=0, le=5)
+    backoff: float = Field(default=0.0, ge=0.0, le=30.0)
+
+
 class NodePosition(BaseModel):
     """Canvas coordinates for the visual workflow builder.
 
@@ -71,6 +76,9 @@ class WorkflowNode(BaseModel):
     )
     position: NodePosition = Field(default_factory=NodePosition)
     config: dict[str, Any] = Field(default_factory=dict)
+    retry: WorkflowRetryPolicy = Field(default_factory=WorkflowRetryPolicy)
+    break_when: str = ""
+    ref: str = ""
 
     @field_validator("id", mode="before")
     @classmethod
@@ -81,6 +89,11 @@ class WorkflowNode(BaseModel):
     @classmethod
     def _clean_short(cls, value: Any) -> str:
         return clean_single_line(value or "", max_length=MAX_NAME_LENGTH, field_name="value")
+
+    @field_validator("break_when", "ref", mode="before")
+    @classmethod
+    def _clean_optional_short(cls, value: Any) -> str:
+        return clean_single_line(value or "", max_length=MAX_PROMPT_LENGTH, field_name="value")
 
     @field_validator("title", mode="before")
     @classmethod

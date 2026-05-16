@@ -272,6 +272,7 @@ def fallback_plan(user_message: str) -> dict[str, Any]:
     return {
         "title": "Handle Request",
         "summary": "Handle the user's request directly.",
+        "confidence": 0.5,
         "acceptance_criteria": ["Answer the user's request accurately and transparently."],
         "work_items": [default_work_item(user_message)],
     }

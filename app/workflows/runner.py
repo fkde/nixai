@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Optional
 
@@ -11,20 +12,16 @@ from app.models import MessageMode
 from app.title_generation import clean_chat_title
 from app.workflow_scratch import WorkflowScratchpad, default_workflow_scratchpad
 from app.workflows.events import WorkflowEventSink
+from app.workflows.executor import WorkflowGraphExecutor
 from app.workflows.models import WorkflowDefinition, WorkflowEvent, WorkflowResult
 from app.workflows.phases import (
     WorkflowOllamaClient,
     WorkflowPhaseDeps,
-    build_plan,
     final_answer,
-    judge,
     markdown_data,
     note,
-    replan_for_retry,
-    review,
-    run_workers,
 )
-from app.workflows.state import compact_workflow_state, initial_workflow_state, record_workflow_round
+from app.workflows.state import compact_workflow_state, initial_workflow_state
 
 
 class WorkflowRunner:
@@ -67,68 +64,60 @@ class WorkflowRunner:
                 }
             ),
         )
+        self._persist_started(workflow, chat_id, mode, state, events)
 
         if mode == "agentic":
             event_sink.emit("context", "status", "Preparing agentic tool context.")
             state["agentic_context"] = await AgenticContextBuilder(self.settings, self.ollama).build(user_message)
             note(deps, state, "Agentic tool context", state["agentic_context"] or "No tool context gathered.")
 
-        plan = await build_plan(workflow, state, deps)
-        state["plan"] = plan
+        if workflow.is_direct():
+            state["decision"] = {"status": "done", "reason": "Direct workflow."}
+            answer = await final_answer(workflow, state, deps)
+            note(deps, state, "Final answer", answer)
+            result = WorkflowResult(
+                workflow_id=workflow.id,
+                answer=answer,
+                status="done",
+                events=events,
+                state=compact_workflow_state(state, scratchpad=self.scratchpad),
+            )
+            self._persist_finished(result, state)
+            return result
 
-        max_iterations = workflow.max_iterations
-        reports = []
-        review_result = {}
-        decision = {"status": "done", "reason": ""}
+        result = await WorkflowGraphExecutor().run(workflow, state, deps, event_sink)
+        self._persist_finished(result, state)
+        return result
 
-        for iteration in range(1, max_iterations + 1):
-            state["iteration"] = iteration
-            if max_iterations > 1:
-                event_sink.emit("loop", "status", f"Workflow iteration {iteration}/{max_iterations} started.")
-
-            reports = await run_workers(workflow, state, deps)
-            state["worker_reports"] = reports
-            note(deps, state, f"Iteration {iteration} worker reports", markdown_data(reports))
-
-            review_result = await review(workflow, state, deps)
-            state["review"] = review_result
-            note(deps, state, f"Iteration {iteration} review", markdown_data(review_result))
-
-            decision = await judge(workflow, state, deps)
-            state["decision"] = decision
-            note(deps, state, f"Iteration {iteration} judge decision", markdown_data(decision))
-            record_workflow_round(state, reports, review_result, decision)
-
-            status = str(decision.get("status") or "done").strip().lower()
-            if status != "retry":
-                break
-            if iteration >= max_iterations:
-                decision["status"] = "done"
-                decision["reason"] = (
-                    "Retry limit reached. Synthesize the best user-facing answer from all available evidence, "
-                    "including caveats and missing verification."
-                )
-                state["decision"] = decision
-                event_sink.emit(
-                    "judge",
-                    "done",
-                    "Retry limit reached; synthesizing final answer from available evidence.",
-                )
-                note(deps, state, "Retry limit reached", markdown_data(decision))
-                break
-            state["retry_feedback"] = decision.get("feedback") or decision.get("reason") or "Retry requested."
-            event_sink.emit("judge", "retry", f"Judge requested another worker pass ({iteration + 1}/{max_iterations}).")
-            state["plan"] = await replan_for_retry(workflow, state, deps)
-
-        answer = await final_answer(workflow, state, deps)
-        note(deps, state, "Final answer", answer)
-        return WorkflowResult(
-            workflow_id=workflow.id,
-            answer=answer,
-            status=str(decision.get("status") or "done"),
-            events=events,
-            state=compact_workflow_state(state, scratchpad=self.scratchpad),
-        )
+    async def resume(
+        self,
+        workflow: WorkflowDefinition,
+        state: dict[str, object],
+        feedback: str = "",
+        on_event: Callable[[WorkflowEvent], None] | None = None,
+    ) -> WorkflowResult:
+        events: list[WorkflowEvent] = []
+        event_sink = WorkflowEventSink(events, on_event)
+        deps = self._phase_deps(event_sink)
+        pause = state.get("pause") if isinstance(state.get("pause"), dict) else {}
+        paused_node = str((pause or {}).get("node") or state.get("current_node") or "").strip()
+        if feedback.strip():
+            state["resume_feedback"] = feedback.strip()
+            state["user_feedback"] = feedback.strip()
+            note(deps, state, "User resume feedback", feedback.strip())
+        next_nodes = WorkflowGraphExecutor()._next_node_ids(workflow, paused_node, state) if paused_node else []
+        if not next_nodes:
+            return WorkflowResult(
+                workflow_id=workflow.id,
+                answer="This workflow run cannot be resumed because no continuation edge was found.",
+                status="failed",
+                events=events,
+                state=compact_workflow_state(state, scratchpad=self.scratchpad),
+            )
+        event_sink.emit(paused_node, "resume", "Resuming workflow from paused node.")
+        result = await WorkflowGraphExecutor().run(workflow, state, deps, event_sink, start_node_ids=next_nodes)
+        self._persist_finished(result, state)
+        return result
 
     def _initial_state(self, chat_id: str, user_message: str, mode: MessageMode) -> dict[str, object]:
         return initial_workflow_state(self.settings, chat_id, user_message, mode, scratchpad=self.scratchpad)
@@ -157,3 +146,42 @@ class WorkflowRunner:
 
     def _clean_chat_title(self, title: str) -> str:
         return clean_chat_title(title, max_words=7)
+
+    def _persist_started(
+        self,
+        workflow: WorkflowDefinition,
+        chat_id: str,
+        mode: MessageMode,
+        state: dict[str, object],
+        events: list[WorkflowEvent],
+    ) -> None:
+        try:
+            database.create_workflow_run(
+                str(state.get("workflow_run_id") or ""),
+                workflow_id=workflow.id,
+                chat_id=chat_id,
+                mode=mode,
+                state_json=json.dumps(state, ensure_ascii=False, default=str),
+                events_json=json.dumps([event.model_dump() for event in events], ensure_ascii=False),
+            )
+        except Exception:
+            return
+
+    def _persist_finished(self, result: WorkflowResult, state: dict[str, object]) -> None:
+        run_id = str(state.get("workflow_run_id") or "")
+        if not run_id:
+            return
+        pause = state.get("pause") if isinstance(state.get("pause"), dict) else {}
+        current_node = str((pause or {}).get("node") or "")
+        finished = result.status not in {"needs_user"}
+        try:
+            database.update_workflow_run(
+                run_id,
+                status=result.status if result.status in {"done", "failed", "needs_user"} else "failed",
+                state_json=json.dumps(state, ensure_ascii=False, default=str),
+                events_json=json.dumps([event.model_dump() for event in result.events], ensure_ascii=False),
+                current_node=current_node,
+                finished=finished,
+            )
+        except Exception:
+            return

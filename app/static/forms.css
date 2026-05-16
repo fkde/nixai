@@ -29,6 +29,26 @@
   align-self: center;
 }
 
+body[data-active-mode="chat"] .composer {
+  grid-template-columns: minmax(0, 1fr) 126px 134px;
+}
+
+body[data-active-mode="chat"] .composer-plus {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  body[data-active-mode="chat"] .composer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body[data-active-mode="chat"] #message-input,
+  body[data-active-mode="chat"] .composer-effort,
+  body[data-active-mode="chat"] #send-button {
+    grid-column: 1 / -1;
+  }
+}
+
 .composer-plus-button {
   display: grid;
   place-items: center;
@@ -245,36 +265,43 @@ textarea::placeholder {
 #send-button {
   align-self: center;
   justify-content: center;
+  gap: 12px;
   width: 100%;
   min-height: var(--footer-action-size);
   height: var(--footer-action-size);
-  padding: 0 17px;
-  border-radius: 12px;
-  border-color: rgba(69, 230, 242, 0.42);
+  padding: 0 18px;
+  border-radius: 2px;
+  border-color: rgba(69, 230, 242, 0.28);
   background:
-    radial-gradient(circle at 18% 20%, rgba(255, 255, 255, 0.18), transparent 22%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.012)),
-    linear-gradient(135deg, rgba(69, 230, 242, 0.31), rgba(155, 114, 255, 0.66) 58%, rgba(216, 76, 91, 0.22));
-  color: #ffffff;
-  font-size: 14px;
-  font-weight: 840;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.28);
+    linear-gradient(180deg, rgba(157, 250, 255, 0.1), rgba(69, 230, 242, 0.03) 48%, rgba(155, 114, 255, 0.06)),
+    linear-gradient(180deg, rgba(8, 16, 22, 0.96), rgba(4, 8, 12, 0.96));
+  color: var(--cyan-soft);
+  font-family: var(--font-code);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  text-shadow: 0 0 12px rgba(69, 230, 242, 0.45);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
   box-shadow:
-    0 0 30px rgba(69, 230, 242, 0.16),
-    0 14px 28px rgba(53, 35, 112, 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.13);
+    inset 0 1px 0 rgba(157, 250, 255, 0.14),
+    inset 0 -1px 0 rgba(155, 114, 255, 0.14),
+    0 10px 22px rgba(0, 0, 0, 0.5),
+    0 0 22px rgba(69, 230, 242, 0.16);
 }
 
 #send-button:hover {
-  border-color: rgba(157, 250, 255, 0.72);
+  color: #ffffff;
+  border-color: rgba(184, 253, 255, 0.95);
+  transform: translateY(-1px);
   background:
-    radial-gradient(circle at 16% 18%, rgba(255, 255, 255, 0.22), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.02)),
-    linear-gradient(135deg, rgba(69, 230, 242, 0.42), rgba(155, 114, 255, 0.76) 58%, rgba(216, 76, 91, 0.3));
+    linear-gradient(180deg, rgba(157, 250, 255, 0.14), rgba(69, 230, 242, 0.05) 48%, rgba(155, 114, 255, 0.1)),
+    linear-gradient(180deg, rgba(10, 20, 28, 0.96), rgba(5, 10, 16, 0.96));
   box-shadow:
-    0 0 38px rgba(69, 230, 242, 0.24),
-    0 18px 34px rgba(53, 35, 112, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+    inset 0 1px 0 rgba(157, 250, 255, 0.26),
+    inset 0 -1px 0 rgba(155, 114, 255, 0.26),
+    0 14px 28px rgba(0, 0, 0, 0.55),
+    0 0 36px rgba(69, 230, 242, 0.36);
 }
 
 #send-button .button-icon {

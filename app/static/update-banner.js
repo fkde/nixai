@@ -58,6 +58,8 @@ export function createUpdateBanner({ setStatus } = {}) {
       if (status.status === "downloading") {
         const pct = Math.round((status.progress || 0) * 100);
         showProgress(`Downloading update… ${pct}%`);
+      } else if (status.status === "verifying") {
+        showProgress("Verifying download…");
       } else if (status.status === "staging") {
         showProgress("Preparing installer…");
       } else if (status.status === "swapping") {

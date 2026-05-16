@@ -4,7 +4,7 @@ from app.db.connection import get_connection
 from app.models import utc_now
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def init_db() -> None:
@@ -56,6 +56,21 @@ def init_db() -> None:
               FOREIGN KEY (task_id) REFERENCES agentic_tasks(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS workflow_runs (
+              id TEXT PRIMARY KEY,
+              workflow_id TEXT NOT NULL,
+              chat_id TEXT NOT NULL,
+              mode TEXT NOT NULL CHECK(mode IN ('chat', 'code', 'agentic')),
+              status TEXT NOT NULL CHECK(status IN ('running', 'done', 'failed', 'needs_user')),
+              current_node TEXT NOT NULL DEFAULT '',
+              state_json TEXT NOT NULL DEFAULT '{}',
+              events_json TEXT NOT NULL DEFAULT '[]',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              finished_at TEXT,
+              FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_messages_chat_created
               ON messages(chat_id, created_at);
 
@@ -70,6 +85,9 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_agentic_task_runs_task_started
               ON agentic_task_runs(task_id, started_at);
+
+            CREATE INDEX IF NOT EXISTS idx_workflow_runs_chat_updated
+              ON workflow_runs(chat_id, updated_at);
 
             CREATE TABLE IF NOT EXISTS schema_version (
               id INTEGER PRIMARY KEY CHECK (id = 1),

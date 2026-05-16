@@ -33,6 +33,7 @@ from app.db.messages import (
     set_message_feedback,
 )
 from app.db.schema import SCHEMA_VERSION, get_schema_version, init_db, set_schema_version
+from app.db.workflow_runs import create_workflow_run, get_workflow_run, row_to_workflow_run, update_workflow_run
 
 
 __all__ = [
@@ -42,6 +43,7 @@ __all__ = [
     "create_agentic_task",
     "create_agentic_task_run",
     "create_chat",
+    "create_workflow_run",
     "delete_agentic_task",
     "delete_chat",
     "finish_agentic_task_run",
@@ -50,6 +52,7 @@ __all__ = [
     "get_chat",
     "get_connection",
     "get_message",
+    "get_workflow_run",
     "get_schema_version",
     "init_db",
     "list_agentic_task_runs",
@@ -61,10 +64,12 @@ __all__ = [
     "row_to_agentic_task_run",
     "row_to_chat",
     "row_to_message",
+    "row_to_workflow_run",
     "set_message_feedback",
     "set_schema_version",
     "update_agentic_task",
     "update_agentic_task_schedule_state",
     "update_chat",
     "update_chat_title_if_default",
+    "update_workflow_run",
 ]

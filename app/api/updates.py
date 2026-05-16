@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import shutil
 import signal
 import stat
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -17,7 +18,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.__version__ import __version__
+from app import database
 from app.config import data_dir
+from app.workflows.presets import get_workflow
+from app.workflows.runner import WorkflowRunner
 
 
 router = APIRouter(prefix="/api/updates", tags=["updates"])
@@ -42,6 +46,7 @@ class UpdateInfo(BaseModel):
     asset_url: Optional[str] = None
     asset_name: Optional[str] = None
     asset_size: Optional[int] = None
+    sha256_url: Optional[str] = None
     platform_supported: bool = True
     error: Optional[str] = None
 
@@ -50,6 +55,10 @@ class InstallStatus(BaseModel):
     status: str
     message: str = ""
     progress: float = 0.0
+
+
+class WorkflowResumeRequest(BaseModel):
+    feedback: str = ""
 
 
 def _parse_version(tag: str) -> tuple[int, ...]:
@@ -112,17 +121,16 @@ async def check_updates(force: bool = False) -> UpdateInfo:
 
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            response = await client.get(
-                RELEASE_URL,
-                headers={"Accept": "application/vnd.github+json"},
-            )
+            response = await client.get(RELEASE_URL, headers={"Accept": "application/vnd.github+json"})
         if response.status_code == 404:
             info = UpdateInfo(current=__version__, error="no_release")
         else:
             response.raise_for_status()
             data = response.json()
             tag = (data.get("tag_name") or "").strip()
-            asset = _pick_asset(data.get("assets") or [], suffix)
+            assets = data.get("assets") or []
+            asset = _pick_asset(assets, suffix)
+            sha_asset = _pick_asset(assets, suffix + ".sha256") if asset else None
             available = bool(tag) and _is_newer(tag, __version__) and asset is not None
             info = UpdateInfo(
                 current=__version__,
@@ -132,6 +140,7 @@ async def check_updates(force: bool = False) -> UpdateInfo:
                 asset_url=(asset or {}).get("browser_download_url"),
                 asset_name=(asset or {}).get("name"),
                 asset_size=(asset or {}).get("size"),
+                sha256_url=(sha_asset or {}).get("browser_download_url"),
             )
     except Exception as exc:  # noqa: BLE001 — network call, surface as soft error
         info = UpdateInfo(current=__version__, error=str(exc))
@@ -150,6 +159,28 @@ def install_status() -> InstallStatus:
             message=str(_install_state["message"]),
             progress=float(_install_state["progress"]),
         )
+
+
+@router.post("/workflows/{run_id}/resume")
+async def resume_workflow_run(run_id: str, request: WorkflowResumeRequest) -> dict[str, object]:
+    run = database.get_workflow_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Workflow run not found.")
+    if run.status != "needs_user":
+        raise HTTPException(status_code=409, detail="Only paused workflow runs can be resumed.")
+    workflow = get_workflow(run.workflow_id, run.mode)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="Workflow definition not found.")
+    try:
+        state = json.loads(run.state_json or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=409, detail="Workflow run state is corrupted.") from exc
+    if not isinstance(state, dict):
+        raise HTTPException(status_code=409, detail="Workflow run state is invalid.")
+    result = await WorkflowRunner().resume(workflow, state, feedback=request.feedback)
+    if result.answer:
+        database.add_message(run.chat_id, "assistant", result.answer, mode=run.mode)
+    return result.model_dump()
 
 
 @router.post("/install", response_model=InstallStatus)
@@ -178,14 +209,22 @@ async def install_update() -> InstallStatus:
         raise HTTPException(status_code=409, detail="No update available.")
 
     threading.Thread(
-        target=_run_macos_install,
-        args=(info.asset_url, info.asset_size or 0, app_path),
-        daemon=True,
+        target=_run_macos_install, args=(info.asset_url, info.asset_size or 0, info.sha256_url, app_path), daemon=True
     ).start()
     return InstallStatus(status="downloading", message="Downloading update", progress=0.0)
 
 
-def _run_macos_install(asset_url: str, asset_size: int, app_path: Path) -> None:
+def _fetch_expected_sha256(sha256_url: str) -> str:
+    response = httpx.get(sha256_url, follow_redirects=True, timeout=15.0)
+    response.raise_for_status()
+    first_line = response.text.strip().splitlines()[0] if response.text.strip() else ""
+    token = first_line.split()[0] if first_line else ""
+    if len(token) != 64 or not all(c in "0123456789abcdefABCDEF" for c in token):
+        raise RuntimeError("Invalid checksum file format.")
+    return token.lower()
+
+
+def _run_macos_install(asset_url: str, asset_size: int, sha256_url: Optional[str], app_path: Path) -> None:
     try:
         updates_dir = data_dir() / "updates"
         updates_dir.mkdir(parents=True, exist_ok=True)
@@ -200,6 +239,7 @@ def _run_macos_install(asset_url: str, asset_size: int, app_path: Path) -> None:
         zip_path = updates_dir / f"download-{int(time.time())}.zip"
         _set_install_state("downloading", "Downloading update", 0.0)
 
+        hasher = hashlib.sha256()
         with httpx.stream("GET", asset_url, follow_redirects=True, timeout=60.0) as response:
             response.raise_for_status()
             total = int(response.headers.get("Content-Length") or asset_size or 0)
@@ -207,9 +247,22 @@ def _run_macos_install(asset_url: str, asset_size: int, app_path: Path) -> None:
             with zip_path.open("wb") as fh:
                 for chunk in response.iter_bytes(chunk_size=1024 * 256):
                     fh.write(chunk)
+                    hasher.update(chunk)
                     received += len(chunk)
                     if total:
                         _set_install_state("downloading", "Downloading update", received / total)
+
+        _set_install_state("verifying", "Verifying download", 1.0)
+        if sha256_url:
+            expected = _fetch_expected_sha256(sha256_url)
+            actual = hasher.hexdigest()
+            if expected != actual:
+                zip_path.unlink(missing_ok=True)
+                raise RuntimeError(f"Checksum mismatch (expected {expected[:12]}…, got {actual[:12]}…)")
+        else:
+            # No published checksum — refuse to swap an unverified binary.
+            zip_path.unlink(missing_ok=True)
+            raise RuntimeError("Release is missing a .sha256 asset; refusing to install.")
 
         _set_install_state("staging", "Preparing installer", 1.0)
 

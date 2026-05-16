@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app import database
@@ -67,6 +68,7 @@ def workflow_state_payload(
         "review": state.get("review"),
         "decision": state.get("decision"),
         "retry_feedback": state.get("retry_feedback"),
+        "node_results": state.get("node_results", {}),
         "workflow_rounds": compact_workflow_rounds(state.get("workflow_rounds")),
     }
     if state.get("code_context"):
@@ -98,6 +100,10 @@ def compact_workflow_state(
     scratchpad: WorkflowScratchpad | None = None,
 ) -> dict[str, Any]:
     compact = workflow_state_payload(state, scratchpad=scratchpad)
+    for key, value in state.items():
+        if key in compact or key in _OMITTED_COMPACT_KEYS:
+            continue
+        compact[key] = _compact_extra_value(value)
     if "code_context" in compact:
         compact["code_context"] = "[omitted]"
     if "agentic_context" in compact:
@@ -105,6 +111,31 @@ def compact_workflow_state(
     if state.get("final_answer_streamed"):
         compact["answer_streamed"] = True
     return compact
+
+
+_OMITTED_COMPACT_KEYS = {
+    "chat_id",
+    "workflow_run_id",
+    "workflow_scratch_path",
+    "runtime_context",
+    "memory",
+    "code_context",
+    "agentic_context",
+}
+
+
+def _compact_extra_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return value[:4000]
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    try:
+        encoded = json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(value)[:1000]
+    if len(encoded) <= 12000:
+        return value
+    return {"truncated": encoded[:12000]}
 
 
 def record_workflow_round(

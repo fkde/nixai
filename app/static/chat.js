@@ -82,7 +82,7 @@ export function createChatUi({ setStatus, toolApprovals, getSettingsUi, getAgent
 
   function defaultStreamStatusLabel(stream = state.activeStream) {
     if (!stream) return "";
-    return `${stream.mode || state.activeMode} working...`;
+    return "Thinking…";
   }
 
   function streamStatusItems(stream = state.activeStream, limit = runtimeStatusHistoryLimit) {
@@ -93,6 +93,22 @@ export function createChatUi({ setStatus, toolApprovals, getSettingsUi, getAgent
   function streamStatusLabel(stream = state.activeStream) {
     const items = streamStatusItems(stream, runtimeStatusStoreLimit);
     return items[items.length - 1] || "";
+  }
+
+  function highlightWorkflowNode(nodeId) {
+    const clean = String(nodeId || "").trim();
+    document
+      .querySelectorAll(".workflow-canvas-node.is-active-run")
+      .forEach((node) => node.classList.remove("is-active-run"));
+    if (!clean) return;
+    document
+      .querySelector(`.workflow-canvas-node[data-node-id="${cssEscape(clean)}"]`)
+      ?.classList.add("is-active-run");
+  }
+
+  function cssEscape(value) {
+    if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
+    return String(value).replace(/(["\\\]])/g, "\\$1");
   }
 
   function runtimeStatusHtml(items, isOpen = false) {
@@ -280,12 +296,16 @@ export function createChatUi({ setStatus, toolApprovals, getSettingsUi, getAgent
 
   function renderModeSwitch() {
     const activeIndex = Math.max(0, modeOrder.indexOf(state.activeMode));
+    document.body.dataset.activeMode = state.activeMode;
     modeSwitch?.style.setProperty("--mode-index", String(activeIndex));
     modeButtons.forEach((button) => {
       const active = button.dataset.mode === state.activeMode;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", active ? "true" : "false");
     });
+    if (state.activeMode === "chat") {
+      closeComposerMenu();
+    }
     input.placeholder = {
       chat: "Write a message...",
       code: "Ask a code question or describe a project task...",
@@ -693,7 +713,7 @@ export function createChatUi({ setStatus, toolApprovals, getSettingsUi, getAgent
     state.loading = loading;
     input.disabled = loading;
     sendButton.disabled = loading;
-    setStatus(loading ? `${state.activeMode} working...` : "Ready");
+    setStatus(loading ? "Thinking…" : "Ready");
   }
 
   async function sendMessage(content) {
@@ -792,13 +812,14 @@ export function createChatUi({ setStatus, toolApprovals, getSettingsUi, getAgent
           state.streamingAssistant = true;
           state.autoScrollLocked = true;
         } else if (event.type === "status") {
-          const label = event.message || `${mode} working...`;
+          const label = event.message || "Thinking…";
           setStatus(label);
           pushRuntimeStatus(label);
         } else if (event.type === "workflow_status") {
           const label = event.message || "Workflow step running...";
           setStatus(label);
           pushRuntimeStatus(label);
+          highlightWorkflowNode(event.node);
         } else if (event.type === "agentic_route") {
           stream.routePath = normalizeAgenticRoute(event.path);
           stream.routeReason = String(event.reason || "").trim();

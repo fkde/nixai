@@ -189,6 +189,56 @@
   background: rgba(9, 12, 18, 0.48);
 }
 
+.workflow-edge-rules {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0 0;
+  border-top: 1px solid rgba(128, 142, 170, 0.18);
+}
+
+.workflow-edge-rules > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-edge-rules strong {
+  font-size: 13px;
+}
+
+.workflow-edge-rules small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.workflow-edge-rules-list {
+  display: grid;
+  gap: 8px;
+}
+
+.workflow-edge-rule {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(150px, 190px) minmax(180px, 1.2fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.workflow-edge-rule-path {
+  min-width: 0;
+  color: var(--text-soft);
+  font-family: var(--font-code);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-edge-rule select,
+.workflow-edge-rule input {
+  min-width: 0;
+}
+
 .workflow-canvas-stage {
   position: relative;
   min-height: 360px;
@@ -285,6 +335,11 @@
   box-shadow: 0 0 0 1px rgba(155, 114, 255, 0.45), 0 8px 22px rgba(0, 0, 0, 0.3);
 }
 
+.workflow-canvas-node.is-active-run {
+  border-color: rgba(143, 255, 184, 0.9);
+  box-shadow: 0 0 0 1px rgba(143, 255, 184, 0.5), 0 0 22px rgba(143, 255, 184, 0.18), 0 8px 22px rgba(0, 0, 0, 0.3);
+}
+
 .workflow-canvas.is-linking .workflow-canvas-node {
   cursor: default;
 }
@@ -304,6 +359,15 @@
   background:
     linear-gradient(135deg, rgba(155, 114, 255, 0.12), transparent 60%),
     rgba(10, 12, 22, 0.94);
+}
+
+.workflow-canvas-node.iteration {
+  min-height: 96px;
+  border-style: double;
+  border-color: rgba(255, 209, 102, 0.58);
+  background:
+    linear-gradient(135deg, rgba(255, 209, 102, 0.12), transparent 60%),
+    rgba(15, 14, 10, 0.94);
 }
 
 .workflow-canvas-node.boundary {
@@ -460,6 +524,22 @@
 
 .workflow-canvas-edge.loop {
   stroke: rgba(155, 114, 255, 0.62);
+}
+
+.workflow-canvas-edge.error,
+.workflow-graph-edge.error {
+  stroke: rgba(255, 107, 107, 0.78);
+  stroke-dasharray: 6 5;
+}
+
+.workflow-canvas-edge-label,
+.workflow-graph-edge-label {
+  fill: rgba(232, 238, 255, 0.82);
+  font-size: 10px;
+  paint-order: stroke;
+  stroke: rgba(8, 14, 22, 0.92);
+  stroke-width: 3px;
+  pointer-events: none;
 }
 
 .workflow-canvas-edge.preview {
@@ -711,6 +791,7 @@
   display: block;
   max-width: 100%;
   height: auto;
+  overflow: visible;
 }
 
 .workflow-graph-node rect {
@@ -722,6 +803,11 @@
 
 .workflow-graph-node.worker rect {
   stroke: rgba(155, 114, 255, 0.6);
+}
+
+.workflow-graph-node.iteration rect {
+  fill: rgba(32, 27, 12, 0.95);
+  stroke: rgba(255, 209, 102, 0.62);
 }
 
 .workflow-graph-node.boundary rect {
@@ -737,8 +823,8 @@
 }
 
 .workflow-graph-edge {
-  stroke: rgba(157, 250, 255, 0.55);
-  stroke-width: 1.5;
+  stroke: rgba(157, 250, 255, 0.7);
+  stroke-width: 1.8;
   fill: none;
   marker-end: url(#wf-arrow);
 }

@@ -43,14 +43,22 @@
       "input": ["plan", "worker_reports", "review"],
       "output": "decision",
       "expects_json": true
+    },
+    {
+      "id": "final",
+      "type": "final",
+      "role": "orchestrator",
+      "title": "Final",
+      "input": ["plan", "worker_reports", "review", "decision"],
+      "output": "final_answer"
     }
   ],
   "edges": [
     {"from": "orchestrator", "to": "workers"},
     {"from": "workers", "to": "reviewer"},
     {"from": "reviewer", "to": "judge"},
-    {"from": "judge", "to": "workers", "when": "decision.status == 'retry'"},
-    {"from": "judge", "to": "end", "when": "decision.status == 'done'"},
-    {"from": "judge", "to": "needs_user", "when": "decision.status == 'needs_user'"}
+    {"from": "judge", "to": "orchestrator", "when": "decision.status == 'retry'"},
+    {"from": "judge", "to": "final", "when": "decision.status == 'done'"},
+    {"from": "judge", "to": "final", "when": "decision.status == 'needs_user'"}
   ]
 }

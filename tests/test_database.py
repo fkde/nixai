@@ -87,3 +87,42 @@ def test_agentic_task_and_run_crud(db) -> None:
     assert db.delete_agentic_task(task.id)
     assert db.get_agentic_task(task.id) is None
     assert db.list_agentic_task_runs(task.id) == []
+
+
+def test_workflow_run_crud(db) -> None:
+    chat = db.create_chat("Workflow Chat")
+    run = db.create_workflow_run(
+        "run-1",
+        workflow_id="deep_orchestra",
+        chat_id=chat.id,
+        mode="chat",
+        state_json='{"step": 1}',
+        events_json="[]",
+        current_node="pause",
+    )
+
+    assert run.status == "running"
+    assert db.get_workflow_run("run-1").workflow_id == "deep_orchestra"
+
+    updated = db.update_workflow_run(
+        "run-1",
+        status="needs_user",
+        state_json='{"pause": true}',
+        events_json='[{"type":"paused"}]',
+        current_node="pause",
+    )
+
+    assert updated is not None
+    assert updated.status == "needs_user"
+    assert updated.current_node == "pause"
+    assert updated.finished_at is None
+
+    finished = db.update_workflow_run(
+        "run-1",
+        status="done",
+        state_json="{}",
+        events_json="[]",
+        finished=True,
+    )
+    assert finished is not None
+    assert finished.finished_at is not None

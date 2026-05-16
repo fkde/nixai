@@ -21,6 +21,7 @@ MessageMode = Literal["chat", "code", "agentic"]
 FeedbackRating = Literal["up", "down"]
 TaskStatus = Literal["active", "paused"]
 TaskRunStatus = Literal["running", "success", "failed", "needs_review"]
+WorkflowRunStatus = Literal["running", "done", "failed", "needs_user"]
 OllamaModelKind = Literal["chat", "embedding", "unknown"]
 
 
@@ -72,6 +73,20 @@ class AgenticTaskRun(BaseModel):
     error: str = ""
     attempt: int = 1
     started_at: str
+    finished_at: Optional[str] = None
+
+
+class WorkflowRun(BaseModel):
+    id: str
+    workflow_id: str
+    chat_id: str
+    mode: MessageMode
+    status: WorkflowRunStatus
+    current_node: str = ""
+    state_json: str = "{}"
+    events_json: str = "[]"
+    created_at: str
+    updated_at: str
     finished_at: Optional[str] = None
 
 
