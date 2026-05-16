@@ -1,0 +1,252 @@
+.composer {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: var(--footer-action-size) minmax(0, 1fr) 134px;
+  align-items: center;
+  gap: 11px;
+  min-height: calc(var(--footer-action-size) + var(--footer-strip-top) + var(--footer-strip-bottom));
+  padding: var(--footer-strip-top) 48px var(--footer-strip-bottom);
+  border-top: 1px solid rgba(69, 230, 242, 0.16);
+  background:
+    linear-gradient(90deg, rgba(216, 76, 91, 0.045), transparent 24%, transparent 76%, rgba(69, 230, 242, 0.055)),
+    rgba(3, 6, 10, 0.86);
+  backdrop-filter: blur(22px) saturate(1.2);
+}
+
+.composer::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 48px;
+  right: 48px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(216, 76, 91, 0.38), rgba(69, 230, 242, 0.44), transparent);
+}
+
+.composer-plus {
+  position: relative;
+  align-self: center;
+}
+
+.composer-plus-button {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  min-height: 46px;
+  padding: 0;
+  border-radius: 12px;
+  border-color: rgba(69, 230, 242, 0.2);
+  color: var(--cyan-soft);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0)),
+    linear-gradient(135deg, rgba(69, 230, 242, 0.1), rgba(155, 114, 255, 0.045)),
+    rgba(9, 17, 25, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.065),
+    0 0 22px rgba(69, 230, 242, 0.065);
+}
+
+.composer-plus-button:hover {
+  border-color: rgba(157, 250, 255, 0.62);
+  color: #e8fdff;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.01)),
+    linear-gradient(135deg, rgba(69, 230, 242, 0.2), rgba(155, 114, 255, 0.18)),
+    rgba(10, 21, 31, 0.95);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 0 28px rgba(69, 230, 242, 0.12),
+    0 14px 30px rgba(35, 31, 66, 0.24);
+}
+
+.composer-plus-button svg {
+  width: 23px;
+  height: 23px;
+  stroke-width: 2.2;
+  transition: transform 160ms ease;
+}
+
+.composer-plus-button[aria-expanded="true"] {
+  border-color: rgba(69, 230, 242, 0.64);
+  background: rgba(14, 38, 48, 0.92);
+  box-shadow: 0 10px 28px rgba(69, 230, 242, 0.14);
+}
+
+.composer-plus-button[aria-expanded="true"] svg {
+  transform: rotate(45deg);
+}
+
+.composer-plus-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  z-index: 12;
+  min-width: 240px;
+  padding: 7px;
+  border: 1px solid rgba(69, 230, 242, 0.22);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(69, 230, 242, 0.09), transparent 46%),
+    rgba(5, 10, 15, 0.97);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(18px) saturate(1.2);
+}
+
+.composer-plus-menu button {
+  justify-content: flex-start;
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+}
+
+.composer-plus-menu button:hover {
+  border-color: rgba(69, 230, 242, 0.3);
+  background: rgba(69, 230, 242, 0.1);
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid rgba(69, 230, 242, 0.16);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text);
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  padding: 0;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+input[type="radio"] {
+  border-radius: 50%;
+}
+
+input,
+select {
+  height: var(--control-height);
+  padding: 0 13px;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  height: 16px;
+  padding: 0;
+}
+
+select {
+  appearance: none;
+  padding-right: 38px;
+  background-image:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M6 8l4 4 4-4' fill='none' stroke='%239dfaff' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0));
+  background-position: right 12px center, 0 0;
+  background-repeat: no-repeat, repeat;
+  background-size: 16px 16px, auto;
+}
+
+textarea {
+  min-height: 96px;
+  max-height: 240px;
+  padding: 12px 13px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  background-color: var(--field-hover);
+  border-color: rgba(69, 230, 242, 0.34);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(157, 167, 186, 0.58);
+}
+
+#message-input {
+  min-height: var(--footer-action-size);
+  height: var(--footer-action-size);
+  max-height: 150px;
+  padding: 14px 17px;
+  border-radius: 8px;
+  border-color: rgba(69, 230, 242, 0.2);
+  background:
+    linear-gradient(90deg, rgba(69, 230, 242, 0.035), transparent 48%, rgba(155, 114, 255, 0.035)),
+    rgba(7, 10, 16, 0.94);
+  font-size: 15px;
+  line-height: 1.45;
+  resize: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 0 0 1px rgba(0, 0, 0, 0.18),
+    0 12px 34px rgba(0, 0, 0, 0.22);
+}
+
+#send-button {
+  align-self: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--footer-action-size);
+  padding: 0 17px;
+  border-radius: 12px;
+  border-color: rgba(69, 230, 242, 0.42);
+  background:
+    radial-gradient(circle at 18% 20%, rgba(255, 255, 255, 0.18), transparent 22%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.012)),
+    linear-gradient(135deg, rgba(69, 230, 242, 0.31), rgba(155, 114, 255, 0.66) 58%, rgba(216, 76, 91, 0.22));
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 840;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.28);
+  box-shadow:
+    0 0 30px rgba(69, 230, 242, 0.16),
+    0 14px 28px rgba(53, 35, 112, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.13);
+}
+
+#send-button:hover {
+  border-color: rgba(157, 250, 255, 0.72);
+  background:
+    radial-gradient(circle at 16% 18%, rgba(255, 255, 255, 0.22), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.02)),
+    linear-gradient(135deg, rgba(69, 230, 242, 0.42), rgba(155, 114, 255, 0.76) 58%, rgba(216, 76, 91, 0.3));
+  box-shadow:
+    0 0 38px rgba(69, 230, 242, 0.24),
+    0 18px 34px rgba(53, 35, 112, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+#send-button .button-icon {
+  color: #f7f3ff;
+}
+
+#send-button .button-icon svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 2.25;
+}
+
