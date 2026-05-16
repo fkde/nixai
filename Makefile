@@ -5,7 +5,7 @@ PIP ?= pip
 HOST ?= 127.0.0.1
 PORT ?= 8765
 
-.PHONY: help install install-desktop install-editable install-editable-desktop serve desktop desktop-check check check-python check-js diff-check build build-cli build-linux-binary build-macos-app build-windows-binary verify-macos-app install-macos-app clean
+.PHONY: help install install-desktop install-editable install-editable-desktop serve desktop desktop-check check check-python check-ruff check-js test diff-check build build-cli build-linux-binary build-macos-app build-windows-binary verify-macos-app install-macos-app clean
 
 help:
 	@printf "NixAI build commands\n\n"
@@ -16,7 +16,8 @@ help:
 	@printf "  make serve                    Start web UI on HOST/PORT (default 127.0.0.1:8765)\n"
 	@printf "  make desktop                  Start native desktop mode\n"
 	@printf "  make desktop-check            Check desktop dependencies\n"
-	@printf "  make check                    Run Python, JS, and diff checks\n"
+	@printf "  make test                     Run pytest test suite\n"
+	@printf "  make check                    Run Python, JS, tests, and diff checks\n"
 	@printf "  make build                    Build CLI binary and macOS app bundle\n"
 	@printf "  make build-cli                Build dist/nixai with PyInstaller\n"
 	@printf "  make build-linux-binary       Build dist/nixai on Linux\n"
@@ -47,13 +48,20 @@ desktop:
 desktop-check:
 	$(PYTHON) -m app.cli desktop --check
 
-check: check-python check-js diff-check
+check: check-python check-ruff check-js test diff-check
 
 check-python:
 	PYTHONPYCACHEPREFIX=/private/tmp/nixai-pycache $(PYTHON) -m compileall app
 
+check-ruff:
+	$(PYTHON) -m ruff check app
+	$(PYTHON) -m ruff format --check app
+
 check-js:
-	node --check app/static/app.js
+	@for file in app/static/*.js; do node --check "$$file"; done
+
+test:
+	PYTHONPYCACHEPREFIX=/private/tmp/nixai-pycache $(PYTHON) -m pytest
 
 diff-check:
 	git diff --check

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from typing import Any
 
 from app.tools.definitions import ToolDefinition
 from app.tools.routing.embeddings import OllamaEmbeddingClient
@@ -50,7 +49,9 @@ class CosineToolRouter:
             return self._with_search_tool(selected, candidates, limit)
         return self.fallback.select(user_input, context, limit)
 
-    def _with_search_tool(self, selected: list[ToolRoute], candidates: list[ToolDefinition], limit: int) -> list[ToolRoute]:
+    def _with_search_tool(
+        self, selected: list[ToolRoute], candidates: list[ToolDefinition], limit: int
+    ) -> list[ToolRoute]:
         if limit < 4 or len(selected) >= limit or any(route.tool.name == "nixai_tools_search" for route in selected):
             return selected
         search = next((tool for tool in candidates if tool.name == "nixai_tools_search"), None)
@@ -65,7 +66,9 @@ class CosineToolRouter:
                 tool.routing_description,
                 str(meta.get("routingText") or ""),
                 " ".join(str(item) for item in meta.get("examples", []) if isinstance(meta.get("examples"), list)),
-                " ".join(str(item) for item in meta.get("capabilities", []) if isinstance(meta.get("capabilities"), list)),
+                " ".join(
+                    str(item) for item in meta.get("capabilities", []) if isinstance(meta.get("capabilities"), list)
+                ),
             ]
         )
 
