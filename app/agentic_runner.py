@@ -7,14 +7,10 @@ from typing import Any, Optional
 from app import database
 from app.agentic_schedule import utc_now_dt
 from app.config import load_settings
-from app.effort import effort_context
 from app.json_utils import parse_json_object_strict
 from app.llm.ollama import OllamaClient, OllamaError
-from app.memory import memory_context
 from app.models import AgenticTask, AgenticTaskRun
-from app.roles import role_prompt
-from app.runtime_context import runtime_meta_context
-from app.services import AgenticTaskService
+from app.services import AgenticTaskService, compose_role_block
 from app.services.tool_policy import AUTO_TOOL_NAMES, ToolPolicyService
 from app.tools.registry import registry
 from app.workflows.presets import selected_workflow
@@ -154,9 +150,7 @@ class AgenticRunner:
                     {
                         "role": "system",
                         "content": (
-                            f"{role_prompt('REVIEWER')}\n\n"
-                            f"{runtime_meta_context(self._task_language_source(task))}\n\n"
-                            f"{effort_context(self.settings.effort)}\n\n"
+                            f"{compose_role_block('REVIEWER', language_source=self._task_language_source(task), effort=self.settings.effort)}\n\n"
                             "Summarize this scheduled task run in compact Markdown.\n"
                             "Hard limits: maximum 4 short lines, no long review essay, no recommendations when everything succeeded.\n"
                             "Mention failed tool calls only when present.\n"
@@ -201,9 +195,7 @@ class AgenticRunner:
                     {
                         "role": "system",
                         "content": (
-                            f"{role_prompt('JUDGE')}\n\n"
-                            f"{runtime_meta_context(self._task_language_source(task))}\n\n"
-                            f"{effort_context(self.settings.effort)}\n\n"
+                            f"{compose_role_block('JUDGE', language_source=self._task_language_source(task), effort=self.settings.effort)}\n\n"
                             "You judge a scheduled NixAI Agentic Task run. "
                             "Return strict JSON only: "
                             "{\"status\":\"done|needs_user|retry\",\"reason\":\"...\",\"feedback\":[\"...\"]}. "
@@ -299,11 +291,14 @@ class AgenticRunner:
         return results
 
     def _system_prompt(self, task: AgenticTask) -> str:
+        prefix = compose_role_block(
+            "ORCHESTRATOR",
+            language_source=self._task_language_source(task),
+            effort=self.settings.effort,
+            include_memory=True,
+        )
         return (
-            f"{role_prompt('ORCHESTRATOR')}\n\n"
-            f"{runtime_meta_context(self._task_language_source(task))}\n\n"
-            f"{effort_context(self.settings.effort)}\n\n"
-            f"Shared reviewed memory:\n{memory_context()}\n\n"
+            f"{prefix}\n\n"
             "You are running a scheduled NixAI Agentic Task.\n"
             "Return strict JSON only. Use only listed tools. If tools are missing for the user's request, return needs_review.\n"
             "For reminder, alert, or notification tasks, use nixai_notify_desktop when it is listed. "
