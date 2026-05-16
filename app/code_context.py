@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from app.tools import filesystem, git
 from app.tools.workspace import WorkspaceError, workspace_root
@@ -12,9 +12,50 @@ MAX_RESULT_CHARS = 8_000
 MAX_CONTEXT_CHARS = 24_000
 
 
+class CodeContextTools(Protocol):
+    def workspace_root(self, workspace_path: str) -> Path:
+        ...
+
+    def list_files(self, path: str, workspace_path: str) -> object:
+        ...
+
+    def read_file(self, path: str, workspace_path: str) -> object:
+        ...
+
+    def search_files(self, query: str, workspace_path: str) -> object:
+        ...
+
+    def git_status(self, workspace_path: str) -> object:
+        ...
+
+    def git_diff(self, workspace_path: str) -> object:
+        ...
+
+
+class DefaultCodeContextTools:
+    def workspace_root(self, workspace_path: str) -> Path:
+        return workspace_root(workspace_path)
+
+    def list_files(self, path: str, workspace_path: str) -> object:
+        return filesystem.list_files(path, workspace_path)
+
+    def read_file(self, path: str, workspace_path: str) -> object:
+        return filesystem.read_file(path, workspace_path)
+
+    def search_files(self, query: str, workspace_path: str) -> object:
+        return filesystem.search_files(query, workspace_path)
+
+    def git_status(self, workspace_path: str) -> object:
+        return git.git_status(workspace_path)
+
+    def git_diff(self, workspace_path: str) -> object:
+        return git.git_diff(workspace_path)
+
+
 class CodeContextBuilder:
-    def __init__(self, workspace_path: str = "") -> None:
+    def __init__(self, workspace_path: str = "", tools: CodeContextTools | None = None) -> None:
         self.workspace_path = workspace_path
+        self.tools = tools or DefaultCodeContextTools()
 
     def build(self, user_message: str) -> str:
         sections = [
@@ -27,7 +68,7 @@ class CodeContextBuilder:
         ]
 
         try:
-            root = workspace_root(self.workspace_path)
+            root = self.tools.workspace_root(self.workspace_path)
         except WorkspaceError as exc:
             return "\n".join([*sections, f"Workspace error: {exc}"])
 
@@ -107,15 +148,15 @@ class CodeContextBuilder:
     def _call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
         try:
             if tool == "nixai_workspace_list_files":
-                result = filesystem.list_files(str(arguments.get("path") or "."), self.workspace_path)
+                result = self.tools.list_files(str(arguments.get("path") or "."), self.workspace_path)
             elif tool == "nixai_workspace_read_file":
-                result = filesystem.read_file(str(arguments.get("path") or ""), self.workspace_path)
+                result = self.tools.read_file(str(arguments.get("path") or ""), self.workspace_path)
             elif tool == "nixai_workspace_search_files":
-                result = filesystem.search_files(str(arguments.get("query") or ""), self.workspace_path)
+                result = self.tools.search_files(str(arguments.get("query") or ""), self.workspace_path)
             elif tool == "nixai_git_status":
-                result = git.git_status(self.workspace_path)
+                result = self.tools.git_status(self.workspace_path)
             elif tool == "nixai_git_diff":
-                result = git.git_diff(self.workspace_path)
+                result = self.tools.git_diff(self.workspace_path)
             else:
                 result = f"Tool is not available in code context: {tool}"
         except Exception as exc:

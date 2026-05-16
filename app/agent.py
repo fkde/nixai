@@ -3,29 +3,33 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 from collections.abc import AsyncIterator
 from typing import Any, Optional
 
 from app import database
-from app.agentic_context import AgenticContextBuilder
+from app.agentic_routing import (
+    AGENTIC_WORKFLOW_TOOL,
+    DEFAULT_DIRECT_REASON,
+    agentic_route_payload,
+    agentic_router_prompt,
+    agentic_workflow_fallback,
+    compact_agentic_history,
+    parse_agentic_route_response,
+)
 from app.agentic_schedule import compute_next_run, utc_now_dt
-from app.code_context import CodeContextBuilder
 from app.config import load_settings
-from app.effort import effort_context, normalize_effort
+from app.context_builder import ModeContextBuilder
+from app.effort import normalize_effort
+from app.json_utils import parse_json_object
 from app.llm.ollama import OllamaClient
-from app.memory import memory_context
 from app.models import CreateMessageResponse, Message, MessageMode, new_id, utc_now
-from app.roles import role_prompt
-from app.runtime_context import runtime_meta_context
 from app.task_discovery import TaskDiscovery
+from app.title_generation import DEFAULT_CHAT_TITLES, build_chat_title_messages, clean_chat_title
 from app.workflows.presets import selected_workflow
 from app.workflows.runner import WorkflowRunner
 
 
 TITLE_GENERATION_RUNNING: set[str] = set()
-DEFAULT_CHAT_TITLES = {"Neuer Chat", "New Chat"}
-AGENTIC_WORKFLOW_TOOL = "run_agentic_workflow"
 logger = logging.getLogger(__name__)
 
 
@@ -182,25 +186,8 @@ class Agent:
 
     async def _generate_chat_title(self, chat_id: str, user_message: str, mode: MessageMode) -> None:
         try:
-            prompt = (
-                "Generate a concise chat title for the user's request.\n"
-                "Rules:\n"
-                "- Return only the title.\n"
-                "- 2 to 6 words.\n"
-                "- Match the user's language.\n"
-                "- No quotes, no markdown, no trailing punctuation.\n"
-                "- Prefer a useful summary over copying the full sentence.\n\n"
-                f"Mode: {mode}\n"
-                f"User request: {user_message}"
-            )
             title = await self.ollama.chat_payload(
-                [
-                    {
-                        "role": "system",
-                        "content": f"{runtime_meta_context(user_message)}\n\nYou write short app sidebar titles. Return plain text only.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
+                build_chat_title_messages(user_message, mode),
                 model=self.settings.model_for_role("assistant"),
             )
             clean_title = self._clean_chat_title(title)
@@ -212,13 +199,7 @@ class Agent:
             TITLE_GENERATION_RUNNING.discard(chat_id)
 
     def _clean_chat_title(self, title: str) -> str:
-        clean = " ".join(str(title or "").strip().split())
-        clean = clean.strip("\"'`“”„")
-        clean = clean.removeprefix("- ").removeprefix("* ").strip()
-        clean = clean.rstrip(".:;")
-        if not clean or clean in DEFAULT_CHAT_TITLES:
-            return ""
-        return clean[:56]
+        return clean_chat_title(title)
 
     async def _agentic_static_answer(self, user_message: str) -> str | None:
         discovery = await TaskDiscovery(self.settings, self.ollama).discover(user_message)
@@ -272,14 +253,12 @@ class Agent:
         workflow = selected_workflow(self.settings, "agentic")
         if workflow is None or workflow.is_direct():
             return False, "No non-direct workflow configured."
-        default_reason = "Model chose direct reply."
         try:
-            payload = {
-                "user_message": user_message,
-                "recent_messages": self._agentic_router_history(chat_id),
-                "workflow_name": workflow.name,
-                "tool_name": AGENTIC_WORKFLOW_TOOL,
-            }
+            payload = agentic_route_payload(
+                user_message=user_message,
+                recent_messages=self._agentic_router_history(chat_id),
+                workflow_name=workflow.name,
+            )
             content = await self.ollama.chat_payload(
                 [
                     {"role": "system", "content": self._agentic_router_prompt()},
@@ -287,123 +266,39 @@ class Agent:
                 ],
                 model=self.settings.model_for_role("orchestrator"),
             )
-            parsed = self._parse_json_object(content)
-            action = str(parsed.get("action") or "").strip().lower()
-            reason = str(parsed.get("reason") or default_reason).strip() or default_reason
-            if action == "run_agentic_workflow":
-                return True, reason
-            return False, reason
+            decision = parse_agentic_route_response(content)
+            return decision.run_workflow, decision.reason
         except Exception as exc:
             logger.warning("agentic router failed", exc_info=exc)
             if self._agentic_workflow_fallback(user_message):
                 return True, "Fallback matched workflow-style request."
-            return False, default_reason
+            return False, DEFAULT_DIRECT_REASON
 
     def _agentic_router_prompt(self) -> str:
-        return (
-            "You route an AGENTIC-mode request in NixAI.\n"
-            f"You may either call the internal tool '{AGENTIC_WORKFLOW_TOOL}' or answer directly without workflow.\n\n"
-            "Return strict JSON only with schema:\n"
-            "{\"action\":\"answer_direct|run_agentic_workflow\",\"reason\":\"short reason\"}\n\n"
-            "Decision rules:\n"
-            "- Prefer answer_direct for simple follow-up questions, clarifications, yes/no checks, rewrites, or short conversational replies.\n"
-            f"- Choose run_agentic_workflow only when the answer likely needs multi-step reasoning, tool usage, workflow evidence, or you are materially uncertain.\n"
-            "- If the user references previous assistant output and asks a small follow-up, keep answer_direct.\n"
-            "- Keep reason under 140 characters."
-        )
+        return agentic_router_prompt()
 
     def _agentic_router_history(self, chat_id: str, limit: int = 8) -> list[dict[str, str]]:
         messages = database.list_messages(chat_id, mode="agentic")
-        selected = messages[-limit:]
-        compact: list[dict[str, str]] = []
-        for message in selected:
-            text = " ".join((message.content or "").split())
-            compact.append(
-                {
-                    "role": message.role,
-                    "content": text[:360],
-                }
-            )
-        return compact
+        return compact_agentic_history(messages, limit=limit)
 
     def _agentic_workflow_fallback(self, user_message: str) -> bool:
-        text = str(user_message or "").strip().lower()
-        keywords = [
-            "analyse",
-            "analysiere",
-            "research",
-            "recherche",
-            "vergleich",
-            "workflow",
-            "workspace",
-        ]
-        return any(re.search(rf"\b{re.escape(keyword)}\b", text) for keyword in keywords)
+        return agentic_workflow_fallback(user_message)
 
     def _parse_json_object(self, content: str) -> dict[str, Any]:
-        clean = str(content or "").strip()
-        if clean.startswith("```"):
-            clean = re.sub(r"^```(?:json)?", "", clean, flags=re.IGNORECASE).strip()
-            clean = re.sub(r"```$", "", clean).strip()
-        try:
-            parsed = json.loads(clean)
-        except json.JSONDecodeError:
-            match = re.search(r"\{[\s\S]*\}", clean)
-            if not match:
-                return {}
-            try:
-                parsed = json.loads(match.group(0))
-            except json.JSONDecodeError:
-                return {}
-        return parsed if isinstance(parsed, dict) else {}
+        return parse_json_object(content)
 
     async def _history_with_mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> list[Message]:
         history = database.list_messages(chat_id, mode=mode)
         return [self._system_message(chat_id, await self._mode_context(chat_id, mode, user_message)), *history]
 
     async def _mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> str:
-        meta_context = runtime_meta_context(user_message)
-        effort_block = effort_context(self.settings.effort)
-        if mode == "code":
-            workspace = self._workspace_for_chat(chat_id)
-            return (
-                f"{role_prompt('WORKER')}\n\n"
-                f"{meta_context}\n\n"
-                f"{effort_block}\n\n"
-                f"{self._memory_context_block()}\n\n"
-                "NixAI mode: CODE.\n"
-                f"Configured workspace: {workspace}\n"
-                "Help with code and project understanding. Prefer workspace-grounded answers. "
-                "Do not claim that files, Git, or tests were inspected unless tool results are provided.\n\n"
-                f"{CodeContextBuilder(workspace).build(user_message)}"
-            )
-        if mode == "agentic":
-            agentic_context = await AgenticContextBuilder(self.settings, self.ollama).build(user_message)
-            research_block = f"\n\n{agentic_context}" if agentic_context else ""
-            return (
-                f"{role_prompt('ORCHESTRATOR')}\n\n"
-                f"{meta_context}\n\n"
-                f"{effort_block}\n\n"
-                f"{self._memory_context_block()}\n\n"
-                "NixAI mode: AGENTIC.\n"
-                "Act as an autonomous local orchestrator, not only as a scheduler. "
-                "If NixAI tool context is supplied, use it as evidence for the answer and do not fall back to training-data disclaimers. "
-                "If the request sounds recurring or one-time scheduled, TaskDiscovery may already have created the task; do not ask for schedule details unless the user is explicitly scheduling something. "
-                "The current POC can store and run scheduled Agentic Tasks with approved tools."
-                f"{research_block}"
-            )
-        return (
-            f"{role_prompt('ASSISTANT')}\n\n"
-            f"{meta_context}\n\n"
-            f"{effort_block}\n\n"
-            "NixAI mode: CHAT. Answer conversationally without assuming workspace tool access."
-        )
+        return await ModeContextBuilder(self.settings, self.ollama).build(chat_id, mode, user_message)
 
     def _memory_context_block(self) -> str:
-        return "Shared reviewed memory:\n" + memory_context()
+        return ModeContextBuilder(self.settings, self.ollama).memory_context_block()
 
     def _workspace_for_chat(self, chat_id: str) -> str:
-        chat = database.get_chat(chat_id)
-        return (chat.workspace_path if chat and chat.workspace_path.strip() else self.settings.workspace_path).strip()
+        return ModeContextBuilder(self.settings, self.ollama).workspace_for_chat(chat_id)
 
     def _system_message(self, chat_id: str, content: str) -> Message:
         return Message(id=new_id(), chat_id=chat_id, role="system", content=content, mode="chat", created_at=utc_now())

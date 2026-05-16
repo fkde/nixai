@@ -2,22 +2,36 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from collections.abc import Callable
 from typing import Any, Optional
 
 from app import database
 from app.agentic_context import AgenticContextBuilder
-from app.code_context import CodeContextBuilder
 from app.config import Settings, load_settings
-from app.effort import effort_context, effort_max_items, effort_max_parallel, normalize_effort
+from app.effort import effort_max_items, effort_max_parallel
+from app.json_utils import parse_json_object
 from app.llm.ollama import OllamaClient
-from app.memory import memory_context
 from app.models import MessageMode
-from app.roles import role_prompt
-from app.runtime_context import runtime_meta_context
-from app.workflow_scratch import append_workflow_note, new_workflow_run_id, read_workflow_notes, workflow_scratch_path
+from app.title_generation import clean_chat_title
+from app.workflow_scratch import append_workflow_note
 from app.workflows.models import WorkflowDefinition, WorkflowEvent, WorkflowNode, WorkflowResult
+from app.workflows.prompts import (
+    build_final_answer_prompt,
+    build_judge_prompt,
+    build_plan_prompt,
+    build_retry_plan_prompt,
+    build_review_prompt,
+    build_worker_prompt,
+)
+from app.workflows.state import (
+    compact_workflow_reports,
+    compact_workflow_rounds,
+    compact_workflow_state,
+    final_answer_payload,
+    initial_workflow_state,
+    record_workflow_round,
+    workflow_state_payload,
+)
 
 
 class WorkflowRunner:
@@ -109,32 +123,7 @@ class WorkflowRunner:
             self._on_event = None
 
     def _initial_state(self, chat_id: str, user_message: str, mode: MessageMode) -> dict[str, Any]:
-        workspace = ""
-        if mode == "code":
-            chat = database.get_chat(chat_id)
-            workspace = (chat.workspace_path if chat and chat.workspace_path.strip() else self.settings.workspace_path).strip()
-        history = database.list_messages(chat_id, mode=mode)[-8:]
-        code_context = CodeContextBuilder(workspace).build(user_message) if mode == "code" else ""
-        return {
-            "chat_id": chat_id,
-            "mode": mode,
-            "user_message": user_message,
-            "workflow_run_id": new_workflow_run_id(),
-            "workflow_scratch_path": str(workflow_scratch_path()),
-            "workflow_rounds": [],
-            "effort": normalize_effort(self.settings.effort),
-            "effort_context": effort_context(self.settings.effort),
-            "workspace": workspace,
-            "runtime_context": runtime_meta_context(user_message),
-            "memory": memory_context(),
-            "code_context": code_context,
-            "agentic_context": "",
-            "history": [
-                {"role": message.role, "content": message.content[:4000]}
-                for message in history
-                if message.role in {"user", "assistant"}
-            ],
-        }
+        return initial_workflow_state(self.settings, chat_id, user_message, mode)
 
     async def _build_plan(
         self,
@@ -148,22 +137,12 @@ class WorkflowRunner:
 
         max_items = effort_max_items(node.max_items, state.get("effort"))
         self._event(events, node.id, "status", "Summarizing task for orchestrator.")
-        prompt = (
-            f"{role_prompt(node.role or 'ORCHESTRATOR')}\n\n"
-            f"{state['runtime_context']}\n\n"
-            f"{state['effort_context']}\n\n"
-            f"Shared reviewed memory:\n{state['memory']}\n\n"
-            "Create a compact execution plan for this NixAI workflow.\n"
-            "Match the user's language for title and summary.\n"
-            "Return strict JSON only with this schema:\n"
-            "{"
-            "\"title\":\"2-6 word chat title\","
-            "\"summary\":\"...\","
-            "\"acceptance_criteria\":[\"...\"],"
-            "\"work_items\":[{\"id\":\"short-id\",\"title\":\"...\",\"instructions\":\"...\",\"owned_paths\":[\"optional/path\"]}]"
-            "}\n"
-            f"Maximum work items for this effort level: {max_items}.\n"
-            "Keep work items independent when possible so worker_pool can run them in parallel."
+        prompt = build_plan_prompt(
+            role=node.role,
+            runtime_context=state["runtime_context"],
+            effort_context=state["effort_context"],
+            memory=state["memory"],
+            max_items=max_items,
         )
         content = await self._role_call(node, prompt, self._state_payload(state))
         plan = self._parse_json(content, self._fallback_plan(state["user_message"]))
@@ -185,24 +164,12 @@ class WorkflowRunner:
 
         max_items = effort_max_items(node.max_items, state.get("effort"))
         self._event(events, node.id, "status", "Replanning retry with prior findings.")
-        prompt = (
-            f"{role_prompt(node.role or 'ORCHESTRATOR')}\n\n"
-            f"{state['runtime_context']}\n\n"
-            f"{state['effort_context']}\n\n"
-            f"Shared reviewed memory:\n{state['memory']}\n\n"
-            "Revise the workflow plan for the next retry pass.\n"
-            "Use the previous worker reports, reviewer findings, judge feedback, and workflow scratchpad.\n"
-            "Do not repeat completed work. Convert the retry feedback into concrete worker instructions.\n"
-            "If the missing piece is final synthesis, create a single synthesis work item that consolidates existing evidence instead of asking workers to rediscover the same facts.\n"
-            "Match the user's language for title and summary.\n"
-            "Return strict JSON only with this schema:\n"
-            "{"
-            "\"title\":\"2-6 word chat title\","
-            "\"summary\":\"...\","
-            "\"acceptance_criteria\":[\"...\"],"
-            "\"work_items\":[{\"id\":\"short-id\",\"title\":\"...\",\"instructions\":\"...\",\"owned_paths\":[\"optional/path\"]}]"
-            "}\n"
-            f"Maximum work items for this effort level: {max_items}."
+        prompt = build_retry_plan_prompt(
+            role=node.role,
+            runtime_context=state["runtime_context"],
+            effort_context=state["effort_context"],
+            memory=state["memory"],
+            max_items=max_items,
         )
         content = await self._role_call(node, prompt, self._state_payload(state))
         plan = self._parse_json(content, self._fallback_plan(state["user_message"]))
@@ -267,14 +234,10 @@ class WorkflowRunner:
             return {"status": "approved", "summary": "No reviewer node configured.", "findings": []}
 
         self._event(events, node.id, "status", "Reviewer is checking worker reports.")
-        prompt = (
-            f"{role_prompt(node.role or 'REVIEWER')}\n\n"
-            f"{state['runtime_context']}\n\n"
-            f"{state['effort_context']}\n\n"
-            "Review the worker reports against the plan and acceptance criteria.\n"
-            "Return strict JSON only with this schema:\n"
-            "{\"status\":\"approved|changes_requested\",\"summary\":\"...\",\"findings\":[{\"severity\":\"low|medium|high\",\"message\":\"...\"}]}.\n"
-            "Do not invent test results or file changes."
+        prompt = build_review_prompt(
+            role=node.role,
+            runtime_context=state["runtime_context"],
+            effort_context=state["effort_context"],
         )
         content = await self._role_call(node, prompt, self._state_payload(state))
         review = self._parse_json(content, {"status": "changes_requested", "summary": content.strip(), "findings": []})
@@ -292,17 +255,10 @@ class WorkflowRunner:
             return {"status": "done", "reason": "No judge node configured.", "feedback": []}
 
         self._event(events, node.id, "status", "Judge is deciding whether the task is done.")
-        prompt = (
-            f"{role_prompt(node.role or 'JUDGE')}\n\n"
-            f"{state['runtime_context']}\n\n"
-            f"{state['effort_context']}\n\n"
-            "Decide whether this workflow has enough evidence to answer the user.\n"
-            "Return strict JSON only with this schema:\n"
-            "{\"status\":\"done|retry|needs_user\",\"reason\":\"...\",\"feedback\":[\"...\"],\"final_answer\":\"optional user-facing answer\"}.\n"
-            "Use retry only when a worker can improve the result without asking the user. "
-            "Use needs_user when required information, approval, or tool access is missing. "
-            "If the only missing piece is final synthesis or wording, use done and provide a user-facing final_answer. "
-            "Never put internal deliberation, reviewer-only commentary, or retry rationale in final_answer."
+        prompt = build_judge_prompt(
+            role=node.role,
+            runtime_context=state["runtime_context"],
+            effort_context=state["effort_context"],
         )
         content = await self._role_call(node, prompt, self._state_payload(state))
         decision = self._parse_json(content, {"status": "done", "reason": content.strip(), "feedback": []})
@@ -328,16 +284,9 @@ class WorkflowRunner:
             return "\n".join(lines).strip()
 
         self._event(events, "final", "status", "Preparing final answer.")
-        prompt = (
-            f"{role_prompt('ORCHESTRATOR')}\n\n"
-            f"{state['runtime_context']}\n\n"
-            f"{state['effort_context']}\n\n"
-            "Write the final answer for the user from the workflow state. "
-            "Match the user's language. Be concise, concrete, and transparent about missing verification. "
-            "Synthesize across all workflow rounds, worker reports, review findings, judge feedback, and the workflow scratchpad. "
-            "Never output internal Judge/Reviewer reasoning as the answer. Do not say a retry is required. "
-            "If evidence is incomplete, give the best grounded answer and clearly label what could not be verified. "
-            "Do not mention internal JSON unless it matters."
+        prompt = build_final_answer_prompt(
+            runtime_context=state["runtime_context"],
+            effort_context=state["effort_context"],
         )
         messages = [
             {"role": "system", "content": prompt},
@@ -384,84 +333,28 @@ class WorkflowRunner:
         )
 
     def _worker_prompt(self, node: WorkflowNode, item: dict[str, Any], state: dict[str, Any]) -> str:
-        retry_feedback = state.get("retry_feedback")
-        prompt = (
-            f"{role_prompt(node.role or 'WORKER')}\n\n"
-            f"{state['runtime_context']}\n\n"
-            f"{state['effort_context']}\n\n"
-            f"Shared reviewed memory:\n{state['memory']}\n\n"
-            "Execute this assigned workflow item as far as possible from the provided context.\n"
-            "Return concise Markdown with: result, evidence, open risks, and recommended next checks.\n"
-            "Do not claim tools, tests, or file edits were run unless they are visible in the supplied context.\n\n"
-            f"Assigned item:\n{json.dumps(item, ensure_ascii=False, indent=2)}"
+        return build_worker_prompt(
+            role=node.role,
+            runtime_context=state["runtime_context"],
+            effort_context=state["effort_context"],
+            memory=state["memory"],
+            item=item,
+            code_context=str(state.get("code_context") or ""),
+            agentic_context=str(state.get("agentic_context") or ""),
+            retry_feedback=state.get("retry_feedback"),
         )
-        if state.get("code_context"):
-            prompt += f"\n\nWorkspace context:\n{state['code_context']}"
-        if state.get("agentic_context"):
-            prompt += f"\n\nAgentic tool context:\n{state['agentic_context']}"
-        if retry_feedback:
-            prompt += f"\n\nRetry feedback from Judge:\n{retry_feedback}"
-        return prompt
 
     def _state_payload(self, state: dict[str, Any]) -> dict[str, Any]:
-        payload = {
-            "mode": state.get("mode"),
-            "effort": state.get("effort"),
-            "user_message": state.get("user_message"),
-            "workspace": state.get("workspace"),
-            "history": state.get("history", []),
-            "plan": state.get("plan"),
-            "worker_reports": state.get("worker_reports"),
-            "review": state.get("review"),
-            "decision": state.get("decision"),
-            "retry_feedback": state.get("retry_feedback"),
-            "workflow_rounds": self._compact_rounds(state.get("workflow_rounds")),
-        }
-        if state.get("code_context"):
-            payload["code_context"] = str(state["code_context"])[:12000]
-        if state.get("agentic_context"):
-            payload["agentic_context"] = str(state["agentic_context"])[:16000]
-        scratch = read_workflow_notes(str(state.get("workflow_run_id") or ""))
-        if scratch:
-            payload["workflow_scratchpad"] = scratch[:16000]
-        return payload
+        return workflow_state_payload(state)
 
     def _final_answer_payload(self, state: dict[str, Any]) -> dict[str, Any]:
-        payload = self._state_payload(state)
-        payload.pop("code_context", None)
-        payload.pop("agentic_context", None)
-        payload["worker_reports"] = self._compact_reports(state.get("worker_reports"), limit=1800)
-        payload["workflow_rounds"] = self._compact_rounds(state.get("workflow_rounds"), report_limit=1200)
-        if "workflow_scratchpad" in payload:
-            payload["workflow_scratchpad"] = str(payload["workflow_scratchpad"])[:6000]
-        return payload
+        return final_answer_payload(state)
 
     def _compact_state(self, state: dict[str, Any]) -> dict[str, Any]:
-        compact = self._state_payload(state)
-        if "code_context" in compact:
-            compact["code_context"] = "[omitted]"
-        if "agentic_context" in compact:
-            compact["agentic_context"] = "[omitted]"
-        if state.get("final_answer_streamed"):
-            compact["answer_streamed"] = True
-        return compact
+        return compact_workflow_state(state)
 
     def _parse_json(self, content: str, fallback: dict[str, Any]) -> dict[str, Any]:
-        clean = content.strip()
-        if clean.startswith("```"):
-            clean = re.sub(r"^```(?:json)?", "", clean, flags=re.IGNORECASE).strip()
-            clean = re.sub(r"```$", "", clean).strip()
-        try:
-            parsed = json.loads(clean)
-        except json.JSONDecodeError:
-            match = re.search(r"\{[\s\S]*\}", clean)
-            if not match:
-                return fallback
-            try:
-                parsed = json.loads(match.group(0))
-            except json.JSONDecodeError:
-                return fallback
-        return parsed if isinstance(parsed, dict) else fallback
+        return parse_json_object(content, fallback=fallback)
 
     def _normalize_work_items(self, raw_items: Any, user_message: str, limit: int) -> list[dict[str, Any]]:
         if not isinstance(raw_items, list):
@@ -502,16 +395,7 @@ class WorkflowRunner:
             database.update_chat_title_if_default(chat_id, title)
 
     def _clean_chat_title(self, title: str) -> str:
-        clean = " ".join(str(title or "").strip().split())
-        clean = clean.strip("\"'`“”„")
-        clean = clean.removeprefix("- ").removeprefix("* ").strip()
-        clean = clean.rstrip(".:;")
-        if not clean or clean in {"New Chat", "Neuer Chat"}:
-            return ""
-        words = clean.split()
-        if len(words) > 7:
-            clean = " ".join(words[:7])
-        return clean[:56]
+        return clean_chat_title(title, max_words=7)
 
     def _default_work_item(self, user_message: str) -> dict[str, Any]:
         return {
@@ -528,53 +412,13 @@ class WorkflowRunner:
         review: dict[str, Any],
         decision: dict[str, Any],
     ) -> None:
-        rounds = state.get("workflow_rounds")
-        if not isinstance(rounds, list):
-            rounds = []
-            state["workflow_rounds"] = rounds
-        rounds.append(
-            {
-                "iteration": state.get("iteration"),
-                "plan": state.get("plan"),
-                "worker_reports": reports,
-                "review": review,
-                "decision": decision,
-            }
-        )
+        record_workflow_round(state, reports, review, decision)
 
     def _compact_rounds(self, rounds: Any, report_limit: int = 3000) -> list[dict[str, Any]]:
-        if not isinstance(rounds, list):
-            return []
-        compact = []
-        for item in rounds[-4:]:
-            if not isinstance(item, dict):
-                continue
-            compact.append(
-                {
-                    "iteration": item.get("iteration"),
-                    "plan_summary": (item.get("plan") or {}).get("summary") if isinstance(item.get("plan"), dict) else "",
-                    "worker_reports": self._compact_reports(item.get("worker_reports"), limit=report_limit),
-                    "review": item.get("review"),
-                    "decision": item.get("decision"),
-                }
-            )
-        return compact
+        return compact_workflow_rounds(rounds, report_limit=report_limit)
 
     def _compact_reports(self, reports: Any, limit: int = 3000) -> list[dict[str, str]]:
-        if not isinstance(reports, list):
-            return []
-        compact = []
-        for report in reports:
-            if not isinstance(report, dict):
-                continue
-            compact.append(
-                {
-                    "id": str(report.get("id") or ""),
-                    "title": str(report.get("title") or ""),
-                    "content": str(report.get("content") or "")[:limit],
-                }
-            )
-        return compact
+        return compact_workflow_reports(reports, limit=limit)
 
     def _note(self, state: dict[str, Any], title: str, body: str = "") -> None:
         append_workflow_note(str(state.get("workflow_run_id") or "workflow"), title, body)
