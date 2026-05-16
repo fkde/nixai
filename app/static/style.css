@@ -35,7 +35,7 @@
   --button-height: 40px;
   --footer-strip-top: 17px;
   --footer-strip-bottom: 21px;
-  --footer-action-size: 50px;
+  --footer-action-size: 42px;
   --radius: 8px;
   --font-ui: "JetBrains Mono", "Ubuntu Sans Mono", "Ubuntu Sans", "SF Pro Text", "Inter", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --font-display: "JetBrains Mono", "Ubuntu Sans", "SF Pro Display", "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -287,7 +287,7 @@ body.desktop-shell .thinking-dot {
 }
 
 body.desktop-macos.native-traffic-lights .brand {
-  padding-top: 54px;
+  padding-top: 47px;
 }
 
 body.desktop-macos.native-traffic-lights .chat-header {
@@ -427,8 +427,8 @@ button > svg {
   position: relative;
   z-index: 1;
   display: grid;
-  gap: 20px;
-  padding: 27px 23px 22px;
+  gap: 0;
+  padding: 20px 23px 18px;
   border-bottom: 1px solid rgba(69, 230, 242, 0.18);
 }
 
@@ -475,20 +475,12 @@ button > svg {
     0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
-.sidebar-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 14px;
-  width: 100%;
-}
-
 .sidebar-tool-button {
-  width: 46px;
-  height: 46px;
-  min-height: 46px;
+  width: 42px;
+  height: 42px;
+  min-height: 42px;
   padding: 0;
-  border-radius: 12px;
+  border-radius: 11px;
   border-color: rgba(69, 230, 242, 0.2);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0)),
@@ -552,8 +544,8 @@ button > svg {
 .sidebar-tool-button .button-icon,
 .sidebar-tool-button .button-icon svg,
 .sidebar-tool-button > svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
 .sidebar-tool-button > svg {
@@ -582,6 +574,7 @@ button > svg {
   display: flex;
   align-items: center;
   justify-content: flex-start;
+  gap: 10px;
   margin-top: auto;
   min-height: calc(var(--footer-action-size) + var(--footer-strip-top) + var(--footer-strip-bottom));
   padding: var(--footer-strip-top) 23px var(--footer-strip-bottom);
