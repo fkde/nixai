@@ -4,6 +4,16 @@ import {
   registerDirtyTracker,
   safeLocalStorageGet,
 } from "./dirty-tracker.js";
+import {
+  clampInt,
+  clampLength,
+  escapeHtml,
+  findStreamSealOffset,
+  formatContent,
+  formatInlineMarkdown,
+  plainTextContent,
+  slugifyWorkflowId,
+} from "./helpers.js";
 import { parseFrameEvent } from "./stream.js";
 import { cloneWorkflowDraft, dedupeList, parseCsvList } from "./workflow-editor.js";
 
@@ -16,6 +26,8 @@ const state = {
   workflowPresets: [],
   customWorkflowIds: [],
   workflowEditorDraft: null,
+  workflowEditorView: "list",
+  workflowEditorSelectedNodeId: null,
   availableModels: [],
   modelCatalog: [],
   modelsLoaded: false,
@@ -70,11 +82,15 @@ const workspacePath = document.querySelector("#workspace-path");
 const embeddingModel = document.querySelector("#embedding-model");
 const requireToolConfirmation = document.querySelector("#require-tool-confirmation");
 const alwaysAllowedTools = document.querySelector("#always-allowed-tools");
+const workflowSection = document.querySelector(".workflow-section");
+const workflowListView = workflowSection?.querySelector(".workflow-list-view") ?? null;
+const workflowBuilderView = workflowSection?.querySelector(".workflow-builder-view") ?? null;
+const workflowBuilderBack = document.querySelector("#workflow-builder-back");
+const workflowBuilderTitle = document.querySelector("#workflow-builder-title");
 const workflowChat = document.querySelector("#workflow-chat");
 const workflowCode = document.querySelector("#workflow-code");
 const workflowAgentic = document.querySelector("#workflow-agentic");
 const workflowPresetList = document.querySelector("#workflow-preset-list");
-const workflowEditorTarget = document.querySelector("#workflow-editor-target");
 const workflowEditorNew = document.querySelector("#workflow-editor-new");
 const workflowEditorDelete = document.querySelector("#workflow-editor-delete");
 const workflowEditorSave = document.querySelector("#workflow-editor-save");
@@ -91,8 +107,24 @@ const workflowEditorAssignCode = document.querySelector("#workflow-editor-assign
 const workflowEditorAssignAgentic = document.querySelector("#workflow-editor-assign-agentic");
 const workflowEditorSaveAssign = document.querySelector("#workflow-editor-save-assign");
 const workflowEditorAddNode = document.querySelector("#workflow-editor-add-node");
-const workflowEditorNodeList = document.querySelector("#workflow-editor-node-list");
-const workflowGraphPreview = document.querySelector("#workflow-graph-preview");
+const workflowCanvas = document.querySelector("#workflow-canvas");
+const workflowCanvasNodes = document.querySelector("#workflow-canvas-nodes");
+const workflowCanvasEdges = document.querySelector("#workflow-canvas-edges");
+const workflowCanvasEdgeLayer = workflowCanvasEdges?.querySelector(".workflow-canvas-edge-layer") ?? null;
+const workflowNodeEditPanel = document.querySelector("#workflow-node-edit-panel");
+const workflowNodeEditTitle = document.querySelector("#workflow-node-edit-title");
+const workflowNodeEditClose = document.querySelector("#workflow-node-edit-close");
+const workflowNodeEditRemove = document.querySelector("#workflow-node-edit-remove");
+const nodeEditId = document.querySelector("#node-edit-id");
+const nodeEditTitleInput = document.querySelector("#node-edit-title-input");
+const nodeEditRole = document.querySelector("#node-edit-role");
+const nodeEditReceive = document.querySelector("#node-edit-receive");
+const nodeEditReports = document.querySelector("#node-edit-reports");
+const nodeEditInput = document.querySelector("#node-edit-input");
+const nodeEditOutput = document.querySelector("#node-edit-output");
+const nodeEditWorkers = document.querySelector("#node-edit-workers");
+const nodeEditMaxItems = document.querySelector("#node-edit-max-items");
+const nodeEditJson = document.querySelector("#node-edit-json");
 const emailProvider = document.querySelector("#email-provider");
 const emailProviderStatus = document.querySelector("#email-provider-status");
 const emailProviderAccount = document.querySelector("#email-provider-account");
@@ -228,15 +260,6 @@ function showToast(message, kind = "success") {
   }, kind === "error" ? 5200 : 2600);
 }
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 let settingsDirtyTracker = null;
 
 function initGenericDirtyTracking() {
@@ -249,120 +272,6 @@ function initGenericDirtyTracking() {
     tracker.captureBaseline();
     tracker.restoreDraftIfAny();
   });
-}
-
-function formatInlineMarkdown(value) {
-  const codeSpans = [];
-  let html = escapeHtml(value).replace(/`([^`]+)`/g, (_match, code) => {
-    const token = `@@CODE_SPAN_${codeSpans.length}@@`;
-    codeSpans.push(`<code>${code}</code>`);
-    return token;
-  });
-  html = html
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/__([^_]+)__/g, "<strong>$1</strong>")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-  codeSpans.forEach((code, index) => {
-    html = html.replaceAll(`@@CODE_SPAN_${index}@@`, code);
-  });
-  return html;
-}
-
-function formatContent(content) {
-  const lines = String(content ?? "").replace(/\r\n/g, "\n").split("\n");
-  const blocks = [];
-  let paragraph = [];
-  let list = null;
-  let codeBlock = null;
-
-  const flushParagraph = () => {
-    const text = paragraph.join(" ").trim();
-    if (text) {
-      blocks.push(`<p>${formatInlineMarkdown(text)}</p>`);
-    }
-    paragraph = [];
-  };
-
-  const closeList = () => {
-    if (!list) return;
-    blocks.push(`<${list.type}>${list.items.map((item) => `<li>${item}</li>`).join("")}</${list.type}>`);
-    list = null;
-  };
-
-  const addListItem = (type, text) => {
-    flushParagraph();
-    if (!list || list.type !== type) {
-      closeList();
-      list = { type, items: [] };
-    }
-    list.items.push(formatInlineMarkdown(text.trim()));
-  };
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (codeBlock) {
-      if (trimmed.startsWith("```")) {
-        blocks.push(`<pre><code>${escapeHtml(codeBlock.join("\n"))}</code></pre>`);
-        codeBlock = null;
-      } else {
-        codeBlock.push(line);
-      }
-      continue;
-    }
-
-    if (trimmed.startsWith("```")) {
-      flushParagraph();
-      closeList();
-      codeBlock = [];
-      continue;
-    }
-
-    if (!trimmed) {
-      flushParagraph();
-      closeList();
-      continue;
-    }
-
-    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
-    if (heading) {
-      flushParagraph();
-      closeList();
-      const level = Math.min(heading[1].length + 2, 5);
-      blocks.push(`<h${level}>${formatInlineMarkdown(heading[2])}</h${level}>`);
-      continue;
-    }
-
-    const ordered = trimmed.match(/^\d+[.)]\s+(.+)$/);
-    if (ordered) {
-      addListItem("ol", ordered[1]);
-      continue;
-    }
-
-    const unordered = trimmed.match(/^[-*+]\s+(.+)$/);
-    if (unordered) {
-      addListItem("ul", unordered[1]);
-      continue;
-    }
-
-    if (list && list.items.length > 0) {
-      list.items[list.items.length - 1] += ` ${formatInlineMarkdown(trimmed)}`;
-      continue;
-    }
-
-    paragraph.push(trimmed);
-  }
-
-  flushParagraph();
-  closeList();
-  if (codeBlock) {
-    blocks.push(`<pre><code>${escapeHtml(codeBlock.join("\n"))}</code></pre>`);
-  }
-  return blocks.join("");
-}
-
-function plainTextContent(content) {
-  return escapeHtml(String(content ?? "")).replace(/\n/g, "<br>");
 }
 
 function shouldRenderMarkdown(message) {
@@ -898,6 +807,9 @@ function normalizeWorkflowNodes(workflow) {
       : String(node.input || "").trim()
         ? [String(node.input || "").trim()]
         : [];
+    const rawPos = node.position && typeof node.position === "object" ? node.position : {};
+    const px = Number(rawPos.x);
+    const py = Number(rawPos.y);
     return {
       id: String(node.id || `node_${index + 1}`),
       type: String(node.type || "role"),
@@ -915,6 +827,10 @@ function normalizeWorkflowNodes(workflow) {
         Array.isArray(node.reports_to) ? node.reports_to : parseCsvList(node.reports_to || ""),
       ),
       worker_instances: Math.min(8, Math.max(1, Number(node.worker_instances || node.max_parallel || 1))),
+      position: {
+        x: Number.isFinite(px) ? px : 0,
+        y: Number.isFinite(py) ? py : 0,
+      },
       config: typeof node.config === "object" && node.config ? node.config : {},
     };
   });
@@ -958,6 +874,41 @@ function defaultRoleForNodeType(type) {
   return "orchestrator";
 }
 
+/**
+ * Derive the backend execution type from a role name + parallel count.
+ * Keeps the workflow runner's existing semantics while letting the UI hide
+ * the "type" dimension entirely behind the role + worker-instances inputs.
+ */
+function deriveNodeTypeFromRole(roleName, workerInstances = 1) {
+  const role = String(roleName || "").trim().toLowerCase();
+  if (Number(workerInstances) > 1) return "worker_pool";
+  if (role === "judge") return "judge";
+  if (role === "reviewer") return "reviewer";
+  if (role === "worker") return "worker_pool";
+  return "role";
+}
+
+function nodeRoleSelectOptionsHtml(selectedRole) {
+  const roles = Array.isArray(state.roles) ? state.roles : [];
+  const matchKey = String(selectedRole || "").trim().toLowerCase();
+  // Role MD files are stored uppercase by convention; render them lower-case
+  // and use the lower-case form as the option value to keep workflow JSON
+  // consistent with the bundled presets.
+  const options = roles
+    .map((role) => {
+      const display = String(role.name || "").toLowerCase();
+      const isSelected = display === matchKey ? " selected" : "";
+      return `<option value="${escapeHtml(display)}"${isSelected}>${escapeHtml(display)}</option>`;
+    })
+    .join("");
+  const known = new Set(roles.map((role) => String(role.name || "").toLowerCase()));
+  const orphanOption = matchKey && !known.has(matchKey)
+    ? `<option value="${escapeHtml(matchKey)}" selected>${escapeHtml(matchKey)} (missing)</option>`
+    : "";
+  const placeholderSelected = matchKey ? "" : " selected";
+  return `<option value=""${placeholderSelected}>Select role…</option>${orphanOption}${options}`;
+}
+
 function newWorkflowDraftFrom(workflow) {
   const draft = normalizeWorkflowDraft(workflow || {});
   if (draft.nodes.length > 0) return draft;
@@ -979,15 +930,6 @@ function newWorkflowDraftFrom(workflow) {
       config: {},
     }],
   };
-}
-
-function slugifyWorkflowId(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 80);
 }
 
 function workflowOptionsHtml(mode, selected) {
@@ -1013,20 +955,6 @@ function renderWorkflowSettings() {
   updateSettingsDirtyState();
 }
 
-function workflowEditorTargetOptionsHtml(selectedId) {
-  const options = state.workflowPresets
-    .map((workflow) => {
-      const marker = isCustomWorkflow(workflow.id) ? "custom" : "preset";
-      return `<option value="${escapeHtml(workflow.id)}"${workflow.id === selectedId ? " selected" : ""}>${escapeHtml(workflow.name)} (${marker})</option>`;
-    })
-    .join("");
-  const selectedExists = state.workflowPresets.some((workflow) => workflow.id === selectedId);
-  const customOption = selectedId && !selectedExists
-    ? `<option value="${escapeHtml(selectedId)}" selected>${escapeHtml(selectedId)} (draft)</option>`
-    : "";
-  return `${customOption}${options}`;
-}
-
 function renderWorkflowPresetList() {
   if (!workflowPresetList) return;
   workflowPresetList.innerHTML = "";
@@ -1037,13 +965,22 @@ function renderWorkflowPresetList() {
   state.workflowPresets.forEach((workflow) => {
     const item = document.createElement("article");
     item.className = "workflow-preset-item";
+    item.dataset.workflowId = workflow.id;
     const nodes = normalizeWorkflowNodes(workflow);
     const modes = Array.isArray(workflow.modes) && workflow.modes.length > 0 ? workflow.modes : [workflow.mode];
     const customBadge = isCustomWorkflow(workflow.id) ? " · custom" : "";
     item.innerHTML = `
-      <div>
-        <strong>${escapeHtml(workflow.name)}</strong>
-        <small>${escapeHtml(modes.join(", "))} · ${escapeHtml(workflow.execution)} · ${escapeHtml(workflow.max_iterations || 1)} iteration(s)${customBadge}</small>
+      <div class="workflow-preset-head">
+        <div>
+          <strong>${escapeHtml(workflow.name)}</strong>
+          <small>${escapeHtml(modes.join(", "))} · ${escapeHtml(workflow.execution)} · ${escapeHtml(workflow.max_iterations || 1)} iteration(s)${customBadge}</small>
+        </div>
+        <button class="icon-button workflow-preset-edit" type="button" aria-label="Edit workflow" title="Edit">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 20l4-1 11-11-3-3-11 11-1 4z" />
+            <path d="M14 6l3 3" />
+          </svg>
+        </button>
       </div>
       <p>${escapeHtml(workflow.description || "")}</p>
       <div class="workflow-node-list">
@@ -1125,7 +1062,7 @@ function workflowGraphMarkup(workflow, compact = false) {
     .join("");
 
   return `
-    <svg class="workflow-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Workflow graph">
+    <svg class="workflow-graph-svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Workflow graph" style="max-width:${width}px;">
       <defs>
         <marker id="wf-arrow" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
           <path d="M0,0 L9,3.5 L0,7 z" fill="rgba(157, 250, 255, 0.7)"></path>
@@ -1173,98 +1110,135 @@ function activeWorkflowDraft() {
   return state.workflowEditorDraft;
 }
 
-function renderWorkflowEditorNodes() {
-  const draft = activeWorkflowDraft();
-  if (!workflowEditorNodeList || !draft) return;
-  workflowEditorNodeList.innerHTML = "";
+const WORKFLOW_NAME_MAX = 200;
+const WORKFLOW_DESCRIPTION_MAX = 1000;
+const WORKFLOW_FIELD_MAX = 120;
+
+const NODE_TILE_WIDTH = 168;
+const NODE_TILE_HEIGHT = 78;
+const NODE_GRID_X = 220;
+const NODE_GRID_Y = 130;
+const CANVAS_PAD = 24;
+
+function ensureNodePositions(draft) {
+  if (!draft?.nodes?.length) return;
+  const allMissing = draft.nodes.every((node) => {
+    const pos = node.position;
+    return !pos || (Number(pos.x) === 0 && Number(pos.y) === 0);
+  });
+  if (!allMissing) {
+    draft.nodes.forEach((node) => {
+      const pos = node.position || {};
+      node.position = {
+        x: Number.isFinite(Number(pos.x)) ? Number(pos.x) : 0,
+        y: Number.isFinite(Number(pos.y)) ? Number(pos.y) : 0,
+      };
+    });
+    return;
+  }
+  const cols = Math.min(3, Math.max(1, draft.nodes.length));
   draft.nodes.forEach((node, index) => {
-    const isWorker = String(node.type || "").toLowerCase() === "worker_pool";
-    const article = document.createElement("article");
-    article.className = "workflow-editor-node";
-    article.dataset.index = String(index);
-    article.innerHTML = `
-      <div class="workflow-editor-node-head">
-        <strong>Node ${index + 1}</strong>
-        <button class="danger-button remove-workflow-node" type="button">Remove</button>
-      </div>
-      <div class="workflow-editor-node-meta">
-        <label class="field">
-          <span>ID</span>
-          <input class="wf-node-id" type="text" value="${escapeHtml(node.id)}" />
-        </label>
-        <label class="field">
-          <span>Title</span>
-          <input class="wf-node-title" type="text" value="${escapeHtml(node.title || "")}" />
-        </label>
-        <label class="field">
-          <span>Type</span>
-          <select class="wf-node-type">
-            <option value="role"${node.type === "role" ? " selected" : ""}>role</option>
-            <option value="worker_pool"${node.type === "worker_pool" ? " selected" : ""}>worker_pool</option>
-            <option value="reviewer"${node.type === "reviewer" ? " selected" : ""}>reviewer</option>
-            <option value="judge"${node.type === "judge" ? " selected" : ""}>judge</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>Role</span>
-          <input class="wf-node-role" type="text" value="${escapeHtml(node.role || "")}" placeholder="${escapeHtml(defaultRoleForNodeType(node.type))}" />
-        </label>
-      </div>
-      <div class="workflow-editor-node-links">
-        <label class="field">
-          <span>receiveFrom (comma separated node ids)</span>
-          <input class="wf-node-receive" type="text" value="${escapeHtml((node.receive_from || []).join(", "))}" />
-        </label>
-        <label class="field">
-          <span>reportsTo (comma separated node ids)</span>
-          <input class="wf-node-reports" type="text" value="${escapeHtml((node.reports_to || []).join(", "))}" />
-        </label>
-      </div>
-      <div class="workflow-editor-node-io">
-        <label class="field">
-          <span>Input Fields</span>
-          <input class="wf-node-input" type="text" value="${escapeHtml((node.input || []).join(", "))}" placeholder="plan, worker_reports" />
-        </label>
-        <label class="field">
-          <span>Output Field</span>
-          <input class="wf-node-output" type="text" value="${escapeHtml(node.output || "")}" placeholder="plan" />
-        </label>
-        <label class="field">
-          <span>Worker Instances</span>
-          <input class="wf-node-workers" type="number" min="1" max="8" value="${Math.max(1, Number(node.worker_instances || node.max_parallel || 1))}" ${isWorker ? "" : "disabled"} />
-        </label>
-        <label class="field">
-          <span>Max Work Items</span>
-          <input class="wf-node-max-items" type="number" min="1" max="12" value="${Math.max(1, Number(node.max_items || 4))}" />
-        </label>
-        <label class="toggle-field">
-          <input class="wf-node-json" type="checkbox" ${node.expects_json ? "checked" : ""} />
-          <span>expects_json</span>
-        </label>
-      </div>
-    `;
-    workflowEditorNodeList.append(article);
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    node.position = {
+      x: CANVAS_PAD + col * NODE_GRID_X,
+      y: CANVAS_PAD + row * NODE_GRID_Y,
+    };
   });
 }
 
-function updateWorkflowNodeTypeControls(row, type) {
-  if (!row) return;
-  const isWorker = String(type || "").toLowerCase() === "worker_pool";
-  const roleInput = row.querySelector(".wf-node-role");
-  const workerInput = row.querySelector(".wf-node-workers");
-  if (roleInput) {
-    roleInput.placeholder = defaultRoleForNodeType(type);
+function nodeTileMarkup(node) {
+  const isWorker = String(node.type || "").toLowerCase() === "worker_pool";
+  const title = String(node.title || node.role || node.id || "node");
+  const role = String(node.role || "").trim();
+  const metaParts = [];
+  if (role) metaParts.push(role);
+  if (isWorker) {
+    metaParts.push(`×${Math.max(1, Number(node.worker_instances || node.max_parallel || 1))}`);
   }
-  if (workerInput) {
-    workerInput.disabled = !isWorker;
-  }
+  if (!metaParts.length) metaParts.push(String(node.type || "role"));
+  return `
+    <button class="workflow-canvas-node-edit" type="button" aria-label="Edit node" title="Edit">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 20l4-1 11-11-3-3-11 11-1 4z" />
+        <path d="M14 6l3 3" />
+      </svg>
+    </button>
+    <strong>${escapeHtml(title)}</strong>
+    <small>${escapeHtml(metaParts.join(" · "))}</small>
+    <span class="workflow-canvas-node-id">${escapeHtml(node.id)}</span>
+  `;
+}
+
+function renderWorkflowCanvas() {
+  const draft = activeWorkflowDraft();
+  if (!workflowCanvasNodes || !workflowCanvasEdgeLayer || !draft) return;
+  ensureNodePositions(draft);
+  workflowCanvasNodes.innerHTML = "";
+  let maxRight = CANVAS_PAD + NODE_TILE_WIDTH + CANVAS_PAD;
+  let maxBottom = CANVAS_PAD + NODE_TILE_HEIGHT + CANVAS_PAD;
+  draft.nodes.forEach((node) => {
+    const isWorker = String(node.type || "").toLowerCase() === "worker_pool";
+    const tile = document.createElement("article");
+    tile.className = "workflow-canvas-node" + (isWorker ? " worker" : "");
+    if (state.workflowEditorSelectedNodeId === node.id) tile.classList.add("is-selected");
+    tile.dataset.nodeId = node.id;
+    tile.style.left = `${node.position.x}px`;
+    tile.style.top = `${node.position.y}px`;
+    tile.innerHTML = nodeTileMarkup(node);
+    workflowCanvasNodes.append(tile);
+    maxRight = Math.max(maxRight, node.position.x + NODE_TILE_WIDTH + CANVAS_PAD);
+    maxBottom = Math.max(maxBottom, node.position.y + NODE_TILE_HEIGHT + CANVAS_PAD);
+  });
+  workflowCanvasNodes.style.minWidth = `${maxRight}px`;
+  workflowCanvasNodes.style.minHeight = `${maxBottom}px`;
+  workflowCanvasEdges.setAttribute("viewBox", `0 0 ${maxRight} ${maxBottom}`);
+  workflowCanvasEdges.setAttribute("width", String(maxRight));
+  workflowCanvasEdges.setAttribute("height", String(maxBottom));
+  renderCanvasEdges(draft);
+}
+
+function renderCanvasEdges(draft) {
+  if (!workflowCanvasEdgeLayer || !draft) return;
+  workflowCanvasEdgeLayer.innerHTML = "";
+  const edges = deriveWorkflowEdgesFromNodes(draft.nodes);
+  const ns = "http://www.w3.org/2000/svg";
+  const positions = {};
+  draft.nodes.forEach((node) => {
+    if (node.position) positions[node.id] = node.position;
+  });
+  edges.forEach((edge) => {
+    const source = positions[edge.from];
+    const target = positions[edge.to];
+    if (!source || !target) return;
+    let d;
+    let cls = "workflow-canvas-edge";
+    if (target.x > source.x + NODE_TILE_WIDTH / 2) {
+      const sx = source.x + NODE_TILE_WIDTH;
+      const sy = source.y + NODE_TILE_HEIGHT / 2;
+      const tx = target.x;
+      const ty = target.y + NODE_TILE_HEIGHT / 2;
+      d = `M ${sx} ${sy} C ${sx + 50} ${sy}, ${tx - 50} ${ty}, ${tx} ${ty}`;
+    } else {
+      const sx = source.x + NODE_TILE_WIDTH / 2;
+      const sy = source.y + NODE_TILE_HEIGHT;
+      const tx = target.x + NODE_TILE_WIDTH / 2;
+      const ty = target.y;
+      d = `M ${sx} ${sy} C ${sx} ${sy + 40}, ${tx} ${ty - 40}, ${tx} ${ty}`;
+      cls += " loop";
+    }
+    const path = document.createElementNS(ns, "path");
+    path.setAttribute("class", cls);
+    path.setAttribute("d", d);
+    path.setAttribute("marker-end", "url(#wf-canvas-arrow)");
+    workflowCanvasEdgeLayer.append(path);
+  });
 }
 
 function renderWorkflowEditor() {
   const draft = activeWorkflowDraft();
-  if (!workflowEditorTarget || !draft) return;
-  workflowEditorTarget.innerHTML = workflowEditorTargetOptionsHtml(draft.id);
-  workflowEditorDelete.disabled = !isCustomWorkflow(draft.id);
+  if (!draft) return;
+  if (workflowEditorDelete) workflowEditorDelete.disabled = !isCustomWorkflow(draft.id);
   workflowEditorId.value = draft.id || "";
   workflowEditorName.value = draft.name || "";
   workflowEditorDescription.value = draft.description || "";
@@ -1277,54 +1251,141 @@ function renderWorkflowEditor() {
   workflowEditorAssignChat.checked = selected.chat === draft.id;
   workflowEditorAssignCode.checked = selected.code === draft.id;
   workflowEditorAssignAgentic.checked = selected.agentic === draft.id;
-  renderWorkflowEditorNodes();
-  workflowGraphPreview.innerHTML = workflowGraphMarkup(draft, false);
+  if (workflowBuilderTitle) {
+    workflowBuilderTitle.textContent = draft.name || draft.id || "Edit Workflow";
+  }
+  renderWorkflowCanvas();
+}
+
+function showWorkflowListView() {
+  state.workflowEditorView = "list";
+  state.workflowEditorSelectedNodeId = null;
+  workflowSection?.setAttribute("data-workflow-view", "list");
+  if (workflowListView) workflowListView.hidden = false;
+  if (workflowBuilderView) workflowBuilderView.hidden = true;
+  closeNodeEditPanel();
+}
+
+function showWorkflowBuilderView(workflowId = null) {
+  const source = workflowId ? workflowById(workflowId) : null;
+  if (workflowId && !source) return;
+  state.workflowEditorDraft = source ? newWorkflowDraftFrom(source) : blankCustomWorkflowDraft();
+  state.workflowEditorView = "builder";
+  state.workflowEditorSelectedNodeId = null;
+  workflowSection?.setAttribute("data-workflow-view", "builder");
+  if (workflowListView) workflowListView.hidden = true;
+  if (workflowBuilderView) workflowBuilderView.hidden = false;
+  closeNodeEditPanel();
+  renderWorkflowEditor();
+}
+
+function blankCustomWorkflowDraft() {
+  return {
+    id: nextAvailableCustomId(),
+    name: "My Workflow",
+    description: "",
+    mode: "chat",
+    modes: ["chat", "code", "agentic"],
+    execution: "loop",
+    max_iterations: 1,
+    nodes: [
+      {
+        id: "orchestrator",
+        type: "role",
+        role: "orchestrator",
+        title: "Orchestrator",
+        input: [],
+        output: "",
+        max_parallel: 1,
+        max_items: 4,
+        expects_json: false,
+        receive_from: [],
+        reports_to: [],
+        worker_instances: 1,
+        position: { x: CANVAS_PAD, y: CANVAS_PAD },
+        config: {},
+      },
+    ],
+  };
+}
+
+function nextAvailableCustomId() {
+  const taken = new Set(state.workflowPresets.map((wf) => wf.id));
+  let candidate = "custom_workflow";
+  let n = 1;
+  while (taken.has(candidate)) {
+    n += 1;
+    candidate = `custom_workflow_${n}`;
+  }
+  return candidate;
+}
+
+function selectWorkflowNode(nodeId) {
+  if (!workflowNodeEditPanel) return;
+  const draft = activeWorkflowDraft();
+  const node = draft?.nodes.find((n) => n.id === nodeId);
+  if (!node) {
+    closeNodeEditPanel();
+    return;
+  }
+  state.workflowEditorSelectedNodeId = node.id;
+  workflowNodeEditPanel.hidden = false;
+  workflowNodeEditPanel.setAttribute("aria-hidden", "false");
+  if (workflowNodeEditTitle) workflowNodeEditTitle.textContent = node.title || node.id;
+  nodeEditId.value = node.id;
+  nodeEditTitleInput.value = node.title || "";
+  nodeEditRole.innerHTML = nodeRoleSelectOptionsHtml(node.role);
+  nodeEditReceive.value = (node.receive_from || []).join(", ");
+  nodeEditReports.value = (node.reports_to || []).join(", ");
+  nodeEditInput.value = (node.input || []).join(", ");
+  nodeEditOutput.value = node.output || "";
+  const workerCount = Math.max(1, Number(node.worker_instances || node.max_parallel || 1));
+  nodeEditWorkers.value = String(workerCount);
+  nodeEditMaxItems.value = String(Math.max(1, Number(node.max_items || 4)));
+  nodeEditJson.checked = Boolean(node.expects_json);
+  workflowCanvasNodes
+    ?.querySelectorAll(".workflow-canvas-node.is-selected")
+    .forEach((el) => el.classList.remove("is-selected"));
+  workflowCanvasNodes
+    ?.querySelector(`.workflow-canvas-node[data-node-id="${cssEscape(node.id)}"]`)
+    ?.classList.add("is-selected");
+}
+
+function closeNodeEditPanel() {
+  state.workflowEditorSelectedNodeId = null;
+  if (workflowNodeEditPanel) {
+    workflowNodeEditPanel.hidden = true;
+    workflowNodeEditPanel.setAttribute("aria-hidden", "true");
+  }
+  workflowCanvasNodes
+    ?.querySelectorAll(".workflow-canvas-node.is-selected")
+    .forEach((el) => el.classList.remove("is-selected"));
+}
+
+function cssEscape(value) {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
+  return String(value).replace(/(["\\\]])/g, "\\$1");
 }
 
 function collectWorkflowDraftFromEditor() {
   const previous = activeWorkflowDraft();
   if (!previous) return null;
-  const nodes = [...workflowEditorNodeList.querySelectorAll(".workflow-editor-node")]
-    .map((row, index) => {
-      const type = row.querySelector(".wf-node-type")?.value || "role";
-      const isWorker = type === "worker_pool";
-      const role = row.querySelector(".wf-node-role")?.value.trim() || defaultRoleForNodeType(type);
-      const workerInstances = Math.min(8, Math.max(1, Number(row.querySelector(".wf-node-workers")?.value || "1")));
-      return {
-        id: row.querySelector(".wf-node-id")?.value.trim() || `node_${index + 1}`,
-        type,
-        role,
-        title: row.querySelector(".wf-node-title")?.value.trim() || "",
-        input: parseCsvList(row.querySelector(".wf-node-input")?.value || ""),
-        output: row.querySelector(".wf-node-output")?.value.trim() || "",
-        max_parallel: workerInstances,
-        max_items: Math.min(12, Math.max(1, Number(row.querySelector(".wf-node-max-items")?.value || "4"))),
-        expects_json: Boolean(row.querySelector(".wf-node-json")?.checked),
-        receive_from: dedupeList(parseCsvList(row.querySelector(".wf-node-receive")?.value || "")),
-        reports_to: dedupeList(parseCsvList(row.querySelector(".wf-node-reports")?.value || "")),
-        worker_instances: isWorker ? workerInstances : 1,
-        config: {},
-      };
-    });
   const modes = [];
   if (workflowEditorModeChat.checked) modes.push("chat");
   if (workflowEditorModeCode.checked) modes.push("code");
   if (workflowEditorModeAgentic.checked) modes.push("agentic");
   const normalizedModes = modes.length > 0 ? modes : ["chat"];
-  const draft = {
-    id: slugifyWorkflowId(workflowEditorId.value || previous.id || workflowEditorName.value) || previous.id || "custom_workflow",
-    name: workflowEditorName.value.trim() || "Custom Workflow",
-    description: workflowEditorDescription.value.trim(),
-    mode: normalizedModes[0],
-    modes: normalizedModes,
-    execution: workflowEditorExecution.value === "direct" ? "direct" : "loop",
-    max_iterations: Math.min(8, Math.max(1, Number(workflowEditorMaxIterations.value || "1"))),
-    nodes,
-  };
-  state.workflowEditorDraft = draft;
-  workflowEditorId.value = draft.id;
-  workflowGraphPreview.innerHTML = workflowGraphMarkup(draft, false);
-  return draft;
+  const rawId = workflowEditorId.value || previous.id || workflowEditorName.value;
+  previous.id = slugifyWorkflowId(rawId) || previous.id || "custom_workflow";
+  previous.name = clampLength(workflowEditorName.value.trim() || "Custom Workflow", WORKFLOW_NAME_MAX);
+  previous.description = clampLength(workflowEditorDescription.value.trim(), WORKFLOW_DESCRIPTION_MAX);
+  previous.mode = normalizedModes[0];
+  previous.modes = normalizedModes;
+  previous.execution = workflowEditorExecution.value === "direct" ? "direct" : "loop";
+  previous.max_iterations = clampInt(workflowEditorMaxIterations.value, 1, 8);
+  workflowEditorId.value = previous.id;
+  if (workflowBuilderTitle) workflowBuilderTitle.textContent = previous.name || previous.id;
+  return previous;
 }
 
 function renderEmbeddingModel() {
@@ -1764,6 +1825,8 @@ function renderAvailableTools() {
 function openSettings() {
   shell.classList.add("settings-open");
   settingsPanel.setAttribute("aria-hidden", "false");
+  // Always start the Workflows tab on the list view; the builder is opt-in.
+  showWorkflowListView();
   renderSettings();
   loadStartupDeferred();
   ensureModelsLoaded().catch((error) => {
@@ -1926,8 +1989,41 @@ function setStreamingContent(element, content, followScroll = true) {
     element.querySelector(".runtime-status-mount")?.remove();
     element.classList.remove("status-only");
   }
-  bubble.classList.add("streaming-plain");
-  bubble.textContent = content || "";
+  bubble.classList.remove("streaming-plain");
+  const text = content || "";
+  let render = bubble._streamRender;
+  if (!render || !render.tailMarker?.isConnected || render.tailMarker.parentNode !== bubble) {
+    bubble.innerHTML = "";
+    const tailMarker = document.createComment("stream-tail");
+    bubble.appendChild(tailMarker);
+    render = { sealedOffset: 0, tailMarker };
+    bubble._streamRender = render;
+  }
+  const sealOffset = findStreamSealOffset(text);
+  if (sealOffset > render.sealedOffset) {
+    const html = formatContent(text.slice(render.sealedOffset, sealOffset));
+    if (html) {
+      const template = document.createElement("template");
+      template.innerHTML = html;
+      bubble.insertBefore(template.content, render.tailMarker);
+    }
+    render.sealedOffset = sealOffset;
+  }
+  let tailNode = render.tailMarker.nextSibling;
+  while (tailNode) {
+    const next = tailNode.nextSibling;
+    bubble.removeChild(tailNode);
+    tailNode = next;
+  }
+  const tailText = text.slice(render.sealedOffset);
+  if (tailText) {
+    const html = formatContent(tailText);
+    if (html) {
+      const template = document.createElement("template");
+      template.innerHTML = html;
+      bubble.appendChild(template.content);
+    }
+  }
   if (followScroll) {
     scrollMessagesToBottom();
   }
@@ -1943,6 +2039,7 @@ function setMessageContent(element, content, followScroll = true) {
     element.classList.remove("status-only");
   }
   bubble.classList.remove("streaming-plain");
+  bubble._streamRender = null;
   bubble.innerHTML = formatContent(content);
   if (followScroll) {
     scrollMessagesToBottom();
@@ -2064,6 +2161,12 @@ async function loadRoles() {
   if (state.settings) {
     renderModelRoles();
   }
+  // Keep the workflow node-edit dropdown in sync if it is currently open
+  // for a node — picks up roles the user just created or removed.
+  if (state.workflowEditorSelectedNodeId) {
+    const node = activeWorkflowDraft()?.nodes.find((n) => n.id === state.workflowEditorSelectedNodeId);
+    if (node && nodeEditRole) nodeEditRole.innerHTML = nodeRoleSelectOptionsHtml(node.role);
+  }
 }
 
 async function loadMistakes() {
@@ -2105,28 +2208,6 @@ async function loadSchedulerStatus() {
   agenticSchedulerStatus.textContent = status.running
     ? `Scheduler active · ${status.active_runs.length} active run(s)`
     : "Scheduler paused";
-}
-
-function createNewCustomWorkflowDraft() {
-  const base = normalizeWorkflowDraft(workflowById("deep_orchestra") || workflowById("simple") || state.workflowPresets[0] || {});
-  const draftBase = cloneWorkflowDraft(base);
-  const idBase = slugifyWorkflowId(`${base.id || "workflow"}_custom`) || "custom_workflow";
-  let unique = idBase;
-  let counter = 2;
-  const taken = new Set(state.workflowPresets.map((workflow) => workflow.id));
-  while (taken.has(unique)) {
-    unique = `${idBase}_${counter}`;
-    counter += 1;
-  }
-  state.workflowEditorDraft = {
-    ...draftBase,
-    id: unique,
-    name: `${draftBase.name || "Workflow"} Custom`,
-    description: draftBase.description || "",
-    modes: draftBase.modes?.length ? draftBase.modes : ["chat", "code", "agentic"],
-    mode: (draftBase.modes?.[0] || "chat"),
-  };
-  renderWorkflowEditor();
 }
 
 async function saveWorkflowEditorDraft() {
@@ -2680,35 +2761,58 @@ settingsNavButtons.forEach((button) => {
   });
 });
 
-workflowEditorTarget?.addEventListener("change", () => {
-  const selectedId = workflowEditorTarget.value;
-  const selected = workflowById(selectedId);
-  if (!selected) return;
-  state.workflowEditorDraft = newWorkflowDraftFrom(selected);
-  renderWorkflowEditor();
+workflowEditorNew?.addEventListener("click", () => {
+  showWorkflowBuilderView(null);
 });
 
-workflowEditorNew?.addEventListener("click", () => {
-  createNewCustomWorkflowDraft();
+workflowBuilderBack?.addEventListener("click", () => {
+  showWorkflowListView();
 });
 
 workflowEditorSave?.addEventListener("click", () => {
-  saveWorkflowEditorDraft().catch((error) => setStatus(error.message, true));
+  saveWorkflowEditorDraft()
+    .then(() => showWorkflowListView())
+    .catch((error) => setStatus(error.message, true));
 });
 
 workflowEditorSaveAssign?.addEventListener("click", () => {
-  saveWorkflowEditorDraftWithAssignment(true).catch((error) => setStatus(error.message, true));
+  saveWorkflowEditorDraftWithAssignment(true)
+    .then(() => showWorkflowListView())
+    .catch((error) => setStatus(error.message, true));
 });
 
 workflowEditorDelete?.addEventListener("click", () => {
-  deleteWorkflowEditorDraft().catch((error) => setStatus(error.message, true));
+  deleteWorkflowEditorDraft()
+    .then(() => showWorkflowListView())
+    .catch((error) => setStatus(error.message, true));
+});
+
+workflowPresetList?.addEventListener("click", (event) => {
+  const editButton = event.target.closest(".workflow-preset-edit");
+  if (!editButton) return;
+  const card = editButton.closest(".workflow-preset-item");
+  const workflowId = card?.dataset.workflowId;
+  if (!workflowId) return;
+  showWorkflowBuilderView(workflowId);
 });
 
 workflowEditorAddNode?.addEventListener("click", () => {
-  const draft = collectWorkflowDraftFromEditor() || activeWorkflowDraft();
+  const draft = activeWorkflowDraft();
   if (!draft) return;
+  const baseId = "node";
+  const taken = new Set(draft.nodes.map((node) => node.id));
+  let id = `${baseId}_${draft.nodes.length + 1}`;
+  let i = draft.nodes.length + 1;
+  while (taken.has(id)) {
+    i += 1;
+    id = `${baseId}_${i}`;
+  }
+  // Drop the new node into the first empty slot near the existing nodes
+  // so it shows up on-screen without overlapping.
+  const lastPos = draft.nodes[draft.nodes.length - 1]?.position || { x: CANVAS_PAD, y: CANVAS_PAD };
+  const position = { x: lastPos.x + NODE_GRID_X, y: lastPos.y };
   draft.nodes.push({
-    id: `node_${draft.nodes.length + 1}`,
+    id,
     type: "role",
     role: "orchestrator",
     title: "New Node",
@@ -2720,39 +2824,16 @@ workflowEditorAddNode?.addEventListener("click", () => {
     receive_from: [],
     reports_to: [],
     worker_instances: 1,
+    position,
     config: {},
   });
   state.workflowEditorDraft = draft;
-  renderWorkflowEditor();
+  renderWorkflowCanvas();
+  selectWorkflowNode(id);
 });
 
-workflowEditorNodeList?.addEventListener("click", (event) => {
-  const removeButton = event.target.closest(".remove-workflow-node");
-  if (!removeButton) return;
-  const row = removeButton.closest(".workflow-editor-node");
-  const index = Number(row?.dataset.index ?? "-1");
-  const draft = collectWorkflowDraftFromEditor() || activeWorkflowDraft();
-  if (!draft || index < 0) return;
-  draft.nodes.splice(index, 1);
-  state.workflowEditorDraft = draft;
-  renderWorkflowEditor();
-});
-
-workflowEditorNodeList?.addEventListener("change", (event) => {
-  const typeSelect = event.target.closest(".wf-node-type");
-  if (!typeSelect) {
-    collectWorkflowDraftFromEditor();
-    return;
-  }
-  const row = typeSelect.closest(".workflow-editor-node");
-  const roleInput = row?.querySelector(".wf-node-role");
-  if (roleInput && !roleInput.value.trim()) {
-    roleInput.value = defaultRoleForNodeType(typeSelect.value);
-  }
-  updateWorkflowNodeTypeControls(row, typeSelect.value);
-  collectWorkflowDraftFromEditor();
-});
-
+// Builder meta fields stay in sync with the draft on every keystroke. Nodes
+// live in state directly, so we only sync the workflow's top-level fields.
 [
   workflowEditorId,
   workflowEditorName,
@@ -2771,9 +2852,229 @@ workflowEditorNodeList?.addEventListener("change", (event) => {
   });
 });
 
-workflowEditorNodeList?.addEventListener("input", () => {
-  collectWorkflowDraftFromEditor();
+// --- Canvas drag + select ---------------------------------------------------
+const canvasDrag = { id: null, tile: null, originX: 0, originY: 0, pointerX: 0, pointerY: 0, moved: false };
+const DRAG_THRESHOLD = 4;
+
+workflowCanvas?.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
+  const editTarget = event.target.closest?.(".workflow-canvas-node-edit");
+  const tile = event.target.closest?.(".workflow-canvas-node");
+  if (!tile) return;
+  const id = tile.dataset.nodeId;
+  if (editTarget) {
+    // Edit icon opens the panel directly without starting a drag.
+    event.preventDefault();
+    event.stopPropagation();
+    selectWorkflowNode(id);
+    return;
+  }
+  canvasDrag.id = id;
+  canvasDrag.tile = tile;
+  canvasDrag.originX = parseFloat(tile.style.left) || 0;
+  canvasDrag.originY = parseFloat(tile.style.top) || 0;
+  canvasDrag.pointerX = event.clientX;
+  canvasDrag.pointerY = event.clientY;
+  canvasDrag.moved = false;
+  tile.setPointerCapture?.(event.pointerId);
+  tile.classList.add("is-dragging");
 });
+
+workflowCanvas?.addEventListener("pointermove", (event) => {
+  if (!canvasDrag.tile) return;
+  const dx = event.clientX - canvasDrag.pointerX;
+  const dy = event.clientY - canvasDrag.pointerY;
+  if (!canvasDrag.moved && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+  canvasDrag.moved = true;
+  const x = Math.max(0, canvasDrag.originX + dx);
+  const y = Math.max(0, canvasDrag.originY + dy);
+  canvasDrag.tile.style.left = `${x}px`;
+  canvasDrag.tile.style.top = `${y}px`;
+  const draft = activeWorkflowDraft();
+  const node = draft?.nodes.find((n) => n.id === canvasDrag.id);
+  if (node) node.position = { x, y };
+  renderCanvasEdges(draft);
+});
+
+workflowCanvas?.addEventListener("pointerup", (event) => {
+  if (!canvasDrag.tile) return;
+  const wasClick = !canvasDrag.moved;
+  const id = canvasDrag.id;
+  canvasDrag.tile.classList.remove("is-dragging");
+  try {
+    canvasDrag.tile.releasePointerCapture?.(event.pointerId);
+  } catch (e) { /* ignore */ }
+  canvasDrag.tile = null;
+  canvasDrag.id = null;
+  canvasDrag.moved = false;
+  if (wasClick && id) selectWorkflowNode(id);
+});
+
+workflowCanvas?.addEventListener("pointercancel", () => {
+  if (canvasDrag.tile) canvasDrag.tile.classList.remove("is-dragging");
+  canvasDrag.tile = null;
+  canvasDrag.id = null;
+  canvasDrag.moved = false;
+});
+
+// --- Node edit panel --------------------------------------------------------
+workflowNodeEditClose?.addEventListener("click", () => {
+  closeNodeEditPanel();
+});
+
+workflowNodeEditRemove?.addEventListener("click", () => {
+  const draft = activeWorkflowDraft();
+  const id = state.workflowEditorSelectedNodeId;
+  if (!draft || !id) return;
+  const index = draft.nodes.findIndex((n) => n.id === id);
+  if (index < 0) return;
+  draft.nodes.splice(index, 1);
+  // Strip references in remaining nodes so derived edges stay consistent.
+  draft.nodes.forEach((node) => {
+    node.receive_from = (node.receive_from || []).filter((r) => r !== id);
+    node.reports_to = (node.reports_to || []).filter((r) => r !== id);
+  });
+  closeNodeEditPanel();
+  renderWorkflowCanvas();
+});
+
+function applyNodeEditChanges() {
+  const draft = activeWorkflowDraft();
+  const selectedId = state.workflowEditorSelectedNodeId;
+  if (!draft || !selectedId) return;
+  const node = draft.nodes.find((n) => n.id === selectedId);
+  if (!node) return;
+  const otherIds = new Set(draft.nodes.filter((n) => n !== node).map((n) => n.id));
+  const desiredId = slugifyWorkflowId(nodeEditId.value) || node.id;
+  const safeId = otherIds.has(desiredId) ? node.id : desiredId;
+  const oldId = node.id;
+  node.id = safeId;
+  node.title = clampLength(nodeEditTitleInput.value.trim(), WORKFLOW_NAME_MAX);
+  const chosenRole = String(nodeEditRole.value || "").trim();
+  node.role = clampLength(chosenRole || "orchestrator", WORKFLOW_FIELD_MAX);
+  const workers = clampInt(nodeEditWorkers.value, 1, 8);
+  node.type = deriveNodeTypeFromRole(node.role, workers);
+  node.receive_from = dedupeList(parseCsvList(nodeEditReceive.value));
+  node.reports_to = dedupeList(parseCsvList(nodeEditReports.value));
+  node.input = parseCsvList(nodeEditInput.value);
+  node.output = clampLength(nodeEditOutput.value.trim(), WORKFLOW_FIELD_MAX);
+  node.worker_instances = node.type === "worker_pool" ? workers : 1;
+  node.max_parallel = workers;
+  node.max_items = clampInt(nodeEditMaxItems.value, 1, 12);
+  node.expects_json = Boolean(nodeEditJson.checked);
+  if (safeId !== oldId) {
+    draft.nodes.forEach((other) => {
+      if (other === node) return;
+      other.receive_from = (other.receive_from || []).map((r) => (r === oldId ? safeId : r));
+      other.reports_to = (other.reports_to || []).map((r) => (r === oldId ? safeId : r));
+    });
+    state.workflowEditorSelectedNodeId = safeId;
+  }
+  if (workflowNodeEditTitle) workflowNodeEditTitle.textContent = node.title || node.id;
+  renderWorkflowCanvas();
+}
+
+[
+  nodeEditId,
+  nodeEditTitleInput,
+  nodeEditRole,
+  nodeEditReceive,
+  nodeEditReports,
+  nodeEditInput,
+  nodeEditOutput,
+  nodeEditWorkers,
+  nodeEditMaxItems,
+  nodeEditJson,
+].forEach((element) => {
+  element?.addEventListener("input", applyNodeEditChanges);
+  element?.addEventListener("change", applyNodeEditChanges);
+});
+
+// --- Custom tooltip for .info-tip --------------------------------------------
+// Native title="" tooltips are unreliable inside pywebview's WKWebView (they
+// often never fire). We render our own — a single floating element appended to
+// the body, positioned per trigger with simple edge-flipping. data-tip carries
+// the text so the native browser doesn't compete with us.
+const infoTooltipEl = document.createElement("div");
+infoTooltipEl.className = "app-tooltip";
+infoTooltipEl.setAttribute("role", "tooltip");
+infoTooltipEl.setAttribute("aria-hidden", "true");
+document.body.appendChild(infoTooltipEl);
+
+function showInfoTooltip(trigger) {
+  const text = trigger.getAttribute("data-tip");
+  if (!text) return;
+  // Use the same markdown renderer as chat messages so tooltip authors can
+  // write **bold**, `code`, lists, and paragraph breaks. formatContent
+  // escapes user input before it composes any HTML, so this remains safe.
+  infoTooltipEl.innerHTML = formatContent(text);
+  infoTooltipEl.classList.add("is-visible");
+  infoTooltipEl.setAttribute("aria-hidden", "false");
+  positionInfoTooltip(trigger);
+}
+
+function positionInfoTooltip(trigger) {
+  // Default: below the trigger, centred on it; flip above if it would clip.
+  const triggerRect = trigger.getBoundingClientRect();
+  const tipRect = infoTooltipEl.getBoundingClientRect();
+  const margin = 10;
+  let top = triggerRect.bottom + 8;
+  let placement = "below";
+  if (top + tipRect.height + margin > window.innerHeight) {
+    top = Math.max(margin, triggerRect.top - tipRect.height - 8);
+    placement = "above";
+  }
+  let left = triggerRect.left + triggerRect.width / 2 - tipRect.width / 2;
+  left = Math.max(margin, Math.min(left, window.innerWidth - tipRect.width - margin));
+  infoTooltipEl.style.top = `${Math.round(top)}px`;
+  infoTooltipEl.style.left = `${Math.round(left)}px`;
+  infoTooltipEl.dataset.placement = placement;
+}
+
+function hideInfoTooltip() {
+  infoTooltipEl.classList.remove("is-visible");
+  infoTooltipEl.setAttribute("aria-hidden", "true");
+}
+
+document.addEventListener("mouseover", (event) => {
+  const tip = event.target.closest?.(".info-tip");
+  if (tip) showInfoTooltip(tip);
+});
+
+document.addEventListener("mouseout", (event) => {
+  const tip = event.target.closest?.(".info-tip");
+  if (!tip) return;
+  // Ignore movement to a child of the same trigger (shouldn't happen for our
+  // simple span, but defensive).
+  if (event.relatedTarget && tip.contains(event.relatedTarget)) return;
+  hideInfoTooltip();
+});
+
+document.addEventListener("focusin", (event) => {
+  if (event.target.classList?.contains("info-tip")) showInfoTooltip(event.target);
+});
+
+document.addEventListener("focusout", (event) => {
+  if (event.target.classList?.contains("info-tip")) hideInfoTooltip();
+});
+
+// Stop the click (and the underlying pointerdown that browsers translate into
+// a label click) from toggling the parent label/checkbox.
+["pointerdown", "mousedown", "click"].forEach((type) => {
+  document.addEventListener(
+    type,
+    (event) => {
+      const tip = event.target.closest?.(".info-tip");
+      if (!tip) return;
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    true,
+  );
+});
+
+window.addEventListener("scroll", hideInfoTooltip, true);
+window.addEventListener("resize", hideInfoTooltip);
 
 emailProvider.addEventListener("change", () => {
   state.settings.email_provider = {

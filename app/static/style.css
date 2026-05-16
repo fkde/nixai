@@ -260,8 +260,8 @@ body.desktop-shell .shell::after {
 }
 
 body.desktop-shell .sidebar::before,
-body.desktop-shell .chat::before,
-body.desktop-shell .chat::after {
+body.desktop-shell section.chat::before,
+body.desktop-shell section.chat::after {
   opacity: 0.2;
 }
 
@@ -725,7 +725,7 @@ button > svg {
   transform: translateY(-50%);
 }
 
-.chat {
+section.chat {
   position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -738,7 +738,7 @@ button > svg {
     #05080c;
 }
 
-.chat::before {
+section.chat::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -750,7 +750,7 @@ button > svg {
   opacity: 0.56;
 }
 
-.chat::after {
+section.chat::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -1283,16 +1283,15 @@ button > svg {
 
 .bubble {
   position: relative;
+  display: block;
   width: auto;
   min-width: 0;
   max-width: 100%;
   overflow: visible;
-  border: 1px solid rgba(69, 230, 242, 0.15);
-  border-radius: 10px;
-  padding: 15px 17px 18px;
-  background:
-    linear-gradient(135deg, rgba(69, 230, 242, 0.055), transparent 34%),
-    rgba(6, 11, 17, 0.82);
+  border: 1px solid rgba(69, 230, 242, 0.18);
+  border-radius: 12px;
+  padding: 16px 18px;
+  background: rgba(7, 12, 19, 0.88);
   color: #edf0f7;
   font-family: var(--font-ui);
   font-size: 14px;
@@ -1302,36 +1301,23 @@ button > svg {
   white-space: normal;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.04) inset,
-    0 12px 30px rgba(0, 0, 0, 0.2),
-    0 0 22px rgba(69, 230, 242, 0.03);
+    0 8px 24px rgba(0, 0, 0, 0.18);
 }
 
 .bubble.streaming-plain {
   white-space: pre-wrap;
 }
 
-.bubble::before,
-.bubble::after {
+.bubble::before {
   content: "";
   position: absolute;
   pointer-events: none;
-}
-
-.bubble::before {
   top: 0;
-  left: 14px;
-  right: 14px;
+  left: 16px;
+  right: 16px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(69, 230, 242, 0.38), transparent);
-}
-
-.bubble::after {
-  right: 10px;
-  bottom: 8px;
-  width: 22px;
-  height: 7px;
-  border-right: 1px solid rgba(69, 230, 242, 0.26);
-  border-bottom: 1px solid rgba(69, 230, 242, 0.26);
+  background: linear-gradient(90deg, transparent, rgba(69, 230, 242, 0.32), transparent);
+  opacity: 0.7;
 }
 
 .message.user .bubble {
@@ -1796,10 +1782,33 @@ textarea {
     box-shadow 160ms ease;
 }
 
+input[type="checkbox"],
+input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  padding: 0;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+input[type="radio"] {
+  border-radius: 50%;
+}
+
 input,
 select {
   height: var(--control-height);
   padding: 0 13px;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  height: 16px;
+  padding: 0;
 }
 
 select {
@@ -2109,6 +2118,10 @@ textarea::placeholder {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.settings-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .settings-grid.agentic-grid {
   grid-template-columns: minmax(250px, 0.82fr) minmax(360px, 1.18fr);
   align-items: start;
@@ -2371,6 +2384,46 @@ textarea::placeholder {
   line-height: 1.45;
 }
 
+.workflow-section {
+  position: relative;
+}
+
+.workflow-list-view,
+.workflow-builder-view {
+  display: grid;
+  gap: 18px;
+}
+
+.workflow-list-view[hidden],
+.workflow-builder-view[hidden] {
+  display: none;
+}
+
+.workflow-builder-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.workflow-builder-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.workflow-builder-heading h3 {
+  margin: 2px 0 0;
+  font-size: 18px;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+.workflow-builder-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
 .workflow-preset-list {
   display: grid;
   gap: 10px;
@@ -2383,6 +2436,29 @@ textarea::placeholder {
   border: 1px solid rgba(128, 142, 170, 0.18);
   border-radius: var(--radius);
   background: rgba(9, 12, 18, 0.48);
+}
+
+.workflow-preset-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.workflow-preset-edit {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+}
+
+.workflow-preset-edit svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .workflow-preset-item strong {
@@ -2427,92 +2503,458 @@ textarea::placeholder {
   min-height: 122px;
 }
 
-.workflow-builder-card {
-  gap: 14px;
-}
-
-.workflow-builder-toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
-  gap: 10px;
-  align-items: end;
-}
-
 .workflow-mode-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .workflow-mode-chips label {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   min-height: 30px;
-  padding: 4px 10px;
+  padding: 4px 12px;
   border: 1px solid rgba(69, 230, 242, 0.2);
   border-radius: 999px;
   background: rgba(69, 230, 242, 0.08);
   color: var(--cyan-soft);
   font-size: 12px;
   font-weight: 680;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
 }
 
-.workflow-builder-nodes-head {
+.workflow-mode-chips label:hover {
+  border-color: rgba(69, 230, 242, 0.36);
+  background: rgba(69, 230, 242, 0.13);
+}
+
+.workflow-mode-chips label > span {
+  display: inline-block;
+}
+
+.workflow-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+  padding: 14px;
+  border: 1px solid rgba(128, 142, 170, 0.18);
+  border-radius: var(--radius);
+  background: rgba(9, 12, 18, 0.48);
+}
+
+.workflow-meta-row > .field {
+  flex: 0 0 auto;
+  min-width: 140px;
+}
+
+.workflow-meta-chips {
+  display: grid;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 200px;
+}
+
+.workflow-meta-chips-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.workflow-canvas-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(128, 142, 170, 0.18);
+  border-radius: var(--radius);
+  background: rgba(9, 12, 18, 0.48);
+}
+
+.workflow-canvas-stage {
+  position: relative;
+  min-height: 360px;
+}
+
+.workflow-canvas-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
-.workflow-builder-nodes-head h4 {
-  margin: 0;
-  font-size: 13px;
-  letter-spacing: 0.01em;
-}
-
-.workflow-editor-node-list {
-  display: grid;
-  gap: 10px;
-}
-
-.workflow-editor-node {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid rgba(128, 142, 170, 0.2);
-  border-radius: 10px;
-  background: rgba(8, 12, 20, 0.6);
-}
-
-.workflow-editor-node-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.workflow-editor-node-head strong {
+.workflow-canvas-toolbar strong {
+  display: block;
   font-size: 13px;
   color: var(--text);
 }
 
-.workflow-editor-node-meta {
+.workflow-canvas-toolbar small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.workflow-canvas {
+  position: relative;
+  min-height: 360px;
+  max-height: 60vh;
+  border: 1px solid rgba(128, 142, 170, 0.2);
+  border-radius: 10px;
+  background:
+    linear-gradient(rgba(69, 230, 242, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(69, 230, 242, 0.035) 1px, transparent 1px),
+    rgba(4, 8, 14, 0.78);
+  background-size: 28px 28px;
+  overflow: auto;
+  touch-action: none;
+}
+
+.workflow-canvas:focus-visible {
+  outline: 1px solid rgba(69, 230, 242, 0.5);
+  outline-offset: -2px;
+}
+
+.workflow-canvas-edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.workflow-canvas-nodes {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.workflow-canvas-node {
+  position: absolute;
+  width: 168px;
+  min-height: 78px;
+  padding: 10px 12px 12px;
+  border: 1px solid rgba(69, 230, 242, 0.32);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(69, 230, 242, 0.08), transparent 60%),
+    rgba(8, 14, 22, 0.94);
+  color: var(--text);
+  cursor: grab;
+  user-select: none;
+  transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+}
+
+.workflow-canvas-node:hover {
+  border-color: rgba(69, 230, 242, 0.6);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3), 0 0 18px rgba(69, 230, 242, 0.18);
+}
+
+.workflow-canvas-node.is-dragging {
+  cursor: grabbing;
+  border-color: rgba(155, 114, 255, 0.7);
+  z-index: 3;
+  transform: scale(1.02);
+}
+
+.workflow-canvas-node.is-selected {
+  border-color: rgba(155, 114, 255, 0.8);
+  box-shadow: 0 0 0 1px rgba(155, 114, 255, 0.45), 0 8px 22px rgba(0, 0, 0, 0.3);
+}
+
+.workflow-canvas-node.worker {
+  border-color: rgba(155, 114, 255, 0.55);
+  background:
+    linear-gradient(135deg, rgba(155, 114, 255, 0.12), transparent 60%),
+    rgba(10, 12, 22, 0.94);
+}
+
+.workflow-canvas-node strong {
+  display: block;
+  padding-right: 28px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.25;
+}
+
+.workflow-canvas-node small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
+
+.workflow-canvas-node-id {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--font-code);
+  font-size: 10.5px;
+  color: rgba(157, 250, 255, 0.72);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-canvas-node-edit {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(69, 230, 242, 0.32);
+  border-radius: 6px;
+  background: rgba(8, 12, 20, 0.7);
+  color: rgba(190, 244, 248, 0.85);
+  cursor: pointer;
+}
+
+.workflow-canvas-node-edit:hover,
+.workflow-canvas-node-edit:focus-visible {
+  border-color: rgba(69, 230, 242, 0.6);
+  background: rgba(69, 230, 242, 0.15);
+  color: var(--cyan-soft);
+  outline: none;
+}
+
+.workflow-canvas-node-edit svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.workflow-canvas-edge {
+  stroke: rgba(157, 250, 255, 0.55);
+  stroke-width: 1.6;
+  fill: none;
+}
+
+.workflow-canvas-edge.loop {
+  stroke: rgba(155, 114, 255, 0.62);
+}
+
+.workflow-node-edit-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(155, 114, 255, 0.42);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(155, 114, 255, 0.1), transparent 55%),
+    rgba(6, 9, 14, 0.96);
+  backdrop-filter: blur(10px) saturate(1.05);
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(155, 114, 255, 0.18) inset;
+  animation: nodeEditEnter 200ms var(--ease-out);
+}
+
+.workflow-node-edit-panel[hidden] {
+  display: none;
+}
+
+@keyframes nodeEditEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.workflow-node-edit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(155, 114, 255, 0.18);
+}
+
+.workflow-node-edit-head h4 {
+  margin: 2px 0 0;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.workflow-node-edit-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.workflow-node-edit-body {
+  display: grid;
+  gap: 12px;
+  overflow-y: auto;
+  align-content: start;
+  padding-right: 4px;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.field-hint strong {
+  color: var(--text-soft);
+}
+
+.node-edit-role-row {
+  align-items: start;
+}
+
+.node-edit-json-field {
+  align-self: center;
+  min-height: var(--control-height);
+  padding: 0 4px;
   gap: 10px;
 }
 
-.workflow-editor-node-io {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+.info-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(69, 230, 242, 0.36);
+  border-radius: 999px;
+  background: rgba(69, 230, 242, 0.1);
+  color: var(--cyan-soft);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+  transition: background 140ms ease, border-color 140ms ease;
 }
 
-.workflow-editor-node-links {
+.info-tip:hover,
+.info-tip:focus-visible {
+  background: rgba(69, 230, 242, 0.2);
+  border-color: rgba(69, 230, 242, 0.6);
+  outline: none;
+}
+
+.app-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  max-width: 340px;
+  padding: 10px 13px;
+  border: 1px solid rgba(69, 230, 242, 0.4);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(69, 230, 242, 0.1), transparent 60%),
+    rgba(5, 9, 14, 0.97);
+  backdrop-filter: blur(12px) saturate(1.1);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.42);
+}
+
+.app-tooltip.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.app-tooltip[data-placement="above"] {
+  transform: translateY(2px);
+}
+
+.app-tooltip[data-placement="above"].is-visible {
+  transform: translateY(0);
+}
+
+.app-tooltip p,
+.app-tooltip ul,
+.app-tooltip ol,
+.app-tooltip h3,
+.app-tooltip h4,
+.app-tooltip h5 {
+  margin: 0;
+}
+
+.app-tooltip p + p,
+.app-tooltip p + ul,
+.app-tooltip p + ol,
+.app-tooltip ul + p,
+.app-tooltip ol + p {
+  margin-top: 7px;
+}
+
+.app-tooltip ul,
+.app-tooltip ol {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 4px;
+  padding-left: 18px;
+}
+
+.app-tooltip li {
+  padding-left: 2px;
+}
+
+.app-tooltip strong {
+  color: #f6f8ff;
+  font-weight: 760;
+}
+
+.app-tooltip code {
+  padding: 1px 5px;
+  border: 1px solid rgba(128, 142, 170, 0.22);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--cyan-soft);
+  font-family: var(--font-code);
+  font-size: 0.9em;
+}
+
+.app-tooltip a {
+  color: var(--accent-soft);
+}
+
+.field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.node-edit-json-field .info-tip {
+  margin-left: 2px;
 }
 
 .workflow-graph-wrap {
@@ -2521,7 +2963,11 @@ textarea::placeholder {
 }
 
 .workflow-graph-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-height: 170px;
+  padding: 14px;
   border: 1px solid rgba(128, 142, 170, 0.2);
   border-radius: 10px;
   background:
@@ -2529,14 +2975,17 @@ textarea::placeholder {
     linear-gradient(90deg, rgba(69, 230, 242, 0.03) 1px, transparent 1px),
     rgba(6, 10, 16, 0.62);
   background-size: 28px 28px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: auto;
+}
+
+.workflow-graph-preview .settings-empty {
+  margin: 0;
 }
 
 .workflow-graph-svg {
   display: block;
-  width: 100%;
-  min-height: 160px;
+  max-width: 100%;
+  height: auto;
 }
 
 .workflow-graph-node rect {
@@ -3097,15 +3546,17 @@ textarea::placeholder {
   }
 
   .settings-grid.two,
+  .settings-grid.three,
   .role-editor-grid {
     grid-template-columns: 1fr;
   }
 
-  .workflow-builder-toolbar,
-  .workflow-editor-node-meta,
-  .workflow-editor-node-io,
-  .workflow-editor-node-links {
-    grid-template-columns: 1fr;
+  .workflow-meta-row > .field {
+    flex: 1 1 100%;
+  }
+
+  .workflow-meta-chips {
+    flex: 1 1 100%;
   }
 }
 
@@ -3225,6 +3676,7 @@ textarea::placeholder {
   }
 
   .settings-grid.two,
+  .settings-grid.three,
   .settings-grid.agentic-grid,
   .model-embedding-card,
   .provider-grid,

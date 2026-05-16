@@ -359,9 +359,24 @@ class WorkflowRunner:
 
     async def _role_call(self, node: WorkflowNode, system_prompt: str, payload: dict[str, Any]) -> str:
         role = node.role or self._role_for_node_type(node.type)
+        prompt = system_prompt
+        if node.expects_json:
+            # Force JSON output at two layers: a clear instruction in the prompt
+            # so the model knows what shape to produce, and Ollama's strict
+            # response_format so it cannot wrap the answer in Markdown fences
+            # or chat preamble. Users only flip the switch — the runner adds
+            # the boilerplate so role markdown stays focused on the role itself.
+            prompt = (
+                f"{system_prompt}\n\n"
+                "## Output Format\n"
+                "Return strict valid JSON only — a single JSON object that fits "
+                "the schema implied by the role and inputs. Do not wrap it in "
+                "Markdown code fences, do not add any text before or after the "
+                "object, and do not include explanations or commentary."
+            )
         return await self.ollama.chat_payload(
             [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": prompt},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
             ],
             model=self.settings.model_for_role(role),

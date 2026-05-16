@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 from app.config import config_dir, default_workflow_presets, normalize_workflow_preset_id
 from app.models import MessageMode
+from app.validation import validate_slug
 from app.workflows.models import WorkflowDefinition, WorkflowSummary
 
 
@@ -108,6 +108,4 @@ def _sanitize_workflow_id(raw: str) -> str:
     normalized = normalize_workflow_preset_id(str(raw or "").strip())
     if not normalized:
         raise ValueError("Workflow id is required.")
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", normalized):
-        raise ValueError("Workflow id must only contain letters, numbers, '-' or '_'.")
-    return normalized
+    return validate_slug(normalized, field_name="workflow id")

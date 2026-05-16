@@ -6,9 +6,15 @@ import sys
 from pathlib import Path
 
 from platformdirs import user_config_dir, user_data_dir
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.effort import normalize_effort
+from app.validation import (
+    MAX_NAME_LENGTH,
+    clean_single_line,
+    validate_http_url,
+    validate_workspace_path,
+)
 
 
 APP_NAME = "nixai"
@@ -78,6 +84,47 @@ class Settings(BaseModel):
     workflow_presets: dict[str, str] = Field(default_factory=default_workflow_presets)
     effort: str = "medium"
     email_provider: EmailProviderSettings = Field(default_factory=EmailProviderSettings)
+
+    @field_validator("user_name", mode="before")
+    @classmethod
+    def _clean_user_name(cls, value: object) -> str:
+        return clean_single_line(value or "", max_length=MAX_NAME_LENGTH, field_name="user_name")
+
+    @field_validator("ollama_base_url", mode="before")
+    @classmethod
+    def _clean_ollama_url(cls, value: object) -> str:
+        if not value:
+            return "http://localhost:11434"
+        try:
+            return validate_http_url(value, field_name="ollama_base_url")
+        except ValueError:
+            return "http://localhost:11434"
+
+    @field_validator("workspace_path", mode="before")
+    @classmethod
+    def _clean_workspace(cls, value: object) -> str:
+        try:
+            return validate_workspace_path(value)
+        except ValueError:
+            return str(Path.home())
+
+    @field_validator("embedding_timeout")
+    @classmethod
+    def _clamp_timeout(cls, value: float) -> float:
+        if value < 0.1:
+            return 0.1
+        if value > 30.0:
+            return 30.0
+        return float(value)
+
+    @field_validator("routing_min_score")
+    @classmethod
+    def _clamp_min_score(cls, value: float) -> float:
+        if value < 0.0:
+            return 0.0
+        if value > 1.0:
+            return 1.0
+        return float(value)
 
     def model_for_role(self, role: str) -> str:
         wanted = role.strip().casefold()

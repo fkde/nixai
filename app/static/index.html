@@ -204,57 +204,60 @@
               <button id="add-model-role" class="secondary-button" type="button">+ Add Role</button>
             </section>
 
-            <section class="settings-section workflow-section" data-settings-panel="workflows">
-              <div class="settings-section-title">
-                <p class="eyebrow">Workflows</p>
-                <h3>Mode Presets</h3>
-                <p>Choose which JSON workflow each mode uses. Presets live in the repository and can be extended later from the config folder.</p>
-              </div>
-
-              <div class="settings-grid two">
-                <label class="field settings-card">
-                  <span>Chat</span>
-                  <select id="workflow-chat"></select>
-                </label>
-
-                <label class="field settings-card">
-                  <span>Code</span>
-                  <select id="workflow-code"></select>
-                </label>
-
-                <label class="field settings-card">
-                  <span>Agentic</span>
-                  <select id="workflow-agentic"></select>
-                </label>
-              </div>
-
-              <div class="settings-card">
-                <div class="model-section-header compact">
-                  <div>
-                    <h3>Available Presets</h3>
-                    <p>Direct presets keep the existing behavior. Loop presets run orchestrator, workers, reviewer, and judge.</p>
-                  </div>
-                </div>
-                <div id="workflow-preset-list" class="workflow-preset-list"></div>
-              </div>
-
-              <div class="settings-card workflow-builder-card">
-                <div class="model-section-header compact">
-                  <div>
-                    <h3>Visual Workflow Builder</h3>
-                    <p>Create or edit custom workflows with node links. Worker nodes support multiple instances.</p>
-                  </div>
+            <section class="settings-section workflow-section" data-settings-panel="workflows" data-workflow-view="list">
+              <div class="workflow-list-view">
+                <div class="settings-section-title">
+                  <p class="eyebrow">Workflows</p>
+                  <h3>Mode Presets</h3>
+                  <p>Choose which JSON workflow each mode uses. Presets live in the repository and can be extended later from the config folder.</p>
                 </div>
 
-                <div class="workflow-builder-toolbar">
-                  <label class="field">
-                    <span>Workflow</span>
-                    <select id="workflow-editor-target"></select>
+                <div class="settings-grid three">
+                  <label class="field settings-card">
+                    <span>Chat</span>
+                    <select id="workflow-chat"></select>
                   </label>
-                  <button id="workflow-editor-new" class="secondary-button" type="button">New Custom</button>
-                  <button id="workflow-editor-delete" class="danger-button" type="button">Delete Custom</button>
-                  <button id="workflow-editor-save" type="button">Save Custom Workflow</button>
+
+                  <label class="field settings-card">
+                    <span>Code</span>
+                    <select id="workflow-code"></select>
+                  </label>
+
+                  <label class="field settings-card">
+                    <span>Agentic</span>
+                    <select id="workflow-agentic"></select>
+                  </label>
                 </div>
+
+                <div class="settings-card">
+                  <div class="model-section-header compact">
+                    <div>
+                      <h3>Available Presets</h3>
+                      <p>Direct presets keep the existing behavior. Loop presets run orchestrator, workers, reviewer, and judge.</p>
+                    </div>
+                    <button id="workflow-editor-new" class="secondary-button" type="button">+ New Workflow</button>
+                  </div>
+                  <div id="workflow-preset-list" class="workflow-preset-list"></div>
+                </div>
+              </div>
+
+              <div class="workflow-builder-view" hidden>
+                <header class="workflow-builder-header">
+                  <button id="workflow-builder-back" class="icon-button" type="button" aria-label="Back to workflow list" title="Back">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M15 18l-6-6 6-6" />
+                    </svg>
+                  </button>
+                  <div class="workflow-builder-heading">
+                    <p class="eyebrow">Workflow Builder</p>
+                    <h3 id="workflow-builder-title">Edit Workflow</h3>
+                  </div>
+                  <div class="workflow-builder-actions">
+                    <button id="workflow-editor-delete" class="danger-button" type="button">Delete</button>
+                    <button id="workflow-editor-save" type="button">Save</button>
+                    <button id="workflow-editor-save-assign" class="secondary-button" type="button">Save + Assign</button>
+                  </div>
+                </header>
 
                 <div class="settings-grid two">
                   <label class="field settings-card">
@@ -272,42 +275,123 @@
                   <textarea id="workflow-editor-description" rows="2" placeholder="What is this workflow for?"></textarea>
                 </label>
 
-                <div class="settings-grid two">
-                  <label class="field settings-card">
+                <div class="workflow-meta-row">
+                  <label class="field">
                     <span>Execution</span>
                     <select id="workflow-editor-execution">
                       <option value="direct">direct</option>
                       <option value="loop">loop</option>
                     </select>
                   </label>
-                  <label class="field settings-card">
+                  <label class="field">
                     <span>Max Iterations</span>
                     <input id="workflow-editor-max-iterations" type="number" min="1" max="8" value="1" />
                   </label>
+                  <div class="workflow-meta-chips">
+                    <span class="workflow-meta-chips-label">Available in</span>
+                    <div class="workflow-mode-chips" role="group" aria-label="Available modes">
+                      <label><input id="workflow-editor-mode-chat" type="checkbox" checked /> <span>Chat</span></label>
+                      <label><input id="workflow-editor-mode-code" type="checkbox" checked /> <span>Code</span></label>
+                      <label><input id="workflow-editor-mode-agentic" type="checkbox" checked /> <span>Agentic</span></label>
+                    </div>
+                  </div>
+                  <div class="workflow-meta-chips">
+                    <span class="workflow-meta-chips-label">Assign to</span>
+                    <div class="workflow-mode-chips" role="group" aria-label="Assign workflow to modes">
+                      <label><input id="workflow-editor-assign-chat" type="checkbox" /> <span>Chat</span></label>
+                      <label><input id="workflow-editor-assign-code" type="checkbox" /> <span>Code</span></label>
+                      <label><input id="workflow-editor-assign-agentic" type="checkbox" /> <span>Agentic</span></label>
+                    </div>
+                  </div>
                 </div>
 
-                <div class="workflow-mode-chips">
-                  <label><input id="workflow-editor-mode-chat" type="checkbox" checked /> Chat</label>
-                  <label><input id="workflow-editor-mode-code" type="checkbox" checked /> Code</label>
-                  <label><input id="workflow-editor-mode-agentic" type="checkbox" checked /> Agentic</label>
-                </div>
-
-                <div class="workflow-mode-chips">
-                  <label><input id="workflow-editor-assign-chat" type="checkbox" /> Assign to Chat</label>
-                  <label><input id="workflow-editor-assign-code" type="checkbox" /> Assign to Code</label>
-                  <label><input id="workflow-editor-assign-agentic" type="checkbox" /> Assign to Agentic</label>
-                  <button id="workflow-editor-save-assign" class="secondary-button" type="button">Save + Assign</button>
-                </div>
-
-                <div class="workflow-builder-nodes-head">
-                  <h4>Nodes</h4>
-                  <button id="workflow-editor-add-node" class="secondary-button" type="button">+ Add Node</button>
-                </div>
-                <div id="workflow-editor-node-list" class="workflow-editor-node-list"></div>
-
-                <div class="workflow-graph-wrap">
-                  <span class="model-role-label">Flow Preview</span>
-                  <div id="workflow-graph-preview" class="workflow-graph-preview"></div>
+                <div class="workflow-canvas-card">
+                  <div class="workflow-canvas-toolbar">
+                    <div>
+                      <strong>Node Tree</strong>
+                      <small>Drag nodes to rearrange, click a node to edit its settings.</small>
+                    </div>
+                    <button id="workflow-editor-add-node" class="secondary-button" type="button">+ Add Node</button>
+                  </div>
+                  <div class="workflow-canvas-stage">
+                    <div id="workflow-canvas" class="workflow-canvas" tabindex="0">
+                      <svg id="workflow-canvas-edges" class="workflow-canvas-edges" aria-hidden="true">
+                        <defs>
+                          <marker id="wf-canvas-arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+                            <path d="M0,0 L10,4 L0,8 z" fill="rgba(157, 250, 255, 0.7)"></path>
+                          </marker>
+                        </defs>
+                        <g class="workflow-canvas-edge-layer"></g>
+                      </svg>
+                      <div id="workflow-canvas-nodes" class="workflow-canvas-nodes"></div>
+                    </div>
+                    <aside id="workflow-node-edit-panel" class="workflow-node-edit-panel" hidden aria-hidden="true">
+                      <header class="workflow-node-edit-head">
+                        <div>
+                          <p class="eyebrow">Node Properties</p>
+                          <h4 id="workflow-node-edit-title">Edit Node</h4>
+                        </div>
+                        <div class="workflow-node-edit-actions">
+                          <button id="workflow-node-edit-remove" class="danger-button" type="button">Remove</button>
+                          <button id="workflow-node-edit-close" class="secondary-button" type="button">Done</button>
+                        </div>
+                      </header>
+                      <div class="workflow-node-edit-body">
+                        <div class="settings-grid two">
+                          <label class="field">
+                            <span class="field-label">ID <span class="info-tip" tabindex="0" role="button" aria-label="What is the node ID for?" data-tip="**Stable identifier** for this node. Other nodes reference it via `receiveFrom` / `reportsTo`, and the node's output lives under this key in the shared workflow state. Renaming auto-updates every reference inside this workflow.">?</span></span>
+                            <input id="node-edit-id" type="text" />
+                          </label>
+                          <label class="field">
+                            <span class="field-label">Title <span class="info-tip" tabindex="0" role="button" aria-label="What is the title for?" data-tip="**Display name** for the canvas tile. Purely cosmetic — does not affect execution. Use it to describe what this node does, e.g. `Plan` or `Reviewer`.">?</span></span>
+                            <input id="node-edit-title-input" type="text" />
+                          </label>
+                        </div>
+                        <div class="settings-grid two node-edit-role-row">
+                          <label class="field">
+                            <span class="field-label">Role <span class="info-tip" tabindex="0" role="button" aria-label="What is the role for?" data-tip="The **Markdown role prompt** that defines this agent's behavior. Each role lives as a file under **Prompts**. The role name also implies execution semantics: `judge` returns decisions that drive branching, `reviewer` critiques prior work, and anything with **Worker Instances** > 1 runs as a parallel worker pool.">?</span></span>
+                            <select id="node-edit-role"></select>
+                            <small class="field-hint" id="node-edit-role-hint">Roles come from your Markdown role files. Add or rename them under <strong>Prompts</strong>.</small>
+                          </label>
+                          <label class="toggle-field node-edit-json-field">
+                            <input id="node-edit-json" type="checkbox" />
+                            <span>Output as strict JSON</span>
+                            <span class="info-tip" tabindex="0" role="button" aria-label="What does Output as strict JSON do?" data-tip="Forces this node to return **one valid JSON object**. The runner automatically appends a &quot;Return strict JSON only&quot; instruction to the role prompt — you don't need to add it yourself. Enable for nodes whose output another node reads via a field path (`plan.work_items`, `decision.status`, …). Leave it off for nodes that should produce free-form text for humans.">?</span>
+                          </label>
+                        </div>
+                        <div class="settings-grid two">
+                          <label class="field">
+                            <span class="field-label">receiveFrom (comma separated) <span class="info-tip" tabindex="0" role="button" aria-label="What is receiveFrom for?" data-tip="**Node IDs** whose output this node depends on, **comma-separated**. Each entry draws an arrow **into** this node in the canvas. The runner makes those outputs available before this node runs. Usually mirrors a `reportsTo` entry on the source node.">?</span></span>
+                            <input id="node-edit-receive" type="text" />
+                          </label>
+                          <label class="field">
+                            <span class="field-label">reportsTo (comma separated) <span class="info-tip" tabindex="0" role="button" aria-label="What is reportsTo for?" data-tip="**Node IDs** that should consume this node's output, **comma-separated**. Each entry draws an arrow **out of** this node. Mostly redundant with `receiveFrom` on the target — declare it on whichever side feels more natural and the runner stitches the graph together.">?</span></span>
+                            <input id="node-edit-reports" type="text" />
+                          </label>
+                        </div>
+                        <div class="settings-grid two">
+                          <label class="field">
+                            <span class="field-label">Input Fields <span class="info-tip" tabindex="0" role="button" aria-label="What are Input Fields for?" data-tip="**Dot-paths** into the shared workflow state that this node reads as input, comma-separated. The runner picks these values out of state and passes them to the model as JSON. Example: `plan.work_items` reads the `work_items` array out of the orchestrator's `plan` output.">?</span></span>
+                            <input id="node-edit-input" type="text" placeholder="plan, worker_reports" />
+                          </label>
+                          <label class="field">
+                            <span class="field-label">Output Field <span class="info-tip" tabindex="0" role="button" aria-label="What is the Output Field for?" data-tip="**Key** under which this node's result lands in the shared workflow state. Downstream nodes reference it via **Input Fields**. Example: set this to `plan` and another node can read `plan.work_items`. If empty, the runner falls back to the node ID.">?</span></span>
+                            <input id="node-edit-output" type="text" placeholder="plan" />
+                          </label>
+                        </div>
+                        <div class="settings-grid two">
+                          <label class="field">
+                            <span class="field-label">Worker Instances <span class="info-tip" tabindex="0" role="button" aria-label="What are Worker Instances for?" data-tip="How many **parallel copies** of this node to run. Set above `1` to turn the node into a **parallel worker pool**: each instance picks one item from the input list and runs concurrently. Capped at `8` to keep Ollama responsive on local hardware.">?</span></span>
+                            <input id="node-edit-workers" type="number" min="1" max="8" value="1" />
+                          </label>
+                          <label class="field">
+                            <span class="field-label">Max Work Items <span class="info-tip" tabindex="0" role="button" aria-label="What is Max Work Items for?" data-tip="Upper bound on how many items this node may **produce** (when it generates a plan) or **consume** (when it works through an input list). The chosen **effort level** (Minimum/Medium/High/Max) can lower this further at runtime — Max Work Items is the ceiling.">?</span></span>
+                            <input id="node-edit-max-items" type="number" min="1" max="12" value="4" />
+                          </label>
+                        </div>
+                      </div>
+                    </aside>
+                  </div>
                 </div>
               </div>
             </section>

@@ -5,9 +5,44 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models import MessageMode
+from app.validation import (
+    MAX_DESCRIPTION_LENGTH,
+    MAX_NAME_LENGTH,
+    MAX_PROMPT_LENGTH,
+    MAX_TITLE_LENGTH,
+    clean_single_line,
+    clean_text,
+    validate_slug,
+)
 
 
 WorkflowExecution = Literal["direct", "loop"]
+
+
+class NodePosition(BaseModel):
+    """Canvas coordinates for the visual workflow builder.
+
+    Stored on the node so layouts survive reload. Defaults to (0, 0); the
+    frontend falls back to an auto-layout when every node sits at the origin.
+    """
+
+    x: float = 0.0
+    y: float = 0.0
+
+    @field_validator("x", "y", mode="before")
+    @classmethod
+    def _clamp_coord(cls, value: Any) -> float:
+        try:
+            num = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if num != num:  # NaN
+            return 0.0
+        if num < -10000.0:
+            return -10000.0
+        if num > 10000.0:
+            return 10000.0
+        return num
 
 
 class WorkflowNode(BaseModel):
@@ -34,29 +69,50 @@ class WorkflowNode(BaseModel):
         le=8,
         description="Worker pool size; max_parallel remains the concurrency cap.",
     )
+    position: NodePosition = Field(default_factory=NodePosition)
     config: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _validate_id(cls, value: Any) -> str:
+        return validate_slug(value, field_name="node id")
+
+    @field_validator("type", "role", "output", mode="before")
+    @classmethod
+    def _clean_short(cls, value: Any) -> str:
+        return clean_single_line(value or "", max_length=MAX_NAME_LENGTH, field_name="value")
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _clean_title(cls, value: Any) -> str:
+        return clean_single_line(value or "", max_length=MAX_TITLE_LENGTH, field_name="title")
+
+    @field_validator("prompt", mode="before")
+    @classmethod
+    def _clean_prompt(cls, value: Any) -> str:
+        return clean_text(value or "", max_length=MAX_PROMPT_LENGTH, field_name="prompt")
 
     @field_validator("input", mode="before")
     @classmethod
     def normalize_input(cls, value: Any) -> list[str]:
-        if value is None or value == "":
-            return []
-        if isinstance(value, str):
-            return [value]
-        if isinstance(value, list):
-            return [str(item) for item in value if str(item).strip()]
-        return []
+        return _normalize_string_list(value)
 
     @field_validator("receive_from", "reports_to", mode="before")
     @classmethod
     def normalize_node_links(cls, value: Any) -> list[str]:
-        if value is None or value == "":
-            return []
-        if isinstance(value, str):
-            return [value]
-        if isinstance(value, list):
-            return [str(item) for item in value if str(item).strip()]
+        return _normalize_string_list(value)
+
+
+def _normalize_string_list(value: Any) -> list[str]:
+    if value is None or value == "":
         return []
+    raw = value if isinstance(value, list) else [value]
+    cleaned: list[str] = []
+    for item in raw:
+        text = str(item).strip()
+        if text and text not in cleaned:
+            cleaned.append(text)
+    return cleaned
 
 
 class WorkflowEdge(BaseModel):
@@ -77,6 +133,24 @@ class WorkflowDefinition(BaseModel):
     max_iterations: int = Field(default=1, ge=1, le=8)
     nodes: list[WorkflowNode] = Field(default_factory=list)
     edges: list[WorkflowEdge] = Field(default_factory=list)
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _validate_id(cls, value: Any) -> str:
+        return validate_slug(value, field_name="workflow id")
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _clean_name(cls, value: Any) -> str:
+        cleaned = clean_single_line(value or "", max_length=MAX_TITLE_LENGTH, field_name="name")
+        if not cleaned:
+            raise ValueError("name is required")
+        return cleaned
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _clean_description(cls, value: Any) -> str:
+        return clean_text(value or "", max_length=MAX_DESCRIPTION_LENGTH, field_name="description")
 
     @field_validator("modes", mode="before")
     @classmethod
