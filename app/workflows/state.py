@@ -9,13 +9,20 @@ from app.effort import effort_context, normalize_effort
 from app.memory import memory_context
 from app.models import MessageMode
 from app.runtime_context import runtime_meta_context
-from app.workflow_scratch import new_workflow_run_id, read_workflow_notes, workflow_scratch_path
+from app.workflow_scratch import WorkflowScratchpad, default_workflow_scratchpad
 
 
 WorkflowState = dict[str, Any]
 
 
-def initial_workflow_state(settings: Settings, chat_id: str, user_message: str, mode: MessageMode) -> WorkflowState:
+def initial_workflow_state(
+    settings: Settings,
+    chat_id: str,
+    user_message: str,
+    mode: MessageMode,
+    scratchpad: WorkflowScratchpad | None = None,
+) -> WorkflowState:
+    scratchpad = scratchpad or default_workflow_scratchpad
     workspace = ""
     if mode == "code":
         chat = database.get_chat(chat_id)
@@ -26,8 +33,8 @@ def initial_workflow_state(settings: Settings, chat_id: str, user_message: str, 
         "chat_id": chat_id,
         "mode": mode,
         "user_message": user_message,
-        "workflow_run_id": new_workflow_run_id(),
-        "workflow_scratch_path": str(workflow_scratch_path()),
+        "workflow_run_id": scratchpad.new_run_id(),
+        "workflow_scratch_path": str(scratchpad.path()),
         "workflow_rounds": [],
         "effort": normalize_effort(settings.effort),
         "effort_context": effort_context(settings.effort),
@@ -44,7 +51,11 @@ def initial_workflow_state(settings: Settings, chat_id: str, user_message: str, 
     }
 
 
-def workflow_state_payload(state: WorkflowState) -> dict[str, Any]:
+def workflow_state_payload(
+    state: WorkflowState,
+    scratchpad: WorkflowScratchpad | None = None,
+) -> dict[str, Any]:
+    scratchpad = scratchpad or default_workflow_scratchpad
     payload = {
         "mode": state.get("mode"),
         "effort": state.get("effort"),
@@ -62,14 +73,17 @@ def workflow_state_payload(state: WorkflowState) -> dict[str, Any]:
         payload["code_context"] = str(state["code_context"])[:12000]
     if state.get("agentic_context"):
         payload["agentic_context"] = str(state["agentic_context"])[:16000]
-    scratch = read_workflow_notes(str(state.get("workflow_run_id") or ""))
+    scratch = scratchpad.read_notes(str(state.get("workflow_run_id") or ""))
     if scratch:
         payload["workflow_scratchpad"] = scratch[:16000]
     return payload
 
 
-def final_answer_payload(state: WorkflowState) -> dict[str, Any]:
-    payload = workflow_state_payload(state)
+def final_answer_payload(
+    state: WorkflowState,
+    scratchpad: WorkflowScratchpad | None = None,
+) -> dict[str, Any]:
+    payload = workflow_state_payload(state, scratchpad=scratchpad)
     payload.pop("code_context", None)
     payload.pop("agentic_context", None)
     payload["worker_reports"] = compact_workflow_reports(state.get("worker_reports"), limit=1800)
@@ -79,8 +93,11 @@ def final_answer_payload(state: WorkflowState) -> dict[str, Any]:
     return payload
 
 
-def compact_workflow_state(state: WorkflowState) -> dict[str, Any]:
-    compact = workflow_state_payload(state)
+def compact_workflow_state(
+    state: WorkflowState,
+    scratchpad: WorkflowScratchpad | None = None,
+) -> dict[str, Any]:
+    compact = workflow_state_payload(state, scratchpad=scratchpad)
     if "code_context" in compact:
         compact["code_context"] = "[omitted]"
     if "agentic_context" in compact:

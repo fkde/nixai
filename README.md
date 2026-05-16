@@ -1,6 +1,8 @@
 # NixAI
 
-NixAI is a local proof-of-concept AI agent runner for Ollama models. It provides a small FastAPI backend, SQLite chat persistence, a vanilla HTML/CSS/JS chat UI, and a prepared read-only workspace tool layer.
+NixAI is a local AI agent runner for Ollama models. It provides a FastAPI backend, SQLite chat persistence, a vanilla HTML/CSS/JS chat UI, a read-only workspace tool layer, a configurable multi-node workflow engine, and a local Agentic Task scheduler.
+
+Current version: `0.1.0`.
 
 ## Quick Start
 
@@ -119,30 +121,62 @@ Example config:
 }
 ```
 
-## POC Scope
+## Features
 
-- Persistent local chats
-- Ollama chat adapter with streaming responses
-- Simple agent orchestrator
-- Chat, Code, and Agentic message modes in one history
-- Live assistant output with tokens-per-second status
-- Code mode gathers bounded read-only workspace context through NixAI tools
+### Chat And Modes
+
+- Persistent local chats with SQLite history
+- Ollama chat adapter with streamed responses and tokens-per-second status
+- Three message modes in one history: `chat`, `code`, and `agentic`
+- Code mode injects `WORKER.md`, reviewed `MEMORY.md`, and bounded read-only workspace context
 - Per-chat workspace path with the global workspace as fallback
-- Configurable model roles through the settings UI
-- Grouped settings overlay for Basis, Modelle, Prompts, Tools, Memory, and Agentic
-- E-mail provider settings scaffold for Google Gmail and Microsoft Outlook OAuth
-- Markdown role prompts for Orchestrator, Worker, Reviewer, Judge, and custom roles
-- Editable central `MISTAKES.md` review source and accepted `MEMORY.md` model context
-- Tool approval prompts with settings for disabling confirmation and permanently allowed tools
-- TaskDiscovery role for extracting recurring Agentic task definitions from user requests
-- First Agentic Task definitions with create/edit/pause/delete API and UI
-- Local Agentic scheduler with run history, approved tool calls, and failover to review
-- RAG-style tool routing with optional Ollama embeddings
-- Workspace file listing, reading, and search
-- Git status and diff helpers
-- macOS desktop notification tool
-- Public URL check/fetch internet tools
-- Strict shell command allowlist
-- Minimal local chat UI
+- Minimal dark local-agent chat UI with purple accent
 
-NixAI does not install Ollama or manage local models.
+### Workflows
+
+- Multi-node workflow runner with Orchestrator, Worker(s), Reviewer, and Judge nodes
+- Visual canvas-based workflow builder in the UI with drag-and-drop nodes, edges, and node configuration
+- Bundled presets (`simple`, `deep_orchestra`) plus user-defined workflows stored in `~/.config/nixai/workflows/`
+- Configurable per-node model role, prompt, output schema, worker instances, and `max_parallel` concurrency
+- Structured phases: plan → workers → review → judge → final synthesis, with retry loops and effort-aware limits
+- Persistent workflow scratchpad shared between nodes within a run
+- Per-mode preset selection (chat / code / agentic)
+
+### Model Management
+
+- Settings UI discovers locally installed Ollama models through `/api/settings/models`
+- Role-to-model mapping for `assistant`, `planner`, `worker`, `reviewer`, `judge`, and custom roles
+- Models are picked from the Ollama catalog; NixAI does not install or pull models itself
+
+### Roles And Memory
+
+- Default Markdown role prompts auto-created on demand: `ASSISTANT.md`, `ORCHESTRATOR.md`, `TASK_DISCOVERY.md`, `WORKER.md`, `REVIEWER.md`, `JUDGE.md`
+- Custom role creation, editing, and deletion from the settings UI via `/api/roles`
+- Editable central `MISTAKES.md` review source and accepted `MEMORY.md` model context
+- Mistakes review wizard that distills downvotes into future-facing guidance written to `MEMORY.md`
+- `MEMORY.md` is injected into Code mode and scheduled Agentic prompts; `MISTAKES.md` is never sent to models
+
+### Agentic Tasks
+
+- `TaskDiscovery` role extracts recurring task definitions from user requests
+- Agentic Task CRUD (create / edit / pause / delete) via API and UI
+- Local scheduler with run history, approved autonomous tool calls, and failover to manual review
+- Scheduled runs are limited to autonomous-safe and pre-approved tools
+
+### Tools
+
+- Workspace file listing, reading, and search (read-only, path-normalized)
+- Git status and diff helpers
+- Allowlisted shell command runner
+- macOS desktop notification tool
+- Public URL check / fetch internet tools with private-address blocking
+- RAG-style tool routing with keyword fallback and optional Ollama embeddings
+- Tool approval prompts with `Allow once`, `Always allow`, and a global confirmation toggle
+
+### Settings, Updates, And Packaging
+
+- Grouped settings overlay for Basis, Modelle, Prompts, Tools, Memory, Agentic, and Workflows
+- E-mail provider settings scaffold for Google Gmail and Microsoft Outlook OAuth
+- Update check against GitHub releases via `/api/updates`, with in-place macOS app swap support
+- Optional native desktop window through `pywebview`
+- PyInstaller builds for CLI and macOS `.app` bundle

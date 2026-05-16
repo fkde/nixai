@@ -10,12 +10,14 @@ from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
 from app import database
+from app.__version__ import __version__
 from app.api.agentic_tasks import router as agentic_tasks_router
 from app.api.chats import router as chats_router
 from app.api.mistakes import router as mistakes_router
 from app.api.roles import router as roles_router
 from app.api.settings import router as settings_router
 from app.api.tools import router as tools_router
+from app.api.updates import router as updates_router
 from app.agentic_scheduler import scheduler
 
 
@@ -66,7 +68,7 @@ def _render_index(static_dir: Path, version: str) -> str:
 def create_app() -> FastAPI:
     database.init_db()
 
-    fastapi_app = FastAPI(title="NixAI", version="0.1.0")
+    fastapi_app = FastAPI(title="NixAI", version=__version__)
     static_dir = Path(__file__).parent / "static"
     static_version = _build_static_version(static_dir)
     fastapi_app.include_router(agentic_tasks_router)
@@ -75,6 +77,7 @@ def create_app() -> FastAPI:
     fastapi_app.include_router(roles_router)
     fastapi_app.include_router(settings_router)
     fastapi_app.include_router(tools_router)
+    fastapi_app.include_router(updates_router)
     fastapi_app.mount("/static", RevalidatingStaticFiles(directory=static_dir), name="static")
 
     @fastapi_app.on_event("startup")

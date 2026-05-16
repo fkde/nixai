@@ -6,7 +6,7 @@ import {
   formatContent,
   plainTextContent,
 } from "./helpers.js";
-import { parseFrameEvent } from "./stream.js";
+import { startMessageStream } from "./stream.js";
 import { state } from "./state.js";
 import {
   modeOrder,
@@ -836,45 +836,12 @@ export function createChatUi({ setStatus, toolApprovals, getSettingsUi, getAgent
         }
       };
 
-      const processStreamFrame = (frame) => {
-        const event = parseFrameEvent(frame);
-        if (event) {
-          handleStreamEvent(event);
-        }
-      };
-
       try {
-        const response = await fetch(`/api/chats/${chatId}/messages/stream`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content, mode, effort: getSettingsUi()?.currentEffort() || "medium" }),
+        await startMessageStream({
+          chatId,
+          body: { content, mode, effort: getSettingsUi()?.currentEffort() || "medium" },
+          onEvent: handleStreamEvent,
         });
-        if (!response.ok || !response.body) {
-          const body = await response.json().catch(() => ({}));
-          throw new Error(body.detail || `HTTP ${response.status}`);
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        const processCompleteFrames = () => {
-          const frames = buffer.split("\n\n");
-          buffer = frames.pop() || "";
-          frames.forEach(processStreamFrame);
-        };
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          processCompleteFrames();
-        }
-        buffer += decoder.decode();
-        processCompleteFrames();
-        if (buffer.trim()) {
-          processStreamFrame(buffer);
-          buffer = "";
-        }
 
         await loadChats();
         renderChats();

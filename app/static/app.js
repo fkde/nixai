@@ -6,6 +6,7 @@ import { createMistakesUi } from "./mistakes-ui.js";
 import { createRolesUi } from "./roles-ui.js";
 import { createSettingsUi } from "./settings.js";
 import { state } from "./state.js";
+import { createUpdateBanner } from "./update-banner.js";
 import {
   createStatusController,
   initDesktopChrome,
@@ -116,6 +117,9 @@ settingsUi.renderEffortSwitch();
 initDesktopChrome(chatUi.stabilizeMessagesBottomScroll);
 initGenericDirtyTracking();
 initInfoTooltips();
+
+const updateBanner = createUpdateBanner({ setStatus });
+updateBanner.init();
 
 loadStartupCritical()
   .then(() => {

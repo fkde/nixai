@@ -61,6 +61,14 @@
             </p>
           </div>
           <div class="chat-header-actions">
+            <button id="update-pill" class="update-pill" type="button" hidden aria-label="Update available">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 4v12" />
+                <path d="M6 10l6-6 6 6" />
+                <path d="M5 20h14" />
+              </svg>
+              <span class="update-pill-label">Update</span>
+            </button>
             <div class="mode-switch" role="group" aria-label="Mode">
               <button class="mode-button active" type="button" data-mode="chat">Chat</button>
               <button class="mode-button" type="button" data-mode="code">Code</button>
@@ -75,8 +83,8 @@
           <div class="composer-plus">
             <button id="composer-plus-button" class="composer-plus-button" type="button" aria-label="Open actions" aria-expanded="false">
               <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 5v14" />
-                <path d="M5 12h14" />
+                <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9Z" />
+                <path d="M3 10h18" />
               </svg>
             </button>
             <div id="composer-plus-menu" class="composer-plus-menu" hidden>
@@ -92,7 +100,7 @@
               </button>
             </div>
           </div>
-          <textarea id="message-input" rows="3" placeholder="Write a message..."></textarea>
+          <textarea id="message-input" rows="1" placeholder="Write a message..."></textarea>
           <label class="composer-effort" for="effort-select">
             <span>Effort</span>
             <select id="effort-select" aria-label="Effort level">
@@ -659,6 +667,36 @@
         </section>
       </div>
     </main>
+    <div id="update-modal" class="modal-backdrop" aria-hidden="true">
+      <section class="update-modal" role="dialog" aria-modal="true" aria-labelledby="update-modal-title">
+        <header class="settings-header">
+          <div>
+            <p class="eyebrow">Update available</p>
+            <h2 id="update-modal-title">A new version of NixAI is ready</h2>
+          </div>
+          <button id="update-modal-close" class="icon-button" type="button" aria-label="Close update dialog" data-update-modal-close>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12" />
+              <path d="M18 6 6 18" />
+            </svg>
+          </button>
+        </header>
+        <div class="update-modal-body">
+          <p class="update-modal-versions">
+            <span id="update-modal-current"></span>
+            <span aria-hidden="true">→</span>
+            <strong id="update-modal-latest"></strong>
+          </p>
+          <pre id="update-modal-notes" class="update-modal-notes"></pre>
+          <p id="update-modal-progress" class="update-modal-progress" hidden></p>
+        </div>
+        <div class="update-modal-actions">
+          <button class="secondary-button" type="button" data-update-modal-close>Later</button>
+          <button id="update-modal-install" type="button">Install &amp; Restart</button>
+        </div>
+      </section>
+    </div>
+
     <script type="module" src="/static/app.js"></script>
   </body>
 </html>

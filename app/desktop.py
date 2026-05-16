@@ -19,6 +19,7 @@ FRAMELESS_DESKTOP = True
 class DesktopApi:
     def __init__(self) -> None:
         self.window = None
+        self._zoomed = False
 
     def _dispatch_macos_action(self, action: object) -> bool:
         if sys.platform != "darwin" or self.window is None:
@@ -103,6 +104,14 @@ class DesktopApi:
             self.window.toggle_fullscreen()
 
         if self._dispatch_macos_action(action):
+            return
+        if self._zoomed and hasattr(self.window, "restore"):
+            self.window.restore()
+            self._zoomed = False
+            return
+        if hasattr(self.window, "maximize"):
+            self.window.maximize()
+            self._zoomed = True
             return
         self.window.toggle_fullscreen()
 
@@ -225,6 +234,8 @@ def run_desktop(host: str = "127.0.0.1", port: int = 0) -> None:
     )
     api.window = window
     window.events.closing += lambda: setattr(server, "should_exit", True)
+    window.events.maximized += lambda: setattr(api, "_zoomed", True)
+    window.events.restored += lambda: setattr(api, "_zoomed", False)
     if is_macos:
         window.events.shown += lambda: _schedule_macos_chrome(window, not FRAMELESS_DESKTOP)
 

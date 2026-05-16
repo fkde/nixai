@@ -26,6 +26,7 @@ from app.models import CreateMessageResponse, Message, MessageMode, new_id, utc_
 from app.task_discovery import TaskDiscovery
 from app.title_generation import DEFAULT_CHAT_TITLES, build_chat_title_messages, clean_chat_title
 from app.workflows.presets import selected_workflow
+from app.workflows.events import StreamStatsBuilder
 from app.workflows.runner import WorkflowRunner
 
 
@@ -322,14 +323,4 @@ class Agent:
         ) or task
 
     def _stream_stats(self, event: dict[str, object]) -> dict[str, object]:
-        stats = {
-            "eval_count": event.get("eval_count"),
-            "eval_duration": event.get("eval_duration"),
-            "prompt_eval_count": event.get("prompt_eval_count"),
-            "prompt_eval_duration": event.get("prompt_eval_duration"),
-        }
-        eval_count = stats["eval_count"]
-        eval_duration = stats["eval_duration"]
-        if isinstance(eval_count, (int, float)) and isinstance(eval_duration, (int, float)) and eval_duration > 0:
-            stats["tokens_per_second"] = round(float(eval_count) / (float(eval_duration) / 1_000_000_000), 2)
-        return stats
+        return StreamStatsBuilder.from_event(event)
