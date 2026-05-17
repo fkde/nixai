@@ -10,19 +10,24 @@ import {
   PORT_OUTPUT,
   addUniqueNodeListValue,
   boundaryKind,
+  canonicalNodeType,
   canvasConnectionPath,
   canvasPortPoint,
+  derivedNodeConnections,
   deriveWorkflowEdgesFromNodes,
   ensureWorkflowBoundaryNodes,
   hasInputPort,
   hasOutputPort,
   incomingEdgeForNode,
   isBoundaryNode,
+  mutateWorkflowEdges,
+  normalizeDecisionBranches,
   nodeOutputIdentifier,
   nodeTileMarkup,
   realWorkflowNodes,
   removeAutoInputReference,
-  removeNodeListValue,
+  syncDerivedEdges,
+  validateWorkflowHealth,
 } from "../workflow-builder.js";
 
 const EDGE_CONDITION_PRESETS_DEFAULT = [
@@ -55,6 +60,7 @@ export function createWorkflowCanvas({
     validTargetId: null,
     detached: null,
   };
+  let edgeRulePopover = null;
 
   function cssEscape(value) {
     if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
@@ -80,25 +86,19 @@ export function createWorkflowCanvas({
   function edgeConditionPresets(edge, draft) {
     const source = nodeById(draft, edge.from);
     const target = nodeById(draft, edge.to);
-    const sourceType = String(source?.type || "").toLowerCase();
-    const targetType = String(target?.type || "").toLowerCase();
+    const sourceType = canonicalNodeType(source?.type);
+    const targetType = canonicalNodeType(target?.type);
     const presets = [{ label: "Always", value: "" }];
 
-    if (sourceType === "judge") {
-      if (targetType === "pause") {
-        presets.push({ label: "Ask user", value: "decision.status == 'needs_user'" });
-      } else if (isAnswerNode(target)) {
-        presets.push(
-          { label: "Ready to answer", value: "decision.status == 'done'" },
-        );
-      } else {
-        presets.push({ label: "Run another pass", value: "decision.status == 'retry'" });
-      }
+    if (sourceType === "decision") {
+      normalizeDecisionBranches(source.config || {}).forEach((branch) => {
+        presets.push({ label: branch.label, value: branch.when });
+      });
     }
     if (sourceType === "role" || sourceType === "orchestrator") {
       presets.push({ label: "Low confidence", value: "plan.confidence < 0.7" });
     }
-    if (targetType === "reviewer") {
+    if (targetType === "report") {
       presets.push({ label: "Enough reports", value: "worker_reports.length >= 3" });
     }
     presets.push({ label: "Error", value: "error" });
@@ -127,7 +127,7 @@ export function createWorkflowCanvas({
       source
         && !when.includes("retry")
         && when !== "error"
-        && String(source.type || "").toLowerCase() !== "pause",
+        && canonicalNodeType(source.type) !== "pause",
     );
   }
 
@@ -197,7 +197,7 @@ export function createWorkflowCanvas({
     }
 
     nodes.forEach((node) => {
-      if (!seen.has(node.id) && String(node.type || "").toLowerCase() !== "pause") ordered.push(node);
+      if (!seen.has(node.id) && canonicalNodeType(node.type) !== "pause") ordered.push(node);
     });
 
     const topRowCount = ordered.length > 5 ? Math.ceil(ordered.length / 2) : Math.min(ordered.length, 4);
@@ -217,7 +217,7 @@ export function createWorkflowCanvas({
       return isMainFlowEdge(edge, nodeMap) && String(target?.type || "").toLowerCase() === "pause";
     });
     nodes
-      .filter((node) => String(node.type || "").toLowerCase() === "pause")
+      .filter((node) => canonicalNodeType(node.type) === "pause")
       .forEach((node) => {
         const sourceEdge = pauseEdges.find((edge) => edge.to === node.id);
         const sourceLayer = sourceEdge ? layeredById.get(sourceEdge.from) : null;
@@ -300,7 +300,7 @@ export function createWorkflowCanvas({
     const nodeSvg = layers.nodes
       .map((node) => {
         const pos = positions[node.id];
-        const nodeType = String(node.type || "").toLowerCase();
+        const nodeType = canonicalNodeType(node.type);
         const isWorker = nodeType === "worker_pool";
         const isAnswer = nodeType === "answer";
         const isIteration = ["for_each", "while"].includes(nodeType);
@@ -426,7 +426,7 @@ export function createWorkflowCanvas({
     const starts = realNodes.filter((node) => !incoming.has(node.id));
     const terminals = realNodes.filter((node) => !outgoing.has(node.id));
     const firstStart = starts[0] || realNodes[0];
-    const answerTerminal = terminals.find((node) => String(node.type || "").toLowerCase() === "answer");
+    const answerTerminal = terminals.find((node) => canonicalNodeType(node.type) === "answer");
     const firstTerminal = answerTerminal || terminals[0] || realNodes[realNodes.length - 1];
 
     if (inputNode && firstStart?.position) {
@@ -437,8 +437,8 @@ export function createWorkflowCanvas({
     }
     if (outputNode && firstTerminal?.position) {
       outputNode.position = {
-        x: Number(firstTerminal.position.x),
-        y: Number(firstTerminal.position.y) + NODE_GRID_Y,
+        x: Number(firstTerminal.position.x) + CANVAS_LAYOUT_X,
+        y: Number(firstTerminal.position.y),
       };
     }
   }
@@ -563,13 +563,28 @@ export function createWorkflowCanvas({
     if (!source || !target) return false;
     if (!hasOutputPort(source) || !hasInputPort(target)) return false;
     const outputIdentifier = nodeOutputIdentifier(source);
-    const changed = [
-      addUniqueNodeListValue(source, "reports_to", target.id),
-      addUniqueNodeListValue(target, "receive_from", source.id),
-      outputIdentifier ? addUniqueNodeListValue(target, "input", outputIdentifier) : false,
-    ].some(Boolean);
-    draft.edges = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []);
+    const previousEdges = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []);
+    const exists = previousEdges.some((edge) => edge.from === source.id && edge.to === target.id);
+    const sourceType = canonicalNodeType(source.type);
+    const branches = sourceType === "decision" ? normalizeDecisionBranches(source.config || {}) : [];
+    const when = branches[0]?.when || "";
+    if (!exists) mutateWorkflowEdges(draft, { type: "add", from: source.id, to: target.id, when });
+    const changed = !exists;
+    if (outputIdentifier) {
+      target.config = typeof target.config === "object" && target.config ? target.config : {};
+      const key = `${source.id}:${outputIdentifier}`;
+      const removedAutoInputs = Array.isArray(target.config._removed_auto_inputs) ? target.config._removed_auto_inputs : [];
+      if (removedAutoInputs.includes(key)) {
+        renderWorkflowCanvas();
+        if (changed) bridge.afterWorkflowMutation?.();
+        setStatus(changed ? "Nodes linked" : "Nodes already linked");
+        return true;
+      }
+      // Canvas links suggest the source output once; manual removals are remembered by _removed_auto_inputs.
+      addUniqueNodeListValue(target, "input", outputIdentifier);
+    }
     renderWorkflowCanvas();
+    if (changed) bridge.afterWorkflowMutation?.();
     if (state.workflowEditorSelectedNodeId) {
       bridge.selectWorkflowNode(state.workflowEditorSelectedNodeId);
     }
@@ -584,12 +599,11 @@ export function createWorkflowCanvas({
     const target = draft.nodes.find((node) => node.id === targetId);
     if (!source || !target) return false;
     const inputIdentifier = nodeOutputIdentifier(source);
-    const changed = [
-      removeNodeListValue(source, "reports_to", target.id),
-      removeNodeListValue(target, "receive_from", source.id),
-    ].some(Boolean);
+    const before = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []).length;
+    mutateWorkflowEdges(draft, { type: "remove", from: sourceId, to: targetId });
+    const changed = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []).length !== before;
     const inputChanged = removeAutoInputReference(draft, target, inputIdentifier);
-    draft.edges = (draft.edges || []).filter((edge) => (edge.from || edge.from_node) !== sourceId || edge.to !== targetId);
+    if (changed || inputChanged) bridge.afterWorkflowMutation?.();
     return changed || inputChanged;
   }
 
@@ -634,13 +648,16 @@ export function createWorkflowCanvas({
   function renderWorkflowCanvas() {
     const draft = bridge.activeWorkflowDraft();
     if (!workflowCanvasNodes || !workflowCanvasEdgeLayer || !draft) return;
+    closeEdgeRulePopover();
     ensureNodePositions(draft);
     workflowCanvasNodes.innerHTML = "";
     let maxRight = CANVAS_PAD + NODE_TILE_WIDTH + CANVAS_PAD;
     let maxBottom = CANVAS_PAD + NODE_TILE_HEIGHT + CANVAS_PAD;
     draft.nodes.forEach((node) => {
-      const isWorker = String(node.type || "").toLowerCase() === "worker_pool";
-      const isIteration = ["for_each", "while"].includes(String(node.type || "").toLowerCase());
+      const isWorker = canonicalNodeType(node.type) === "worker_pool";
+      const isIteration = ["for_each", "while"].includes(canonicalNodeType(node.type));
+      const connections = derivedNodeConnections(draft, node.id);
+      const visualNode = { ...node, receive_from: connections.incoming, reports_to: connections.outgoing };
       const tile = document.createElement("article");
       tile.className = "workflow-canvas-node"
         + (isWorker ? " worker" : "")
@@ -650,7 +667,7 @@ export function createWorkflowCanvas({
       tile.dataset.nodeId = node.id;
       tile.style.left = `${node.position.x}px`;
       tile.style.top = `${node.position.y}px`;
-      tile.innerHTML = nodeTileMarkup(node);
+      tile.innerHTML = nodeTileMarkup(visualNode);
       workflowCanvasNodes.append(tile);
       maxRight = Math.max(maxRight, node.position.x + NODE_TILE_WIDTH + CANVAS_PAD);
       maxBottom = Math.max(maxBottom, node.position.y + NODE_TILE_HEIGHT + CANVAS_PAD);
@@ -671,6 +688,7 @@ export function createWorkflowCanvas({
     workflowCanvasEdges?.setAttribute("height", String(maxBottom));
     renderCanvasEdges(draft);
     renderEdgeRules(draft);
+    bridge.renderWorkflowHealthPanel?.();
   }
 
   function isLoopCanvasEdge(edge, draft) {
@@ -711,6 +729,9 @@ export function createWorkflowCanvas({
       }
       const path = document.createElementNS(ns, "path");
       path.setAttribute("class", cls);
+      path.dataset.edgeFrom = edge.from;
+      path.dataset.edgeTo = edge.to;
+      path.dataset.edgeWhen = edge.when || "";
       path.setAttribute("d", canvasConnectionPath(sourcePoint, targetPoint, isLoop, laneOffset));
       path.setAttribute("marker-end", "url(#wf-canvas-arrow)");
       workflowCanvasEdgeLayer.append(path);
@@ -728,6 +749,12 @@ export function createWorkflowCanvas({
     const badge = document.createElement("span");
     badge.className = `workflow-canvas-edge-label${edge.when === "error" ? " error" : ""}`;
     badge.textContent = label;
+    badge.title = String(edge.when || "");
+    badge.dataset.edgeFrom = edge.from;
+    badge.dataset.edgeTo = edge.to;
+    badge.dataset.edgeWhen = edge.when || "";
+    badge.setAttribute("role", "button");
+    badge.tabIndex = 0;
     badge.style.left = `${x}px`;
     badge.style.top = `${y}px`;
     workflowCanvasLabels.append(badge);
@@ -736,7 +763,6 @@ export function createWorkflowCanvas({
   function renderEdgeRules(draft) {
     if (!workflowEdgeRulesList || !draft) return;
     const edges = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []);
-    draft.edges = edges;
     if (edges.length === 0) {
       workflowEdgeRulesList.innerHTML = '<p class="settings-empty">No connections yet.</p>';
       return;
@@ -746,16 +772,13 @@ export function createWorkflowCanvas({
         const current = String(edge.when || "");
         const presets = edgeConditionPresets(edge, draft);
         const presetValue = presets.some((item) => item.value === current) ? current : "__custom";
-        const customHidden = presetValue !== "__custom" ? " hidden" : "";
         const path = edgeDisplayName(edge, draft);
         return `
           <div class="workflow-edge-rule" data-edge-index="${index}">
             <span class="workflow-edge-rule-path">${escapeHtml(path)}</span>
             <select class="workflow-edge-rule-preset" aria-label="Condition preset for ${escapeHtml(path)}">
               ${presets.map((item) => `<option value="${escapeHtml(item.value)}"${presetValue === item.value ? " selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
-              <option value="__custom"${presetValue === "__custom" ? " selected" : ""}>Custom expression</option>
             </select>
-            <input class="workflow-edge-rule-expression"${customHidden} type="text" value="${escapeHtml(current)}" placeholder="plan.confidence < 0.7" aria-label="Custom condition expression" />
           </div>
         `;
       })
@@ -771,21 +794,135 @@ export function createWorkflowCanvas({
     const edge = edges[index];
     if (!edge) return;
     const preset = row.querySelector(".workflow-edge-rule-preset");
-    const expression = row.querySelector(".workflow-edge-rule-expression");
     let when = String(preset?.value || "");
-    if (when === "__custom") {
-      expression.hidden = false;
-      when = String(expression?.value || "").trim();
-    } else {
-      expression.hidden = true;
-      if (expression) expression.value = when;
-    }
-    edges[index] = { ...edge, when };
-    draft.edges = edges;
+    mutateWorkflowEdges(draft, { type: "update", from: edge.from, to: edge.to, fromWhen: edge.when, when });
     renderCanvasEdges(draft);
+    bridge.afterWorkflowMutation?.();
+  }
+
+  function applyEdgeRule(edge, when) {
+    const draft = bridge.activeWorkflowDraft();
+    if (!draft || !edge) return false;
+    const edges = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []);
+    const index = edges.findIndex((candidate) => (
+      candidate.from === edge.from
+      && candidate.to === edge.to
+      && String(candidate.when || "") === String(edge.when || "")
+    ));
+    if (index < 0) return false;
+    bridge.beforeWorkflowMutation?.();
+    mutateWorkflowEdges(draft, { type: "update", from: edge.from, to: edge.to, fromWhen: edge.when, when });
+    state.workflowEditorSelectedEdge = { from: edge.from, to: edge.to, when: String(when || "") };
+    renderWorkflowCanvas();
+    selectCanvasEdge(state.workflowEditorSelectedEdge);
+    bridge.afterWorkflowMutation?.();
+    return true;
+  }
+
+  function deleteSelectedEdge() {
+    const selected = state.workflowEditorSelectedEdge;
+    const draft = bridge.activeWorkflowDraft();
+    if (!draft || !selected) return false;
+    const before = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []).length;
+    mutateWorkflowEdges(draft, { type: "remove", from: selected.from, to: selected.to, when: selected.when });
+    state.workflowEditorSelectedEdge = null;
+    if (deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []).length === before) return false;
+    renderWorkflowCanvas();
+    bridge.afterWorkflowMutation?.();
+    setStatus("Connection removed");
+    return true;
+  }
+
+  function closeEdgeRulePopover() {
+    edgeRulePopover?.remove();
+    edgeRulePopover = null;
+    document.removeEventListener("pointerdown", handleEdgePopoverOutside);
+  }
+
+  function handleEdgePopoverOutside(event) {
+    if (!edgeRulePopover || edgeRulePopover.contains(event.target)) return;
+    if (event.target.closest?.(".workflow-canvas-edge-label")) return;
+    closeEdgeRulePopover();
+  }
+
+  function openEdgeRulePopover(edge, anchor) {
+    closeEdgeRulePopover();
+    const draft = bridge.activeWorkflowDraft();
+    if (!draft || !edge || !anchor) return;
+    const presets = edgeConditionPresets(edge, draft);
+    const popover = document.createElement("div");
+    popover.className = "workflow-edge-popover";
+    popover.innerHTML = `
+      <strong>${escapeHtml(edgeDisplayName(edge, draft))}</strong>
+      <select class="workflow-edge-popover-select" aria-label="Connection branch">
+        ${presets.map((item) => `<option value="${escapeHtml(item.value)}"${String(edge.when || "") === item.value ? " selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
+      </select>
+      <button type="button" class="danger-button workflow-edge-popover-delete">Delete Edge</button>
+    `;
+    popover.querySelector(".workflow-edge-popover-select")?.addEventListener("change", (event) => {
+      applyEdgeRule(edge, event.target.value);
+    });
+    popover.querySelector(".workflow-edge-popover-delete")?.addEventListener("click", () => {
+      bridge.beforeWorkflowMutation?.();
+      state.workflowEditorSelectedEdge = { from: edge.from, to: edge.to, when: edge.when || "" };
+      deleteSelectedEdge();
+      closeEdgeRulePopover();
+    });
+    workflowCanvas?.append(popover);
+    edgeRulePopover = popover;
+    const canvasRect = workflowCanvas.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const popRect = popover.getBoundingClientRect();
+    const x = anchorRect.left - canvasRect.left + workflowCanvas.scrollLeft + anchorRect.width / 2 - popRect.width / 2;
+    const y = anchorRect.bottom - canvasRect.top + workflowCanvas.scrollTop + 8;
+    popover.style.left = `${Math.max(8, Math.min(x, workflowCanvas.scrollWidth - popRect.width - 8))}px`;
+    popover.style.top = `${Math.max(8, y)}px`;
+    requestAnimationFrame(() => document.addEventListener("pointerdown", handleEdgePopoverOutside));
+  }
+
+  function selectCanvasEdge(edge, anchor = null) {
+    state.workflowEditorSelectedEdge = edge ? { from: edge.from, to: edge.to, when: edge.when || "" } : null;
+    workflowCanvasEdgeLayer?.querySelectorAll(".workflow-canvas-edge.is-selected").forEach((item) => item.classList.remove("is-selected"));
+    workflowCanvasLabels?.querySelectorAll(".workflow-canvas-edge-label.is-selected").forEach((item) => item.classList.remove("is-selected"));
+    if (!edge) return;
+    const selector = `[data-edge-from="${cssEscape(edge.from)}"][data-edge-to="${cssEscape(edge.to)}"][data-edge-when="${cssEscape(edge.when || "")}"]`;
+    workflowCanvasEdgeLayer?.querySelector(selector)?.classList.add("is-selected");
+    workflowCanvasLabels?.querySelector(selector)?.classList.add("is-selected");
+    if (anchor) openEdgeRulePopover(edge, anchor);
+  }
+
+  function relayoutCanvasNodes() {
+    const draft = bridge.activeWorkflowDraft();
+    if (!draft) return;
+    layoutCanvasNodes(realWorkflowNodes(draft.nodes), deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []));
+    alignBoundaryNodes(draft);
+    renderWorkflowCanvas();
+    bridge.afterWorkflowMutation?.();
+    setStatus("Workflow layout refreshed");
+  }
+
+  function renderWorkflowHealthPanel(container) {
+    if (!container) return;
+    const draft = bridge.activeWorkflowDraft();
+    const issues = validateWorkflowHealth(draft, state.workflowPresets || []);
+    if (!draft || issues.length === 0) {
+      container.innerHTML = '<span class="workflow-health-ok">Workflow health: no structural issues.</span>';
+      return;
+    }
+    container.innerHTML = `
+      <strong>Workflow Health</strong>
+      <div class="workflow-health-issues">
+        ${issues.map((issue) => `
+          <button type="button" class="workflow-health-issue ${escapeHtml(issue.severity)}" data-node-id="${escapeHtml(issue.nodeId || "")}">
+            ${escapeHtml(issue.message)}
+          </button>
+        `).join("")}
+      </div>
+    `;
   }
 
   return {
+    bridge,
     canvasDrag,
     linkDrag,
     cssEscape,
@@ -795,6 +932,12 @@ export function createWorkflowCanvas({
     renderCanvasEdges,
     renderEdgeRules,
     applyEdgeRuleChange,
+    deleteSelectedEdge,
+    selectCanvasEdge,
+    closeEdgeRulePopover,
+    relayoutCanvasNodes,
+    renderWorkflowHealthPanel,
+    syncDerivedEdges,
     startCanvasLinkDrag,
     startCanvasRelinkDrag,
     finishCanvasLinkDrag,

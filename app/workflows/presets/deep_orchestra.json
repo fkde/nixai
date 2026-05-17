@@ -1,7 +1,7 @@
 {
   "id": "deep_orchestra",
   "name": "Deep Orchestra",
-  "description": "Orchestrator, workers, reviewer, and judge collaborate in the selected mode for deeper research or analysis.",
+  "description": "Orchestrator, workers, report, and decision collaborate in the selected mode for deeper research or analysis.",
   "modes": ["chat", "code", "agentic"],
   "execution": "loop",
   "max_iterations": 2,
@@ -27,22 +27,29 @@
       "max_items": 3
     },
     {
-      "id": "reviewer",
-      "type": "reviewer",
+      "id": "report",
+      "type": "report",
       "role": "reviewer",
-      "title": "Review",
+      "title": "Report",
       "input": ["plan", "worker_reports"],
       "output": "review",
       "expects_json": true
     },
     {
-      "id": "judge",
-      "type": "judge",
+      "id": "decision",
+      "type": "decision",
       "role": "judge",
-      "title": "Judge",
+      "title": "Decision",
       "input": ["plan", "worker_reports", "review"],
       "output": "decision",
-      "expects_json": true
+      "expects_json": true,
+      "config": {
+        "branches": [
+          {"label": "Done", "when": "decision.status == 'done'"},
+          {"label": "Retry", "when": "decision.status == 'retry'"},
+          {"label": "Needs user", "when": "decision.status == 'needs_user'"}
+        ]
+      }
     },
     {
       "id": "ask_user",
@@ -62,11 +69,11 @@
   ],
   "edges": [
     {"from": "orchestrator", "to": "workers"},
-    {"from": "workers", "to": "reviewer"},
-    {"from": "reviewer", "to": "judge"},
-    {"from": "judge", "to": "orchestrator", "when": "decision.status == 'retry'"},
-    {"from": "judge", "to": "answer", "when": "decision.status == 'done'"},
-    {"from": "judge", "to": "ask_user", "when": "decision.status == 'needs_user'"},
+    {"from": "workers", "to": "report"},
+    {"from": "report", "to": "decision"},
+    {"from": "decision", "to": "orchestrator", "when": "decision.status == 'retry'"},
+    {"from": "decision", "to": "answer", "when": "decision.status == 'done'"},
+    {"from": "decision", "to": "ask_user", "when": "decision.status == 'needs_user'"},
     {"from": "ask_user", "to": "orchestrator"}
   ]
 }

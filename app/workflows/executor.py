@@ -23,6 +23,11 @@ class WorkflowGraphExecutor:
         max_node_steps: int = 32,
     ) -> None:
         self.handlers = {**default_node_handlers(), **(handlers or {})}
+        if handlers:
+            if "reviewer" in handlers and "report" not in handlers:
+                self.handlers["report"] = handlers["reviewer"]
+            if "judge" in handlers and "decision" not in handlers:
+                self.handlers["decision"] = handlers["judge"]
         self.condition_evaluator = condition_evaluator or WorkflowConditionEvaluator()
         self.resolver = resolver or NodeInputResolver()
         self.max_node_steps = max(1, max_node_steps)
@@ -361,7 +366,7 @@ class WorkflowGraphExecutor:
         decision = state.get("decision") if isinstance(state.get("decision"), dict) else {}
         iteration = int(state.get("iteration") or 1)
         state["iteration"] = iteration
-        note(deps, state, f"Iteration {iteration} judge decision", markdown_data(decision))
+        note(deps, state, f"Iteration {iteration} decision", markdown_data(decision))
         record_workflow_round(state, reports, review, decision)
 
         status = str(decision.get("status") or "done").strip().lower()
@@ -374,13 +379,15 @@ class WorkflowGraphExecutor:
                 "including caveats and missing verification."
             )
             state["decision"] = decision
-            event_sink.emit("judge", "done", "Retry limit reached; synthesizing final answer from available evidence.")
+            event_sink.emit(
+                "decision", "done", "Retry limit reached; synthesizing final answer from available evidence."
+            )
             note(deps, state, "Retry limit reached", markdown_data(decision))
             return
         state["iteration"] = iteration + 1
         state["retry_feedback"] = decision.get("feedback") or decision.get("reason") or "Retry requested."
         event_sink.emit(
-            "judge", "retry", f"Judge requested another worker pass ({iteration + 1}/{workflow.max_iterations})."
+            "decision", "retry", f"Decision requested another worker pass ({iteration + 1}/{workflow.max_iterations})."
         )
 
     def _default_output_name(self, workflow: WorkflowDefinition, node_id: str) -> str:
@@ -392,7 +399,9 @@ class WorkflowGraphExecutor:
             "orchestrator": "plan",
             "worker_pool": "worker_reports",
             "reviewer": "review",
+            "report": "review",
             "judge": "decision",
+            "decision": "decision",
             "answer": "final_answer",
             "end": "final_answer",
             "needs_user": "final_answer",

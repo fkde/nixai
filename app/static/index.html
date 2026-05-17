@@ -276,6 +276,9 @@
                     <h3 id="workflow-builder-title">Edit Workflow</h3>
                   </div>
                   <div class="workflow-builder-actions">
+                    <span id="workflow-save-indicator" class="workflow-save-indicator" aria-live="polite">Saved</span>
+                    <button id="workflow-editor-undo" class="secondary-button" type="button" disabled>Undo</button>
+                    <button id="workflow-editor-redo" class="secondary-button" type="button" disabled>Redo</button>
                     <button id="workflow-editor-delete" class="danger-button" type="button">Delete</button>
                     <button id="workflow-editor-save" type="button">Save</button>
                     <button id="workflow-editor-save-assign" class="secondary-button" type="button">Save + Assign</button>
@@ -332,10 +335,14 @@
                   <div class="workflow-canvas-toolbar">
                     <div>
                       <strong>Node Tree</strong>
-                      <small>Drag nodes to rearrange, click a node to edit its settings.</small>
+                      <small>Drag nodes to rearrange, click nodes or edge labels to edit, Delete removes the selection.</small>
                     </div>
-                    <button id="workflow-editor-add-node" class="secondary-button" type="button">+ Add Node</button>
+                    <div class="workflow-canvas-toolbar-actions">
+                      <button id="workflow-editor-relayout" class="secondary-button" type="button">Re-Layout</button>
+                      <button id="workflow-editor-add-node" class="secondary-button" type="button">+ Add Node</button>
+                    </div>
                   </div>
+                  <section id="workflow-health-panel" class="workflow-health-panel" aria-live="polite"></section>
                   <div class="workflow-canvas-stage">
                     <div id="workflow-canvas" class="workflow-canvas" tabindex="0">
                       <svg id="workflow-canvas-edges" class="workflow-canvas-edges" aria-hidden="true">
@@ -346,7 +353,7 @@
                         </defs>
                         <g class="workflow-canvas-edge-layer"></g>
                       </svg>
-                      <div id="workflow-canvas-labels" class="workflow-canvas-labels" aria-hidden="true"></div>
+                      <div id="workflow-canvas-labels" class="workflow-canvas-labels"></div>
                       <div id="workflow-canvas-nodes" class="workflow-canvas-nodes"></div>
                     </div>
                     <aside id="workflow-node-edit-panel" class="workflow-node-edit-panel" hidden aria-hidden="true">
@@ -356,6 +363,7 @@
                           <h4 id="workflow-node-edit-title">Edit Node</h4>
                         </div>
                         <div class="workflow-node-edit-actions">
+                          <button id="workflow-node-edit-duplicate" class="secondary-button" type="button">Duplicate</button>
                           <button id="workflow-node-edit-remove" class="danger-button" type="button">Remove</button>
                           <button id="workflow-node-edit-close" class="secondary-button" type="button">Done</button>
                         </div>
@@ -373,12 +381,13 @@
                         </div>
                         <div class="settings-grid two">
                           <label class="field">
-                            <span class="field-label">Node Type <span class="info-tip" tabindex="0" role="button" aria-label="What is the node type for?" data-tip="Controls how the workflow executor runs this node. Use **Answer** to synthesize the user-facing reply, **Pause** to ask the user mid-run, **Judge** to return branch decisions, **Tool Agent** for autonomous tool-capable research, and loop/workflow types for reusable or iterative flows.">?</span></span>
+                            <span class="field-label">Node Type <span class="info-tip" tabindex="0" role="button" aria-label="What is the node type for?" data-tip="Controls how the workflow executor runs this node. Use **Answer** to synthesize the user-facing reply, **Pause** to ask the user mid-run, **Decision** to return branch statuses, **Report** to consolidate prior outputs, **Tool Agent** for autonomous tool-capable research, and loop/workflow types for reusable or iterative flows.">?</span></span>
                             <select id="node-edit-type"></select>
                           </label>
                           <label class="field node-edit-ref-field">
                             <span class="field-label">Workflow Ref / Break Condition <span class="info-tip" tabindex="0" role="button" aria-label="What is this field for?" data-tip="For **Workflow** nodes, enter the reusable workflow id to run. For **While** nodes, enter the safe expression that stops the loop, e.g. `review.score >= 0.8`. Other node types can leave this empty.">?</span></span>
-                            <input id="node-edit-ref" type="text" placeholder="deep_research or review.score >= 0.8" />
+                            <select id="node-edit-sub-workflow-ref" hidden></select>
+                            <input id="node-edit-break-when" type="text" hidden placeholder="decision.status == 'done'" />
                           </label>
                         </div>
                         <label class="field node-edit-prompt-field">
@@ -387,7 +396,7 @@
                         </label>
                         <div class="settings-grid three">
                           <label class="field">
-                            <span class="field-label">Loop Body Nodes <span class="info-tip" tabindex="0" role="button" aria-label="What are loop body nodes?" data-tip="Comma-separated **node IDs** that should run inside a For Each or While node. Example: `research, review`. Leave empty for non-loop nodes.">?</span></span>
+                            <span class="field-label">Loop Body / Branches <span class="info-tip" tabindex="0" role="button" aria-label="What are loop body nodes?" data-tip="For loops, select the nodes that should run inside the body. For Decision, edit the branch labels used by outgoing edge rules.">?</span></span>
                             <input id="node-edit-body" type="text" placeholder="research, review" />
                           </label>
                           <label class="field">
@@ -413,11 +422,11 @@
                         </div>
                         <div class="settings-grid two">
                           <label class="field">
-                            <span class="field-label">receiveFrom (comma separated) <span class="info-tip" tabindex="0" role="button" aria-label="What is receiveFrom for?" data-tip="**Node IDs** whose output this node depends on, **comma-separated**. Each entry draws an arrow **into** this node in the canvas. The runner makes those outputs available before this node runs. Usually mirrors a `reportsTo` entry on the source node.">?</span></span>
+                            <span class="field-label">Incoming Edges <span class="info-tip" tabindex="0" role="button" aria-label="What are incoming edges?" data-tip="Read-only view of canvas connections into this node. Draw or delete edges on the canvas to change this.">?</span></span>
                             <input id="node-edit-receive" type="text" />
                           </label>
                           <label class="field">
-                            <span class="field-label">reportsTo (comma separated) <span class="info-tip" tabindex="0" role="button" aria-label="What is reportsTo for?" data-tip="**Node IDs** that should consume this node's output, **comma-separated**. Each entry draws an arrow **out of** this node. Mostly redundant with `receiveFrom` on the target — declare it on whichever side feels more natural and the runner stitches the graph together.">?</span></span>
+                            <span class="field-label">Outgoing Edges <span class="info-tip" tabindex="0" role="button" aria-label="What are outgoing edges?" data-tip="Read-only view of canvas connections out of this node. Draw or delete edges on the canvas to change this.">?</span></span>
                             <input id="node-edit-reports" type="text" />
                           </label>
                         </div>

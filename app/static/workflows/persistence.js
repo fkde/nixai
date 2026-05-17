@@ -1,6 +1,6 @@
 import { api } from "../api.js";
 import { state } from "../state.js";
-import { deriveWorkflowEdgesFromNodes, newWorkflowDraftFrom, realWorkflowNodes } from "../workflow-builder.js";
+import { deriveWorkflowEdgesFromNodes, newWorkflowDraftFrom, realWorkflowNodes, syncDerivedEdges } from "../workflow-builder.js";
 
 export function createWorkflowPersistence({
   workflowEditorAssignChat,
@@ -88,11 +88,13 @@ export function createWorkflowPersistence({
       setStatus("At least one node is required.", true);
       return;
     }
+    draft.edges = syncDerivedEdges(draft, draft.nodes);
     const edges = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []);
     const payload = {
       ...draft,
       mode: draft.modes[0] || "chat",
       edges,
+      nodes: draft.nodes.map((node) => ({ ...node, receive_from: [], reports_to: [] })),
     };
     await api(`/api/settings/workflows/${encodeURIComponent(draft.id)}`, {
       method: "PUT",

@@ -13,6 +13,39 @@ export const PORT_OUTPUT = "output";
 export const BOUNDARY_NODE_TYPE = "io";
 export const WORKFLOW_INPUT_ID = "input";
 export const WORKFLOW_OUTPUT_ID = "output";
+export const DECISION_BRANCHES = [
+  { label: "Done", when: "decision.status == 'done'", target: "" },
+  { label: "Retry", when: "decision.status == 'retry'", target: "" },
+  { label: "Needs user", when: "decision.status == 'needs_user'", target: "" },
+];
+
+export function canonicalNodeType(type) {
+  const clean = String(type || "role").trim().toLowerCase();
+  if (clean === "final") return "answer";
+  if (clean === "judge") return "decision";
+  if (clean === "reviewer") return "report";
+  return clean || "role";
+}
+
+export function defaultDecisionBranches() {
+  return DECISION_BRANCHES.map((branch) => ({ ...branch }));
+}
+
+export function normalizeDecisionBranches(config = {}) {
+  const rawBranches = Array.isArray(config.branches) ? config.branches : [];
+  const byWhen = new Map();
+  [...DECISION_BRANCHES, ...rawBranches].forEach((branch) => {
+    const label = String(branch?.label || "").trim();
+    const when = String(branch?.when || "").trim();
+    if (!label || !when) return;
+    byWhen.set(when, {
+      label,
+      when,
+      target: String(branch?.target || "").trim(),
+    });
+  });
+  return [...byWhen.values()];
+}
 
 export function boundaryKind(node) {
   const id = String(node?.id || "").trim().toLowerCase();
@@ -70,12 +103,16 @@ export function ensureWorkflowBoundaryNodes(nodes) {
     return id !== WORKFLOW_INPUT_ID && id !== WORKFLOW_OUTPUT_ID;
   });
 
-  if (!hadInput && realNodes.some((node) => Number(node.position?.x || 0) < CANVAS_PAD + NODE_GRID_X)) {
+  const shouldShiftForNewInput = !hadInput
+    && !normalized.some((node) => Boolean(node?._boundaryShifted))
+    && realNodes.some((node) => Number(node.position?.x || 0) < CANVAS_PAD + NODE_GRID_X);
+  if (shouldShiftForNewInput) {
     realNodes.forEach((node) => {
       const x = Number(node.position?.x || 0);
       const y = Number(node.position?.y || 0);
       if (Number.isFinite(x) && Number.isFinite(y) && (x !== 0 || y !== 0)) {
         node.position = { x: x + NODE_GRID_X, y };
+        node._boundaryShifted = true;
       }
     });
   }
@@ -135,13 +172,16 @@ export function normalizeWorkflowNodes(workflow) {
     const rawPos = node.position && typeof node.position === "object" ? node.position : {};
     const px = Number(rawPos.x);
     const py = Number(rawPos.y);
-    const rawType = String(node.type || "role").trim().toLowerCase();
-    const type = rawType === "final" ? "answer" : rawType || "role";
+    const type = canonicalNodeType(node.type || deriveNodeTypeFromRole(node.role, node.worker_instances || node.max_parallel));
     const rawId = migrateNodeId(node.id || `node_${index + 1}`);
+    const rawConfig = typeof node.config === "object" && node.config ? { ...node.config } : {};
+    const config = type === "decision"
+      ? { ...rawConfig, branches: normalizeDecisionBranches(rawConfig) }
+      : rawConfig;
     return {
       id: rawId || `node_${index + 1}`,
       type,
-      role: String(node.role || ""),
+      role: String(node.role || (type === "decision" ? "judge" : type === "report" ? "reviewer" : "")),
       title: String(node.title || ""),
       prompt: String(node.prompt || ""),
       input: inputValues,
@@ -160,7 +200,7 @@ export function normalizeWorkflowNodes(workflow) {
         x: Number.isFinite(px) ? px : 0,
         y: Number.isFinite(py) ? py : 0,
       },
-      config: typeof node.config === "object" && node.config ? node.config : {},
+      config,
       retry: typeof node.retry === "object" && node.retry ? node.retry : { max: 0, backoff: 0 },
       break_when: String(node.break_when || ""),
       ref: String(node.ref || ""),
@@ -168,16 +208,6 @@ export function normalizeWorkflowNodes(workflow) {
   });
 
   const nodeIds = new Set(nodes.map((node) => node.id));
-  const edges = Array.isArray(workflow?.edges) ? workflow.edges : [];
-  edges.forEach((edge) => {
-    const source = migrateNodeId(edge.from || edge.from_node || "");
-    const target = migrateNodeId(edge.to || "");
-    if (!source || !target || !nodeIds.has(source) || !nodeIds.has(target)) return;
-    const targetNode = nodes.find((node) => node.id === target);
-    const sourceNode = nodes.find((node) => node.id === source);
-    if (targetNode) targetNode.receive_from = dedupeList([...targetNode.receive_from, source]);
-    if (sourceNode) sourceNode.reports_to = dedupeList([...sourceNode.reports_to, target]);
-  });
   return ensureWorkflowBoundaryNodes(nodes);
 }
 
@@ -220,7 +250,7 @@ export function normalizeWorkflowDraft(workflow) {
     execution: workflow?.execution === "direct" ? "direct" : "loop",
     max_iterations: Math.min(8, Math.max(1, Number(workflow?.max_iterations || 1))),
     nodes,
-    edges: normalizeWorkflowEdges(workflow || {}, nodes),
+    edges: syncDerivedEdges({ ...(workflow || {}), nodes }, nodes),
   };
 }
 
@@ -251,8 +281,8 @@ export function newWorkflowDraftFrom(workflow) {
 export function deriveNodeTypeFromRole(roleName, workerInstances = 1) {
   const role = String(roleName || "").trim().toLowerCase();
   if (Number(workerInstances) > 1) return "worker_pool";
-  if (role === "judge") return "judge";
-  if (role === "reviewer") return "reviewer";
+  if (role === "judge") return "decision";
+  if (role === "reviewer") return "report";
   if (role === "worker") return "worker_pool";
   return "role";
 }
@@ -261,34 +291,15 @@ export function deriveWorkflowEdgesFromNodes(nodes, existingEdges = [], includeB
   const available = new Set((nodes || []).map((node) => node.id));
   const dedupe = new Set();
   const edges = [];
-  const existingByPair = new Map();
   (existingEdges || []).forEach((edge) => {
     const source = String(edge.from || edge.from_node || "").trim();
     const target = String(edge.to || "").trim();
     const when = String(edge.when || "").trim();
-    if (source && target && when) existingByPair.set(`${source}->${target}`, when);
-  });
-  (nodes || []).forEach((node) => {
-    const source = String(node.id || "").trim();
-    if (!source) return;
-    const reports = dedupeList(Array.isArray(node.reports_to) ? node.reports_to : parseCsvList(node.reports_to || ""));
-    reports.forEach((target) => {
-      const to = String(target || "").trim();
-      if (!to || !available.has(to)) return;
-      const key = `${source}->${to}`;
-      if (dedupe.has(key)) return;
-      dedupe.add(key);
-      edges.push({ from: source, to, when: existingByPair.get(key) || "" });
-    });
-    const incoming = dedupeList(Array.isArray(node.receive_from) ? node.receive_from : parseCsvList(node.receive_from || ""));
-    incoming.forEach((from) => {
-      const cleanFrom = String(from || "").trim();
-      if (!cleanFrom || !available.has(cleanFrom)) return;
-      const key = `${cleanFrom}->${source}`;
-      if (dedupe.has(key)) return;
-      dedupe.add(key);
-      edges.push({ from: cleanFrom, to: source, when: existingByPair.get(key) || "" });
-    });
+    if (!source || !target || !available.has(source) || !available.has(target)) return;
+    const key = `${source}->${target}->${when}`;
+    if (dedupe.has(key)) return;
+    dedupe.add(key);
+    edges.push({ from: source, to: target, when });
   });
   if (includeBoundaryEdges && available.has(WORKFLOW_INPUT_ID) && available.has(WORKFLOW_OUTPUT_ID)) {
     const realNodes = (nodes || []).filter((node) => !isBoundaryNode(node));
@@ -323,6 +334,91 @@ export function deriveWorkflowEdgesFromNodes(nodes, existingEdges = [], includeB
     });
   }
   return edges;
+}
+
+export function mutateWorkflowEdges(draft, op) {
+  if (!draft || !op) return [];
+  const edges = deriveWorkflowEdgesFromNodes(draft.nodes || [], draft.edges || []);
+  const dedupe = (items) => {
+    const seen = new Set();
+    return items.filter((edge) => {
+      const from = String(edge.from || edge.from_node || "").trim();
+      const to = String(edge.to || "").trim();
+      const when = String(edge.when || "").trim();
+      const key = `${from}->${to}->${when}`;
+      if (!from || !to || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map((edge) => ({ from: edge.from || edge.from_node, to: edge.to, when: String(edge.when || "").trim() }));
+  };
+  if (op.type === "add") {
+    draft.edges = dedupe([...edges, { from: op.from, to: op.to, when: op.when || "" }]);
+    return draft.edges;
+  }
+  if (op.type === "remove") {
+    draft.edges = edges.filter((edge) => {
+      const matchesFrom = op.from === undefined || edge.from === op.from;
+      const matchesTo = op.to === undefined || edge.to === op.to;
+      const matchesWhen = op.when === undefined || String(edge.when || "") === String(op.when || "");
+      return !(matchesFrom && matchesTo && matchesWhen);
+    });
+    return draft.edges;
+  }
+  if (op.type === "update") {
+    draft.edges = dedupe(edges.map((edge) => {
+      const matchesPair = edge.from === op.from && edge.to === op.to;
+      const matchesWhen = op.fromWhen === undefined || String(edge.when || "") === String(op.fromWhen || "");
+      return matchesPair && matchesWhen ? { ...edge, when: String(op.when || "").trim() } : edge;
+    }));
+    return draft.edges;
+  }
+  if (op.type === "renameNode") {
+    draft.edges = dedupe(edges.map((edge) => ({
+      ...edge,
+      from: edge.from === op.fromId ? op.toId : edge.from,
+      to: edge.to === op.fromId ? op.toId : edge.to,
+    })));
+    return draft.edges;
+  }
+  draft.edges = dedupe(edges);
+  return draft.edges;
+}
+
+export function syncDerivedEdges(workflow, nodes = workflow?.nodes || []) {
+  const normalizedEdges = normalizeWorkflowEdges(workflow || {}, nodes);
+  if (normalizedEdges.length > 0) return normalizedEdges;
+  const available = new Set((nodes || []).map((node) => node.id));
+  const dedupe = new Set();
+  const migrated = [];
+  (nodes || []).forEach((node) => {
+    const source = String(node.id || "").trim();
+    if (!source) return;
+    const reports = dedupeList(Array.isArray(node.reports_to) ? node.reports_to : parseCsvList(node.reports_to || ""));
+    reports.forEach((target) => {
+      const to = String(target || "").trim();
+      const key = `${source}->${to}->`;
+      if (!to || !available.has(to) || dedupe.has(key)) return;
+      dedupe.add(key);
+      migrated.push({ from: source, to, when: "" });
+    });
+    const incoming = dedupeList(Array.isArray(node.receive_from) ? node.receive_from : parseCsvList(node.receive_from || ""));
+    incoming.forEach((from) => {
+      const cleanFrom = String(from || "").trim();
+      const key = `${cleanFrom}->${source}->`;
+      if (!cleanFrom || !available.has(cleanFrom) || dedupe.has(key)) return;
+      dedupe.add(key);
+      migrated.push({ from: cleanFrom, to: source, when: "" });
+    });
+  });
+  return migrated;
+}
+
+export function derivedNodeConnections(draft, nodeId) {
+  const edges = deriveWorkflowEdgesFromNodes(draft?.nodes || [], draft?.edges || []);
+  return {
+    incoming: dedupeList(edges.filter((edge) => edge.to === nodeId).map((edge) => edge.from)),
+    outgoing: dedupeList(edges.filter((edge) => edge.from === nodeId).map((edge) => edge.to)),
+  };
 }
 
 export function nodeOutputIdentifier(node) {
@@ -372,12 +468,7 @@ export function removeNodeListValue(node, key, value) {
 
 export function linkedSourcesForTarget(draft, targetId) {
   if (!draft || !targetId) return [];
-  const target = draft.nodes.find((node) => node.id === targetId);
-  const fromReceive = target?.receive_from || [];
-  const fromReports = draft.nodes
-    .filter((node) => (node.reports_to || []).includes(targetId))
-    .map((node) => node.id);
-  return dedupeList([...fromReceive, ...fromReports]);
+  return derivedNodeConnections(draft, targetId).incoming;
 }
 
 export function targetStillUsesInputIdentifier(draft, targetId, inputIdentifier) {
@@ -401,30 +492,92 @@ export function updateDownstreamInputReferences(draft, sourceId, previousKey, ne
   if (!draft || !previousKey || !nextKey || previousKey === nextKey) return;
   draft.nodes.forEach((node) => {
     if (node.id === sourceId || !Array.isArray(node.input)) return;
-    const receivesFromSource = (node.receive_from || []).includes(sourceId);
-    const sourceReportsToNode = draft.nodes
-      .find((candidate) => candidate.id === sourceId)
-      ?.reports_to?.includes(node.id);
-    if (!receivesFromSource && !sourceReportsToNode) return;
+    const receivesFromSource = (draft.edges || []).some((edge) => (edge.from || edge.from_node) === sourceId && edge.to === node.id);
+    if (!receivesFromSource) return;
     node.input = dedupeList(node.input.map((field) => (field === previousKey ? nextKey : field)));
   });
 }
 
 export function incomingEdgeForNode(draft, targetId) {
   if (!draft || !targetId) return null;
-  const incoming = deriveWorkflowEdgesFromNodes(draft.nodes).filter((edge) => edge.to === targetId);
+  const incoming = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []).filter((edge) => edge.to === targetId);
   if (incoming.length === 0) return null;
-  const target = draft.nodes.find((node) => node.id === targetId);
-  const preferredSources = [...(target?.receive_from || [])].reverse();
-  for (const sourceId of preferredSources) {
-    const match = incoming.find((edge) => edge.from === sourceId);
-    if (match) return match;
-  }
   return incoming[incoming.length - 1];
 }
 
+export function validateWorkflowHealth(draft, workflowPresets = []) {
+  const nodes = realWorkflowNodes(draft?.nodes || []);
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+  const edges = deriveWorkflowEdgesFromNodes(draft?.nodes || [], draft?.edges || []);
+  const realEdges = edges.filter((edge) => nodeMap.has(edge.from) && nodeMap.has(edge.to));
+  const incoming = new Map(nodes.map((node) => [node.id, 0]));
+  const outgoing = new Map(nodes.map((node) => [node.id, 0]));
+  realEdges.forEach((edge) => {
+    incoming.set(edge.to, (incoming.get(edge.to) || 0) + 1);
+    outgoing.set(edge.from, (outgoing.get(edge.from) || 0) + 1);
+  });
+  const issues = [];
+  nodes.forEach((node) => {
+    const type = canonicalNodeType(node.type);
+    if ((incoming.get(node.id) || 0) === 0 && (outgoing.get(node.id) || 0) === 0) {
+      issues.push({ nodeId: node.id, severity: "warning", message: `${node.title || node.id} is not connected.` });
+    }
+    if (type === "decision") {
+      normalizeDecisionBranches(node.config || {}).forEach((branch) => {
+        const hasEdge = realEdges.some((edge) => edge.from === node.id && edge.when === branch.when);
+        if (!hasEdge) {
+          issues.push({ nodeId: node.id, severity: "warning", message: `Decision branch "${branch.label}" has no outgoing edge.` });
+        }
+      });
+    }
+    if (node.expects_json && !String(node.prompt || "").toLowerCase().includes("json")) {
+      issues.push({ nodeId: node.id, severity: "info", message: `${node.title || node.id} expects JSON; prompt does not mention JSON.` });
+    }
+    if (type === "workflow") {
+      const ref = String(node.ref || "").trim();
+      if (ref && ref === String(draft?.id || "").trim()) {
+        issues.push({ nodeId: node.id, severity: "warning", message: `${node.title || node.id} references this workflow itself.` });
+      }
+      const validRef = ref && workflowPresets.some((workflow) => workflow.id === ref);
+      if (!validRef) issues.push({ nodeId: node.id, severity: "warning", message: `${node.title || node.id} has an invalid sub-workflow ref.` });
+    }
+  });
+  if (!nodes.some((node) => canonicalNodeType(node.type) === "answer")) {
+    issues.push({ nodeId: "", severity: "warning", message: "No Answer node exists." });
+  }
+  const outgoingByNode = new Map(nodes.map((node) => [node.id, []]));
+  realEdges.forEach((edge) => {
+    outgoingByNode.get(edge.from)?.push(edge);
+  });
+  const hasUngatedCyclePath = (from, to, initialHasRetry, blockedEdge) => {
+    const queue = [{ id: from, hasRetry: initialHasRetry }];
+    const seen = new Set();
+    while (queue.length) {
+      const current = queue.shift();
+      if (!current?.id) continue;
+      const key = `${current.id}:${current.hasRetry ? "retry" : "plain"}`;
+      if (seen.has(key)) continue;
+      if (current.id === to) return !current.hasRetry;
+      seen.add(key);
+      (outgoingByNode.get(current.id) || []).forEach((nextEdge) => {
+        if (blockedEdge && blockedEdge.from === nextEdge.from && blockedEdge.to === nextEdge.to && blockedEdge.when === nextEdge.when) return;
+        const nextHasRetry = current.hasRetry || String(nextEdge.when || "").includes("retry");
+        queue.push({ id: nextEdge.to, hasRetry: nextHasRetry });
+      });
+    }
+    return false;
+  };
+  realEdges.forEach((edge) => {
+    const createsUngatedCycle = hasUngatedCyclePath(edge.to, edge.from, String(edge.when || "").includes("retry"), edge);
+    if (createsUngatedCycle) {
+      issues.push({ nodeId: edge.from, severity: "warning", message: `Cycle through ${edge.from} -> ${edge.to} has no retry-gated edge.` });
+    }
+  });
+  return issues;
+}
+
 export function nodeTileMarkup(node) {
-  const nodeType = String(node.type || "").toLowerCase();
+  const nodeType = canonicalNodeType(node.type);
   const isWorker = nodeType === "worker_pool";
   const isAnswer = nodeType === "answer";
   const isIteration = ["for_each", "while"].includes(nodeType);

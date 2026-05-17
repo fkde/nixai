@@ -89,7 +89,12 @@ class WorkflowNode(BaseModel):
     @classmethod
     def _clean_type(cls, value: Any) -> str:
         node_type = clean_single_line(value or "", max_length=MAX_NAME_LENGTH, field_name="value").lower()
-        return "answer" if node_type == "final" else node_type
+        aliases = {
+            "final": "answer",
+            "judge": "decision",
+            "reviewer": "report",
+        }
+        return aliases.get(node_type, node_type)
 
     @field_validator("role", "output", mode="before")
     @classmethod
@@ -204,38 +209,36 @@ class WorkflowDefinition(BaseModel):
         if not node_ids:
             return self
 
-        if self.edges:
-            incoming: dict[str, set[str]] = {node_id: set() for node_id in node_ids}
-            outgoing: dict[str, set[str]] = {node_id: set() for node_id in node_ids}
-            for edge in self.edges:
-                source = edge.from_node
-                target = edge.to
-                if source in node_ids and target in node_ids:
-                    outgoing[source].add(target)
-                    incoming[target].add(source)
-            for node in self.nodes:
-                node.receive_from = sorted(incoming.get(node.id, set()))
-                node.reports_to = sorted(outgoing.get(node.id, set()))
-            return self
-
         seen: set[tuple[str, str, str]] = set()
-        derived: list[WorkflowEdge] = []
+        merged: list[WorkflowEdge] = []
 
-        def add_edge(from_node: str, to_node: str) -> None:
+        def add_edge(from_node: str, to_node: str, when: str = "") -> None:
             if from_node not in node_ids or to_node not in node_ids:
                 return
-            key = (from_node, to_node, "")
+            key = (from_node, to_node, when)
             if key in seen:
                 return
             seen.add(key)
-            derived.append(WorkflowEdge.model_validate({"from": from_node, "to": to_node}))
+            merged.append(WorkflowEdge.model_validate({"from": from_node, "to": to_node, "when": when}))
+
+        for edge in self.edges:
+            add_edge(edge.from_node, edge.to, edge.when)
 
         for node in self.nodes:
             for source in node.receive_from:
                 add_edge(str(source).strip(), node.id)
             for target in node.reports_to:
                 add_edge(node.id, str(target).strip())
-        self.edges = derived
+
+        incoming: dict[str, set[str]] = {node_id: set() for node_id in node_ids}
+        outgoing: dict[str, set[str]] = {node_id: set() for node_id in node_ids}
+        for edge in merged:
+            outgoing[edge.from_node].add(edge.to)
+            incoming[edge.to].add(edge.from_node)
+        for node in self.nodes:
+            node.receive_from = sorted(incoming.get(node.id, set()))
+            node.reports_to = sorted(outgoing.get(node.id, set()))
+        self.edges = merged
         return self
 
     def _migrate_answer_node_id(self) -> None:

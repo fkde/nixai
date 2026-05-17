@@ -144,7 +144,12 @@ async def run_workers(
 
 
 async def review(workflow: WorkflowDefinition, state: WorkflowState, deps: WorkflowPhaseDeps) -> dict[str, Any]:
-    node = workflow.node("reviewer") or first_node(workflow, "reviewer")
+    node = (
+        workflow.node("report")
+        or workflow.node("reviewer")
+        or first_node(workflow, "report")
+        or first_node(workflow, "reviewer")
+    )
     if node is None:
         return {"status": "approved", "summary": "No reviewer node configured.", "findings": []}
 
@@ -161,7 +166,12 @@ async def review(workflow: WorkflowDefinition, state: WorkflowState, deps: Workf
 
 
 async def judge(workflow: WorkflowDefinition, state: WorkflowState, deps: WorkflowPhaseDeps) -> dict[str, Any]:
-    node = workflow.node("judge") or first_node(workflow, "judge")
+    node = (
+        workflow.node("decision")
+        or workflow.node("judge")
+        or first_node(workflow, "decision")
+        or first_node(workflow, "judge")
+    )
     if node is None:
         return {"status": "done", "reason": "No judge node configured.", "feedback": []}
 
@@ -340,7 +350,9 @@ def role_for_node_type(node_type: str) -> str:
     mapping = {
         "worker_pool": "worker",
         "reviewer": "reviewer",
+        "report": "reviewer",
         "judge": "judge",
+        "decision": "judge",
         "role": "orchestrator",
         "answer": "orchestrator",
     }

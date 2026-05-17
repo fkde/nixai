@@ -21,6 +21,21 @@ def test_workflow_definition_derives_edges_from_node_links() -> None:
     assert [(edge.from_node, edge.to) for edge in workflow.edges] == [("planner", "worker")]
 
 
+def test_workflow_definition_migrates_receive_from_into_edges() -> None:
+    workflow = WorkflowDefinition.model_validate(
+        {
+            "id": "wf-links",
+            "name": "Receive Links",
+            "nodes": [
+                {"id": "planner", "type": "role"},
+                {"id": "worker", "type": "worker_pool", "receive_from": ["planner", "planner"]},
+            ],
+        }
+    )
+
+    assert [(edge.from_node, edge.to, edge.when) for edge in workflow.edges] == [("planner", "worker", "")]
+
+
 def test_workflow_definition_uses_explicit_edges_as_canonical_links() -> None:
     workflow = WorkflowDefinition.model_validate(
         {
@@ -78,6 +93,24 @@ def test_workflow_definition_migrates_legacy_answer_node_id() -> None:
     assert workflow.node("final") is None
     assert workflow.node("answer") is not None
     assert [(edge.from_node, edge.to) for edge in workflow.edges] == [("planner", "answer")]
+
+
+def test_workflow_definition_migrates_legacy_decision_and_report_types() -> None:
+    workflow = WorkflowDefinition.model_validate(
+        {
+            "id": "wf6",
+            "name": "Legacy Types",
+            "nodes": [
+                {"id": "reviewer", "type": "reviewer", "output": "review"},
+                {"id": "judge", "type": "judge", "output": "decision"},
+            ],
+            "edges": [{"from": "reviewer", "to": "judge"}],
+        }
+    )
+
+    assert workflow.node("reviewer").type == "report"
+    assert workflow.node("judge").type == "decision"
+    assert [(edge.from_node, edge.to) for edge in workflow.edges] == [("reviewer", "judge")]
 
 
 def test_workflow_definition_rejects_invalid_id() -> None:

@@ -44,10 +44,30 @@
 
 .workflow-builder-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex: 0 0 auto;
   max-width: 100%;
   flex-wrap: wrap;
+}
+
+.workflow-save-indicator {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid rgba(143, 255, 184, 0.28);
+  border-radius: 7px;
+  background: rgba(143, 255, 184, 0.08);
+  color: rgba(190, 255, 213, 0.92);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.workflow-save-indicator[data-state="dirty"] {
+  border-color: rgba(255, 209, 102, 0.38);
+  background: rgba(255, 209, 102, 0.08);
+  color: rgba(255, 232, 166, 0.95);
 }
 
 .workflow-builder-view > *,
@@ -300,6 +320,54 @@
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.workflow-canvas-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.workflow-health-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(128, 142, 170, 0.18);
+  border-radius: 8px;
+  background: rgba(8, 14, 22, 0.58);
+}
+
+.workflow-health-panel:empty {
+  display: none;
+}
+
+.workflow-health-panel strong,
+.workflow-health-ok {
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.workflow-health-issues {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.workflow-health-issue {
+  min-height: 0;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 209, 102, 0.36);
+  border-radius: 7px;
+  background: rgba(255, 209, 102, 0.08);
+  color: rgba(255, 232, 166, 0.94);
+  font-size: 11px;
+}
+
+.workflow-health-issue.info {
+  border-color: rgba(157, 250, 255, 0.28);
+  background: rgba(69, 230, 242, 0.08);
+  color: rgba(190, 244, 248, 0.92);
 }
 
 .workflow-canvas-toolbar strong {
@@ -643,6 +711,11 @@
   fill: none;
 }
 
+.workflow-canvas-edge.is-selected {
+  stroke: rgba(255, 209, 102, 0.96);
+  stroke-width: 2.4;
+}
+
 .workflow-canvas-edge.loop {
   stroke: rgba(155, 114, 255, 0.62);
 }
@@ -692,6 +765,43 @@
   text-align: center;
   transform: translate(-50%, -50%);
   white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.workflow-canvas-edge-label.is-selected {
+  border-color: rgba(255, 209, 102, 0.78);
+  box-shadow: 0 0 0 1px rgba(255, 209, 102, 0.28), 0 6px 14px rgba(0, 0, 0, 0.28);
+}
+
+.workflow-edge-popover {
+  position: absolute;
+  z-index: 6;
+  display: grid;
+  gap: 8px;
+  width: min(240px, calc(100% - 16px));
+  padding: 10px;
+  border: 1px solid rgba(255, 209, 102, 0.44);
+  border-radius: 8px;
+  background: rgba(6, 9, 14, 0.98);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.44), 0 0 0 1px rgba(255, 209, 102, 0.12) inset;
+}
+
+.workflow-edge-popover strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-edge-popover select {
+  min-width: 0;
+}
+
+.workflow-edge-popover .danger-button {
+  min-height: 34px;
 }
 
 .workflow-canvas-edge-label.error {
@@ -772,6 +882,58 @@
   overflow-y: auto;
   align-content: start;
   padding-right: 4px;
+}
+
+.node-edit-body-chips,
+.node-edit-connection-chips,
+.node-edit-branch-list {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.node-edit-body-chips label,
+.node-edit-connection-chips span,
+.node-edit-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid rgba(128, 142, 170, 0.24);
+  border-radius: 7px;
+  background: rgba(8, 14, 22, 0.72);
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.node-edit-connection-chips small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.node-edit-branch {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.node-edit-branch input {
+  min-width: 100px;
+  flex: 1 1 120px;
+}
+
+.node-edit-branch input.is-invalid {
+  border-color: rgba(255, 107, 107, 0.78);
+}
+
+.node-edit-branch-error {
+  width: 100%;
+  color: rgba(255, 107, 107, 0.95);
+  font-size: 10.5px;
+}
+
+.node-edit-id-error {
+  color: rgba(255, 107, 107, 0.95);
 }
 
 .field-hint {

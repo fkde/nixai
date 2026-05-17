@@ -80,6 +80,9 @@ def save_custom_workflow(workflow: WorkflowDefinition) -> WorkflowDefinition:
     payload = workflow.model_copy(update={"id": workflow_id})
     path = custom_workflow_dir() / f"{workflow_id}.json"
     data = payload.model_dump(by_alias=True)
+    for node in data.get("nodes", []):
+        node["receive_from"] = []
+        node["reports_to"] = []
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     loaded = _load_workflow_file(path)
     if loaded is None:
