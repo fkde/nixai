@@ -1,7 +1,7 @@
 {
   "id": "deep_orchestra",
   "name": "Deep Orchestra",
-  "description": "Orchestrator, workers, report, and decision collaborate in the selected mode for deeper research or analysis.",
+  "description": "Planner, parallel workers, reviewer, judge, pause/resume, retry loop, and final synthesis. Use for deeper research, code review, or multi-step analysis.",
   "modes": ["chat", "code", "agentic"],
   "execution": "loop",
   "max_iterations": 2,
@@ -11,38 +11,47 @@
       "type": "role",
       "role": "orchestrator",
       "title": "Plan",
+      "prompt": "Turn the user request into a compact plan with a summary, a confidence score, and concrete work_items for the workers. Return JSON.",
+      "input": ["user_message", "history", "resume_feedback", "retry_feedback", "code_context", "agentic_context"],
       "output": "plan",
       "max_items": 3,
-      "expects_json": true
+      "expects_json": true,
+      "position": {"x": 244, "y": 80}
     },
     {
       "id": "workers",
       "type": "worker_pool",
       "role": "worker",
       "title": "Workers",
-      "input": "plan.work_items",
+      "prompt": "Investigate the assigned work item. Return concise findings, evidence, risks, and open questions.",
+      "input": ["plan.work_items", "workspace", "code_context", "agentic_context"],
       "output": "worker_reports",
       "worker_instances": 2,
       "max_parallel": 2,
-      "max_items": 3
+      "max_items": 3,
+      "position": {"x": 464, "y": 80}
     },
     {
-      "id": "report",
+      "id": "reviewer",
       "type": "report",
       "role": "reviewer",
-      "title": "Report",
+      "title": "Review",
+      "prompt": "Review the plan and worker reports. Decide whether the evidence is sufficient, identify gaps, and return JSON.",
       "input": ["plan", "worker_reports"],
       "output": "review",
-      "expects_json": true
+      "expects_json": true,
+      "position": {"x": 684, "y": 80}
     },
     {
-      "id": "decision",
+      "id": "judge",
       "type": "decision",
       "role": "judge",
-      "title": "Decision",
-      "input": ["plan", "worker_reports", "review"],
+      "title": "Judge",
+      "prompt": "Choose the next route. Use done when the final answer is ready, retry when another worker pass is useful, and needs_user when user input is required. Return JSON.",
+      "input": ["plan", "worker_reports", "review", "workflow_rounds"],
       "output": "decision",
       "expects_json": true,
+      "position": {"x": 464, "y": 242},
       "config": {
         "branches": [
           {"label": "Done", "when": "decision.status == 'done'"},
@@ -55,25 +64,29 @@
       "id": "ask_user",
       "type": "pause",
       "title": "Ask User",
-      "input": ["decision"],
-      "output": "pause"
+      "prompt": "Ask the user for the missing detail, approval, or direction before continuing.",
+      "input": ["decision", "review"],
+      "output": "pause",
+      "position": {"x": 684, "y": 242}
     },
     {
       "id": "answer",
       "type": "answer",
       "role": "orchestrator",
       "title": "Answer",
-      "input": ["plan", "worker_reports", "review", "decision"],
-      "output": "final_answer"
+      "prompt": "Synthesize the final user-facing response from the plan, reports, review, decision, and any resume feedback.",
+      "input": ["plan", "worker_reports", "review", "decision", "resume_feedback"],
+      "output": "final_answer",
+      "position": {"x": 904, "y": 242}
     }
   ],
   "edges": [
     {"from": "orchestrator", "to": "workers"},
-    {"from": "workers", "to": "report"},
-    {"from": "report", "to": "decision"},
-    {"from": "decision", "to": "orchestrator", "when": "decision.status == 'retry'"},
-    {"from": "decision", "to": "answer", "when": "decision.status == 'done'"},
-    {"from": "decision", "to": "ask_user", "when": "decision.status == 'needs_user'"},
+    {"from": "workers", "to": "reviewer"},
+    {"from": "reviewer", "to": "judge"},
+    {"from": "judge", "to": "orchestrator", "when": "decision.status == 'retry'"},
+    {"from": "judge", "to": "answer", "when": "decision.status == 'done'"},
+    {"from": "judge", "to": "ask_user", "when": "decision.status == 'needs_user'"},
     {"from": "ask_user", "to": "orchestrator"}
   ]
 }

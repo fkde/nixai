@@ -25,6 +25,43 @@
           <span aria-hidden="true"></span>
         </button>
       </div>
+      <script>
+        (() => {
+          const applyDesktopChrome = (info = null) => {
+            if (!window.pywebview && !info) return false;
+            const rawPlatform = String(info?.platform || window.pywebview?.platform || navigator.platform || "desktop")
+              .replace(/[^a-z0-9_-]/gi, "-")
+              .toLowerCase();
+            const isMac = /darwin|mac|cocoa/.test(rawPlatform);
+            document.body.classList.add("desktop-shell", `desktop-${rawPlatform}`);
+            document.body.classList.toggle("desktop-macos", isMac);
+            document.body.classList.toggle("frameless-window", Boolean(info?.frameless ?? true));
+            document.body.classList.toggle("native-chrome", Boolean(info?.native_chrome ?? false));
+            document.body.classList.toggle("native-traffic-lights", Boolean(info?.native_traffic_lights ?? false));
+            document.body.classList.toggle("custom-window-controls", Boolean(info?.window_controls ?? true));
+            return true;
+          };
+          const bindDesktopChrome = () => {
+            applyDesktopChrome();
+            const api = window.pywebview?.api;
+            if (!api || window.__nixaiDesktopChromeFallbackBound) return;
+            window.__nixaiDesktopChromeFallbackBound = true;
+            const methods = { close: "close_window", minimize: "minimize_window", zoom: "zoom_window" };
+            document.querySelectorAll("[data-window-action]").forEach((button) => {
+              button.addEventListener("click", async (event) => {
+                const method = methods[button.dataset.windowAction];
+                if (!method || typeof api[method] !== "function") return;
+                event.preventDefault();
+                event.stopPropagation();
+                await api[method]();
+              });
+            });
+            api.desktop_info?.().then(applyDesktopChrome).catch(() => {});
+          };
+          if (window.pywebview) bindDesktopChrome();
+          window.addEventListener("pywebviewready", bindDesktopChrome, { once: true });
+        })();
+      </script>
       <aside class="sidebar">
         <div class="brand">
           <div>
@@ -165,6 +202,10 @@
             <button class="settings-nav-button" type="button" data-settings-section="agentic">
               <span>Agentic</span>
               <small>Tasks and runs</small>
+            </button>
+            <button class="settings-nav-button" type="button" data-settings-section="runs">
+              <span>Runs</span>
+              <small>Live workflow inspector</small>
             </button>
           </nav>
 
@@ -338,6 +379,10 @@
                       <small>Drag nodes to rearrange, click nodes or edge labels to edit, Delete removes the selection.</small>
                     </div>
                     <div class="workflow-canvas-toolbar-actions">
+                      <label class="workflow-debug-toggle">
+                        <input id="workflow-debug-mode" type="checkbox" />
+                        <span>Debug Mode</span>
+                      </label>
                       <button id="workflow-editor-relayout" class="secondary-button" type="button">Re-Layout</button>
                       <button id="workflow-editor-add-node" class="secondary-button" type="button">+ Add Node</button>
                     </div>
@@ -453,10 +498,10 @@
                       </div>
                     </aside>
                   </div>
-                  <section class="workflow-edge-rules" aria-label="Workflow connection rules">
+                  <section class="workflow-edge-rules" aria-label="Workflow routing rules">
                     <div>
-                      <strong>Connection Rules</strong>
-                      <small>Rules follow node outputs. Run another pass means the Judge returned retry; ready to answer means done; ask user means needs_user.</small>
+                      <strong>Routing Rules</strong>
+                      <small>Each row says which output from a node should follow that arrow. Decision nodes can route retry, done, and needs_user to different next steps.</small>
                     </div>
                     <div id="workflow-edge-rules-list" class="workflow-edge-rules-list"></div>
                   </section>
@@ -638,6 +683,42 @@
                   </div>
                 </div>
                 <div id="agentic-run-list" class="agentic-run-list"></div>
+              </div>
+            </section>
+
+            <section class="settings-section runs-section" data-settings-panel="runs">
+              <div class="settings-section-title">
+                <p class="eyebrow">Workflow Runs</p>
+                <h3>Runs</h3>
+                <p>Inspect persisted workflow runs. Click a row to open the run inspector.</p>
+              </div>
+              <div class="runs-toolbar">
+                <label class="field runs-filter">
+                  <span>Status</span>
+                  <select id="runs-filter-status">
+                    <option value="">Any</option>
+                    <option value="running">Running</option>
+                    <option value="paused">Paused</option>
+                    <option value="done">Done</option>
+                    <option value="failed">Failed</option>
+                    <option value="needs_user">Needs user</option>
+                  </select>
+                </label>
+                <button id="runs-refresh" type="button" class="settings-secondary-button">Refresh</button>
+              </div>
+              <div id="runs-list" class="runs-list" aria-live="polite"></div>
+              <div id="runs-detail" class="runs-detail" hidden>
+                <header class="runs-detail-header">
+                  <button id="runs-detail-back" type="button" class="settings-secondary-button">Back</button>
+                  <div id="runs-detail-meta" class="runs-detail-meta"></div>
+                </header>
+                <div id="runs-timeline" class="runs-timeline" tabindex="0"></div>
+                <div class="runs-detail-body">
+                  <div id="runs-inspector-canvas" class="runs-inspector-canvas"></div>
+                  <aside id="runs-step-panel" class="runs-step-panel" aria-live="polite">
+                    <p class="settings-empty">Click a node to inspect its step.</p>
+                  </aside>
+                </div>
               </div>
             </section>
 

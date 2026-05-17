@@ -21,7 +21,7 @@ const {
   modeButtons,
 } = dom;
 
-export function createChatUi({ setStatus, toolApprovals, getSettingsUi, getAgenticTasksUi }) {
+export function createChatUi({ setStatus, toolApprovals, getSettingsUi, getAgenticTasksUi, getRunsUi }) {
   const bridge = {};
 
   const streaming = createStreamingHelpers({ messagesEl, bridge });
@@ -53,6 +53,7 @@ export function createChatUi({ setStatus, toolApprovals, getSettingsUi, getAgent
     toolApprovals,
     getSettingsUi,
     getAgenticTasksUi,
+    getRunsUi,
     streaming,
     messageRendering,
     chatList: chatListApi,

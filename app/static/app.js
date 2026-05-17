@@ -4,6 +4,7 @@ import { createChatUi } from "./chat.js";
 import { dom } from "./dom.js";
 import { createMistakesUi } from "./mistakes-ui.js";
 import { createRolesUi } from "./roles-ui.js";
+import { createRunsUi } from "./runs/runs-ui.js";
 import { createSettingsUi } from "./settings.js";
 import { state } from "./state.js";
 import { createUpdateBanner } from "./update-banner.js";
@@ -45,6 +46,7 @@ let workflowsUi;
 let rolesUi;
 let mistakesUi;
 let agenticTasksUi;
+let runsUi;
 
 settingsUi = createSettingsUi({
   setStatus,
@@ -66,12 +68,14 @@ rolesUi = createRolesUi({
 
 mistakesUi = createMistakesUi({ setStatus });
 agenticTasksUi = createAgenticTasksUi({ setStatus });
+runsUi = createRunsUi({ setStatus });
 
 chatUi = createChatUi({
   setStatus,
   toolApprovals,
   getSettingsUi: () => settingsUi,
   getAgenticTasksUi: () => agenticTasksUi,
+  getRunsUi: () => runsUi,
 });
 
 function initFeatureWiring() {
@@ -81,6 +85,7 @@ function initFeatureWiring() {
   rolesUi.init();
   mistakesUi.init();
   agenticTasksUi.init();
+  runsUi.init();
 
   settingsToggle.addEventListener("click", () => {
     settingsUi.openSettings();

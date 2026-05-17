@@ -12,6 +12,7 @@ from app.json_utils import parse_json_object
 from app.workflow_scratch import WorkflowScratchpad
 from app.workflows.events import WorkflowEventSink
 from app.workflows.models import WorkflowDefinition, WorkflowNode
+from app.workflows.runtime_trace import TraceEmitter
 from app.workflows.prompts import (
     build_final_answer_prompt,
     build_judge_prompt,
@@ -48,6 +49,7 @@ class WorkflowPhaseDeps:
     scratchpad: WorkflowScratchpad
     update_chat_title: Callable[[str, dict[str, Any]], None] = noop_update_chat_title
     final_ollama_factory: Callable[[], WorkflowOllamaClient] | None = None
+    trace: TraceEmitter | None = None
 
 
 async def build_plan(workflow: WorkflowDefinition, state: WorkflowState, deps: WorkflowPhaseDeps) -> dict[str, Any]:
@@ -209,15 +211,35 @@ async def final_answer(
     ]
     chunks: list[str] = []
     client = deps.final_ollama_factory() if deps.final_ollama_factory is not None else deps.ollama
-    async for event in client.stream_payload(messages, model=deps.settings.model_for_role("orchestrator")):
-        if event.get("type") == "token":
+    final_model = deps.settings.model_for_role("orchestrator")
+    started_at = asyncio.get_event_loop().time()
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    async for event in client.stream_payload(messages, model=final_model):
+        event_type = event.get("type")
+        if event_type == "token":
             content = str(event.get("content") or "")
             if content:
                 chunks.append(content)
                 deps.event_sink.emit(node_id, "token", content, record=False)
+        elif event_type == "done":
+            raw_in = event.get("prompt_eval_count")
+            raw_out = event.get("eval_count")
+            tokens_in = int(raw_in) if isinstance(raw_in, (int, float)) else None
+            tokens_out = int(raw_out) if isinstance(raw_out, (int, float)) else None
     answer = "".join(chunks).strip()
     if not answer:
         raise RuntimeError("Final synthesis completed without text.")
+    if deps.trace is not None:
+        deps.trace.emit_llm_call(
+            node_id=node_id,
+            model=final_model or "",
+            prompt=messages,
+            response=answer,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            duration_ms=int((asyncio.get_event_loop().time() - started_at) * 1000),
+        )
     state["final_answer_streamed"] = deps.event_sink.has_callback
     return answer
 
@@ -234,11 +256,26 @@ async def role_call(node: WorkflowNode, system_prompt: str, payload: dict[str, A
             "Markdown code fences, do not add any text before or after the "
             "object, and do not include explanations or commentary."
         )
-    return await deps.ollama.chat_payload(
-        [{"role": "system", "content": prompt}, {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-        model=deps.settings.model_for_role(role),
+    model = deps.settings.model_for_role(role)
+    messages = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+    ]
+    started_at = asyncio.get_event_loop().time()
+    response = await deps.ollama.chat_payload(
+        messages,
+        model=model,
         response_format="json" if node.expects_json else None,
     )
+    if deps.trace is not None:
+        deps.trace.emit_llm_call(
+            node_id=node.id,
+            model=model or "",
+            prompt=messages,
+            response=response,
+            duration_ms=int((asyncio.get_event_loop().time() - started_at) * 1000),
+        )
+    return response
 
 
 def worker_prompt(node: WorkflowNode, item: dict[str, Any], state: WorkflowState) -> str:

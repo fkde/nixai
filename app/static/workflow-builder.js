@@ -320,6 +320,7 @@ export function deriveWorkflowEdgesFromNodes(nodes, existingEdges = [], includeB
       .filter((node) => !targets.has(node.id))
       .forEach((node) => {
         const key = `${WORKFLOW_INPUT_ID}->${node.id}`;
+        if (isAutoBoundaryEdgeSuppressed(node, WORKFLOW_INPUT_ID, node.id)) return;
         if (!dedupe.has(key)) {
           dedupe.add(key);
           edges.unshift({ from: WORKFLOW_INPUT_ID, to: node.id, when: "" });
@@ -327,6 +328,7 @@ export function deriveWorkflowEdgesFromNodes(nodes, existingEdges = [], includeB
       });
     outputNodes.forEach((node) => {
       const key = `${node.id}->${WORKFLOW_OUTPUT_ID}`;
+      if (isAutoBoundaryEdgeSuppressed(node, node.id, WORKFLOW_OUTPUT_ID)) return;
       if (!dedupe.has(key)) {
         dedupe.add(key);
         edges.push({ from: node.id, to: WORKFLOW_OUTPUT_ID, when: "" });
@@ -411,6 +413,34 @@ export function syncDerivedEdges(workflow, nodes = workflow?.nodes || []) {
     });
   });
   return migrated;
+}
+
+export function autoBoundaryEdgeKey(from, to) {
+  return `${String(from || "").trim()}->${String(to || "").trim()}`;
+}
+
+export function isAutoBoundaryEdgeSuppressed(node, from, to) {
+  const removed = Array.isArray(node?.config?._removed_auto_edges) ? node.config._removed_auto_edges : [];
+  return removed.includes(autoBoundaryEdgeKey(from, to));
+}
+
+export function suppressAutoBoundaryEdge(node, from, to) {
+  if (!node || !from || !to) return false;
+  node.config = typeof node.config === "object" && node.config ? node.config : {};
+  const key = autoBoundaryEdgeKey(from, to);
+  const removed = Array.isArray(node.config._removed_auto_edges) ? node.config._removed_auto_edges : [];
+  if (removed.includes(key)) return false;
+  node.config._removed_auto_edges = dedupeList([...removed, key]);
+  return true;
+}
+
+export function restoreAutoBoundaryEdge(node, from, to) {
+  if (!node || !from || !to || !Array.isArray(node.config?._removed_auto_edges)) return false;
+  const key = autoBoundaryEdgeKey(from, to);
+  const next = node.config._removed_auto_edges.filter((item) => item !== key);
+  const changed = next.length !== node.config._removed_auto_edges.length;
+  node.config._removed_auto_edges = next;
+  return changed;
 }
 
 export function derivedNodeConnections(draft, nodeId) {
@@ -498,9 +528,10 @@ export function updateDownstreamInputReferences(draft, sourceId, previousKey, ne
   });
 }
 
-export function incomingEdgeForNode(draft, targetId) {
+export function incomingEdgeForNode(draft, targetId, includeBoundaryEdges = false) {
   if (!draft || !targetId) return null;
-  const incoming = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []).filter((edge) => edge.to === targetId);
+  const incoming = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || [], includeBoundaryEdges)
+    .filter((edge) => edge.to === targetId);
   if (incoming.length === 0) return null;
   return incoming[incoming.length - 1];
 }
@@ -517,38 +548,90 @@ export function validateWorkflowHealth(draft, workflowPresets = []) {
     outgoing.set(edge.from, (outgoing.get(edge.from) || 0) + 1);
   });
   const issues = [];
+  const addIssue = ({ nodeId = "", severity = "warning", title, detail = "", action = "", debug = false }) => {
+    issues.push({
+      nodeId,
+      severity,
+      title,
+      detail,
+      action,
+      debug,
+      message: [title, action || detail].filter(Boolean).join(" "),
+    });
+  };
   nodes.forEach((node) => {
     const type = canonicalNodeType(node.type);
+    const nodeName = node.title || node.id;
     if ((incoming.get(node.id) || 0) === 0 && (outgoing.get(node.id) || 0) === 0) {
-      issues.push({ nodeId: node.id, severity: "warning", message: `${node.title || node.id} is not connected.` });
+      addIssue({
+        nodeId: node.id,
+        severity: "warning",
+        title: `${nodeName} is not connected`,
+        action: "Connect it to another step, or remove it if it is unused.",
+      });
     }
     if (type === "decision") {
       normalizeDecisionBranches(node.config || {}).forEach((branch) => {
         const hasEdge = realEdges.some((edge) => edge.from === node.id && edge.when === branch.when);
         if (!hasEdge) {
-          issues.push({ nodeId: node.id, severity: "warning", message: `Decision branch "${branch.label}" has no outgoing edge.` });
+          addIssue({
+            nodeId: node.id,
+            severity: "warning",
+            title: `Decision path "${branch.label}" has nowhere to go`,
+            action: "Draw an edge from this decision to the next step for that outcome.",
+          });
         }
       });
     }
     if (node.expects_json && !String(node.prompt || "").toLowerCase().includes("json")) {
-      issues.push({ nodeId: node.id, severity: "info", message: `${node.title || node.id} expects JSON; prompt does not mention JSON.` });
+      addIssue({
+        nodeId: node.id,
+        severity: "info",
+        title: `${nodeName} returns structured data`,
+        detail: "This is usually fine. The runner adds the JSON instruction automatically.",
+        action: "Only edit the prompt if the model keeps returning plain text.",
+        debug: true,
+      });
     }
     if (type === "workflow") {
       const ref = String(node.ref || "").trim();
       if (ref && ref === String(draft?.id || "").trim()) {
-        issues.push({ nodeId: node.id, severity: "warning", message: `${node.title || node.id} references this workflow itself.` });
+        addIssue({
+          nodeId: node.id,
+          severity: "warning",
+          title: `${nodeName} starts this same workflow again`,
+          action: "Choose a different sub-workflow to avoid recursion.",
+        });
       }
       const validRef = ref && workflowPresets.some((workflow) => workflow.id === ref);
-      if (!validRef) issues.push({ nodeId: node.id, severity: "warning", message: `${node.title || node.id} has an invalid sub-workflow ref.` });
+      if (!validRef) {
+        addIssue({
+          nodeId: node.id,
+          severity: "warning",
+          title: `${nodeName} has no valid sub-workflow`,
+          action: "Pick an existing workflow in the node settings.",
+        });
+      }
     }
   });
   if (!nodes.some((node) => canonicalNodeType(node.type) === "answer")) {
-    issues.push({ nodeId: "", severity: "warning", message: "No Answer node exists." });
+    addIssue({
+      severity: "warning",
+      title: "No final answer step",
+      action: "Add an Answer node so the workflow can respond to the user.",
+    });
   }
   const outgoingByNode = new Map(nodes.map((node) => [node.id, []]));
   realEdges.forEach((edge) => {
     outgoingByNode.get(edge.from)?.push(edge);
   });
+  const isCycleGate = (edge) => {
+    const source = nodeMap.get(edge.from);
+    const target = nodeMap.get(edge.to);
+    return String(edge.when || "").includes("retry")
+      || canonicalNodeType(source?.type) === "pause"
+      || canonicalNodeType(target?.type) === "pause";
+  };
   const hasUngatedCyclePath = (from, to, initialHasRetry, blockedEdge) => {
     const queue = [{ id: from, hasRetry: initialHasRetry }];
     const seen = new Set();
@@ -561,16 +644,22 @@ export function validateWorkflowHealth(draft, workflowPresets = []) {
       seen.add(key);
       (outgoingByNode.get(current.id) || []).forEach((nextEdge) => {
         if (blockedEdge && blockedEdge.from === nextEdge.from && blockedEdge.to === nextEdge.to && blockedEdge.when === nextEdge.when) return;
-        const nextHasRetry = current.hasRetry || String(nextEdge.when || "").includes("retry");
+        const nextHasRetry = current.hasRetry || isCycleGate(nextEdge);
         queue.push({ id: nextEdge.to, hasRetry: nextHasRetry });
       });
     }
     return false;
   };
   realEdges.forEach((edge) => {
-    const createsUngatedCycle = hasUngatedCyclePath(edge.to, edge.from, String(edge.when || "").includes("retry"), edge);
+    const createsUngatedCycle = hasUngatedCyclePath(edge.to, edge.from, isCycleGate(edge), edge);
     if (createsUngatedCycle) {
-      issues.push({ nodeId: edge.from, severity: "warning", message: `Cycle through ${edge.from} -> ${edge.to} has no retry-gated edge.` });
+      addIssue({
+        nodeId: edge.from,
+        severity: "warning",
+        title: `Possible endless loop: ${edge.from} → ${edge.to}`,
+        detail: "This path can loop without being tied to a retry decision.",
+        action: "Add a condition such as retry, or remove one of the loop edges.",
+      });
     }
   });
   return issues;

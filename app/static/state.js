@@ -9,6 +9,7 @@ export const state = {
   workflowEditorDraft: null,
   workflowEditorView: "list",
   workflowEditorSelectedNodeId: null,
+  workflowDebugMode: false,
   availableModels: [],
   modelCatalog: [],
   modelsLoaded: false,

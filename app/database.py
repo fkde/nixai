@@ -34,6 +34,13 @@ from app.db.messages import (
 )
 from app.db.schema import SCHEMA_VERSION, get_schema_version, init_db, set_schema_version
 from app.db.workflow_runs import create_workflow_run, get_workflow_run, row_to_workflow_run, update_workflow_run
+from app.db.workflow_runs import clear_workflow_run_signal, has_workflow_run_signal, request_workflow_run_signal
+from app.db.workflow_trace import (
+    delete_trace_events,
+    insert_trace_event,
+    list_trace_events,
+    list_workflow_runs,
+)
 
 
 __all__ = [
@@ -44,7 +51,9 @@ __all__ = [
     "create_agentic_task_run",
     "create_chat",
     "create_workflow_run",
+    "clear_workflow_run_signal",
     "delete_agentic_task",
+    "delete_trace_events",
     "delete_chat",
     "finish_agentic_task_run",
     "get_agentic_task",
@@ -53,18 +62,23 @@ __all__ = [
     "get_connection",
     "get_message",
     "get_workflow_run",
+    "has_workflow_run_signal",
     "get_schema_version",
     "init_db",
+    "insert_trace_event",
     "list_agentic_task_runs",
     "list_agentic_tasks",
     "list_chats",
     "list_due_agentic_tasks",
     "list_messages",
+    "list_trace_events",
+    "list_workflow_runs",
     "row_to_agentic_task",
     "row_to_agentic_task_run",
     "row_to_chat",
     "row_to_message",
     "row_to_workflow_run",
+    "request_workflow_run_signal",
     "set_message_feedback",
     "set_schema_version",
     "update_agentic_task",

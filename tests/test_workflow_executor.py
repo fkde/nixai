@@ -97,6 +97,25 @@ def test_needs_user_finishes_cleanly() -> None:
     assert result.answer == "Which workspace?"
 
 
+def test_pause_signal_stops_after_current_step_and_keeps_state(db) -> None:
+    chat = db.create_chat(title="t", workspace_path="")
+    db.create_workflow_run("run-1", workflow_id="wf-test", chat_id=chat.id, mode="chat")
+    db.request_workflow_run_signal("run-1", "pause")
+    handlers = {
+        "role": StaticNodeHandler("plan", {"summary": "Plan", "work_items": [{"id": "main"}]}),
+        "worker_pool": StaticNodeHandler("worker_reports", [{"id": "main"}]),
+    }
+
+    result = run_async(
+        WorkflowGraphExecutor(handlers=handlers).run(workflow_definition(), state(), deps(), event_sink())
+    )
+
+    assert result.status == "paused"
+    assert result.state["plan"]["summary"] == "Plan"
+    assert result.state["pause"]["node"] == "orchestrator"
+    assert not db.has_workflow_run_signal("run-1", "pause")
+
+
 def test_unsupported_node_is_controlled_failure() -> None:
     workflow = WorkflowDefinition.model_validate(
         {"id": "bad", "name": "Bad", "nodes": [{"id": "mystery", "type": "mystery"}]}

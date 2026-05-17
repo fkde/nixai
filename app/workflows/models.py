@@ -221,14 +221,16 @@ class WorkflowDefinition(BaseModel):
             seen.add(key)
             merged.append(WorkflowEdge.model_validate({"from": from_node, "to": to_node, "when": when}))
 
-        for edge in self.edges:
+        explicit_edges = list(self.edges)
+        for edge in explicit_edges:
             add_edge(edge.from_node, edge.to, edge.when)
 
-        for node in self.nodes:
-            for source in node.receive_from:
-                add_edge(str(source).strip(), node.id)
-            for target in node.reports_to:
-                add_edge(node.id, str(target).strip())
+        if not explicit_edges:
+            for node in self.nodes:
+                for source in node.receive_from:
+                    add_edge(str(source).strip(), node.id)
+                for target in node.reports_to:
+                    add_edge(node.id, str(target).strip())
 
         incoming: dict[str, set[str]] = {node_id: set() for node_id in node_ids}
         outgoing: dict[str, set[str]] = {node_id: set() for node_id in node_ids}

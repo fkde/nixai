@@ -1,0 +1,44 @@
+{
+  "id": "tool_research",
+  "name": "Tool Research",
+  "description": "Uses the approved Agentic tool runner first, then reviews the tool result and writes a final answer. Useful when the task may need workspace, shell, Git, or internet tools.",
+  "modes": ["agentic", "code", "chat"],
+  "execution": "loop",
+  "max_iterations": 1,
+  "nodes": [
+    {
+      "id": "research",
+      "type": "tool_agent",
+      "title": "Research",
+      "prompt": "Use approved tools to gather the missing facts or project context. Keep tool use focused and summarize what changed, what was found, and what still needs review.",
+      "input": ["user_message", "workspace", "code_context", "agentic_context", "memory"],
+      "output": "research_result",
+      "position": {"x": 244, "y": 90}
+    },
+    {
+      "id": "reviewer",
+      "type": "report",
+      "role": "reviewer",
+      "title": "Review",
+      "prompt": "Review the tool result for usefulness, gaps, and risk. Return JSON with status, summary, and findings.",
+      "input": ["user_message", "research_result"],
+      "output": "review",
+      "expects_json": true,
+      "position": {"x": 464, "y": 90}
+    },
+    {
+      "id": "answer",
+      "type": "answer",
+      "role": "assistant",
+      "title": "Answer",
+      "prompt": "Answer the user using the tool result and reviewer notes. Mention any remaining uncertainty briefly.",
+      "input": ["research_result", "review"],
+      "output": "final_answer",
+      "position": {"x": 684, "y": 90}
+    }
+  ],
+  "edges": [
+    {"from": "research", "to": "reviewer"},
+    {"from": "reviewer", "to": "answer"}
+  ]
+}

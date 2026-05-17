@@ -15,6 +15,7 @@ from app.api.agentic_tasks import router as agentic_tasks_router
 from app.api.chats import router as chats_router
 from app.api.mistakes import router as mistakes_router
 from app.api.roles import router as roles_router
+from app.api.runs import router as runs_router
 from app.api.settings import router as settings_router
 from app.api.tools import router as tools_router
 from app.api.updates import router as updates_router
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
     fastapi_app.include_router(chats_router)
     fastapi_app.include_router(mistakes_router)
     fastapi_app.include_router(roles_router)
+    fastapi_app.include_router(runs_router)
     fastapi_app.include_router(settings_router)
     fastapi_app.include_router(tools_router)
     fastapi_app.include_router(updates_router)

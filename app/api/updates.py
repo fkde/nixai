@@ -166,7 +166,7 @@ async def resume_workflow_run(run_id: str, request: WorkflowResumeRequest) -> di
     run = database.get_workflow_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Workflow run not found.")
-    if run.status != "needs_user":
+    if run.status not in {"paused", "needs_user"}:
         raise HTTPException(status_code=409, detail="Only paused workflow runs can be resumed.")
     workflow = get_workflow(run.workflow_id, run.mode)
     if workflow is None:

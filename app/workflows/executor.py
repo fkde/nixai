@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
+import time
 from collections import deque
+from collections.abc import Iterator
 from typing import Any
 
 from app.workflows.conditions import WorkflowConditionEvaluator
@@ -11,6 +14,7 @@ from app.workflows.models import WorkflowDefinition, WorkflowResult
 from app.workflows.nodes import NodeHandler, NodeResult, default_node_handlers
 from app.workflows.phases import WorkflowPhaseDeps, markdown_data, note
 from app.workflows.resolver import NodeInputResolver
+from app.workflows.runtime_trace import TraceEmitter, cap_snapshot
 from app.workflows.state import WorkflowState, compact_workflow_state, record_workflow_round
 
 
@@ -39,6 +43,7 @@ class WorkflowGraphExecutor:
         deps: WorkflowPhaseDeps,
         event_sink: WorkflowEventSink,
         start_node_ids: list[str] | None = None,
+        trace: TraceEmitter | None = None,
     ) -> WorkflowResult:
         state.setdefault("node_results", {})
         queue = deque(start_node_ids or self._start_node_ids(workflow))
@@ -56,10 +61,12 @@ class WorkflowGraphExecutor:
                 result = NodeResult(node_id=node_id, status="failed", error=f"Unknown node: {node_id}")
                 self._store_result(state, result)
                 event_sink.emit(node_id, "failed", result.error or "Unknown node.")
+                if trace is not None:
+                    trace.emit("node_failed", node_id=node_id, payload={"error": result.error or "Unknown node."})
                 final_status = "failed"
                 continue
 
-            result = await self._run_node(workflow, node.id, state, deps, event_sink)
+            result = await self._run_node(workflow, node.id, state, deps, event_sink, trace)
             steps += 1
             final_status = result.status if result.status in {"failed", "needs_user"} else final_status
             self._apply_compatible_state(node.output, result, state, deps, workflow, event_sink)
@@ -72,12 +79,21 @@ class WorkflowGraphExecutor:
                 break
             if result.status == "failed":
                 next_nodes = self._failure_node_ids(workflow, node.id)
+                self._emit_edge_events(workflow, node.id, next_nodes, "error", trace)
                 if not next_nodes:
                     break
                 queue.extend(next_nodes)
                 continue
 
+            if self._consume_pause_signal(state):
+                state["pause"] = {"node": node.id, "kind": "cooperative"}
+                state["current_node"] = node.id
+                event_sink.emit(node.id, "pause", "Workflow paused after the current step.")
+                final_status = "paused"
+                break
+
             next_nodes = self._next_node_ids(workflow, node.id, state)
+            self._emit_edge_events(workflow, node.id, next_nodes, "", trace)
             if next_nodes:
                 queue.extend(next_nodes)
 
@@ -95,20 +111,78 @@ class WorkflowGraphExecutor:
         state: WorkflowState,
         deps: WorkflowPhaseDeps,
         event_sink: WorkflowEventSink,
+        trace: TraceEmitter | None = None,
+    ) -> NodeResult:
+        node = workflow.node(node_id)
+        if node is None:
+            return NodeResult(node_id=node_id, status="failed", error=f"Unknown node: {node_id}")
+
+        started_step_id: str | None = None
+        started_at = time.perf_counter()
+        if trace is not None:
+            input_snapshot, truncated = cap_snapshot(self._input_snapshot(node, state))
+            started_step_id = trace.emit(
+                "node_started",
+                node_id=node.id,
+                payload={
+                    "node_type": node.type,
+                    "input_snapshot": input_snapshot,
+                    "input_snapshot_truncated": truncated,
+                    "prompt": node.prompt or None,
+                },
+            )
+
+        with self._maybe_scope(trace, started_step_id):
+            result = await self._dispatch_node(workflow, node_id, state, deps, event_sink, trace)
+
+        if trace is not None:
+            duration_ms = int((time.perf_counter() - started_at) * 1000)
+            output_snapshot, truncated = cap_snapshot(result.output)
+            if result.status == "failed":
+                trace.emit(
+                    "node_failed",
+                    node_id=node.id,
+                    payload={
+                        "error": result.error or result.summary,
+                        "duration_ms": duration_ms,
+                    },
+                )
+            else:
+                trace.emit(
+                    "node_finished",
+                    node_id=node.id,
+                    payload={
+                        "status": result.status,
+                        "output_snapshot": output_snapshot,
+                        "output_snapshot_truncated": truncated,
+                        "summary": result.summary,
+                        "duration_ms": duration_ms,
+                    },
+                )
+        return result
+
+    async def _dispatch_node(
+        self,
+        workflow: WorkflowDefinition,
+        node_id: str,
+        state: WorkflowState,
+        deps: WorkflowPhaseDeps,
+        event_sink: WorkflowEventSink,
+        trace: TraceEmitter | None,
     ) -> NodeResult:
         node = workflow.node(node_id)
         if node is None:
             return NodeResult(node_id=node_id, status="failed", error=f"Unknown node: {node_id}")
         if node.type == "for_each":
-            result = await self._run_for_each(workflow, node_id, state, deps, event_sink)
+            result = await self._run_for_each(workflow, node_id, state, deps, event_sink, trace)
             self._store_result(state, result)
             return result
         if node.type == "while":
-            result = await self._run_while(workflow, node_id, state, deps, event_sink)
+            result = await self._run_while(workflow, node_id, state, deps, event_sink, trace)
             self._store_result(state, result)
             return result
         if node.type == "workflow":
-            result = await self._run_subworkflow(workflow, node_id, state, deps, event_sink)
+            result = await self._run_subworkflow(workflow, node_id, state, deps, event_sink, trace)
             self._store_result(state, result)
             return result
         handler = self.handlers.get(node.type)
@@ -125,6 +199,55 @@ class WorkflowGraphExecutor:
         result = await self._run_handler_with_retry(workflow, node_id, state, deps, event_sink, handler)
         self._store_result(state, result)
         return result
+
+    def _input_snapshot(self, node: Any, state: WorkflowState) -> dict[str, Any]:
+        snapshot: dict[str, Any] = {}
+        try:
+            for key in node.input or []:
+                cleaned = str(key).strip()
+                if not cleaned:
+                    continue
+                if cleaned in state:
+                    snapshot[cleaned] = state[cleaned]
+                else:
+                    resolved = self.resolver.resolve_key(cleaned, state)
+                    if resolved is not None:
+                        snapshot[cleaned] = resolved
+        except Exception:
+            return snapshot
+        return snapshot
+
+    @contextlib.contextmanager
+    def _maybe_scope(self, trace: TraceEmitter | None, parent_step_id: str | None) -> Iterator[None]:
+        if trace is not None and parent_step_id is not None:
+            with trace.scope(parent_step_id):
+                yield
+        else:
+            yield
+
+    def _emit_edge_events(
+        self,
+        workflow: WorkflowDefinition,
+        from_node: str,
+        to_nodes: list[str],
+        when_filter: str,
+        trace: TraceEmitter | None,
+    ) -> None:
+        if trace is None or not to_nodes:
+            return
+        for edge in workflow.edges:
+            if edge.from_node != from_node or edge.to not in to_nodes:
+                continue
+            edge_when = str(edge.when or "").strip()
+            if when_filter == "error" and edge_when.lower() != "error":
+                continue
+            if when_filter == "" and edge_when.lower() == "error":
+                continue
+            trace.emit(
+                "edge_traversed",
+                node_id=from_node,
+                payload={"from": edge.from_node, "to": edge.to, "when": edge.when},
+            )
 
     async def _run_handler_with_retry(
         self,
@@ -163,6 +286,7 @@ class WorkflowGraphExecutor:
         state: WorkflowState,
         deps: WorkflowPhaseDeps,
         event_sink: WorkflowEventSink,
+        trace: TraceEmitter | None = None,
     ) -> NodeResult:
         node = workflow.node(node_id)
         if node is None:
@@ -188,7 +312,7 @@ class WorkflowGraphExecutor:
                 item_outputs: dict[str, Any] = {}
                 event_sink.emit(node.id, "status", f"Iteration item {index + 1}/{len(items)}.")
                 for body_node_id in body:
-                    result = await self._run_node(workflow, body_node_id, state, deps, event_sink)
+                    result = await self._run_node(workflow, body_node_id, state, deps, event_sink, trace)
                     body_node = workflow.node(body_node_id)
                     self._apply_compatible_state(
                         body_node.output if body_node else "", result, state, deps, workflow, event_sink
@@ -216,6 +340,7 @@ class WorkflowGraphExecutor:
         state: WorkflowState,
         deps: WorkflowPhaseDeps,
         event_sink: WorkflowEventSink,
+        trace: TraceEmitter | None = None,
     ) -> NodeResult:
         node = workflow.node(node_id)
         if node is None:
@@ -241,7 +366,7 @@ class WorkflowGraphExecutor:
             event_sink.emit(node.id, "status", f"Loop iteration {index + 1}/{max_iterations}.")
             iteration_outputs: dict[str, Any] = {}
             for body_node_id in body:
-                result = await self._run_node(workflow, body_node_id, state, deps, event_sink)
+                result = await self._run_node(workflow, body_node_id, state, deps, event_sink, trace)
                 body_node = workflow.node(body_node_id)
                 self._apply_compatible_state(
                     body_node.output if body_node else "", result, state, deps, workflow, event_sink
@@ -266,6 +391,7 @@ class WorkflowGraphExecutor:
         state: WorkflowState,
         deps: WorkflowPhaseDeps,
         event_sink: WorkflowEventSink,
+        trace: TraceEmitter | None = None,
     ) -> NodeResult:
         from app.workflows.presets import get_workflow
 
@@ -289,7 +415,7 @@ class WorkflowGraphExecutor:
             condition_evaluator=self.condition_evaluator,
             resolver=self.resolver,
             max_node_steps=self.max_node_steps,
-        ).run(child, child_state, deps, event_sink)
+        ).run(child, child_state, deps, event_sink, trace=trace)
         child_node_results = (
             child_state.get("node_results") if isinstance(child_state.get("node_results"), dict) else {}
         )
@@ -438,6 +564,20 @@ class WorkflowGraphExecutor:
             state.pop(key, None)
         else:
             state[key] = previous
+
+    def _consume_pause_signal(self, state: WorkflowState) -> bool:
+        run_id = str(state.get("workflow_run_id") or "").strip()
+        if not run_id:
+            return False
+        try:
+            from app import database
+
+            if not database.has_workflow_run_signal(run_id, "pause"):
+                return False
+            database.clear_workflow_run_signal(run_id, "pause")
+            return True
+        except Exception:
+            return False
 
     def _config_int(self, value: Any, *, default: int, min_value: int) -> int:
         try:

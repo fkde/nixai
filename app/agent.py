@@ -104,7 +104,20 @@ class Agent:
                 )
 
             runner = WorkflowRunner(self.settings, self.ollama)
-            task = asyncio.create_task(runner.run(workflow, chat_id, user_message, mode, on_event=on_workflow_event))
+
+            def on_run_started(run_id: str) -> None:
+                queue.put_nowait({"type": "workflow_run", "run_id": run_id, "workflow_id": workflow.id})
+
+            task = asyncio.create_task(
+                runner.run(
+                    workflow,
+                    chat_id,
+                    user_message,
+                    mode,
+                    on_event=on_workflow_event,
+                    on_run_started=on_run_started,
+                )
+            )
             while not task.done() or not queue.empty():
                 try:
                     workflow_event = await asyncio.wait_for(queue.get(), timeout=0.2)

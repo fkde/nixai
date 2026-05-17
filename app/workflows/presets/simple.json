@@ -1,16 +1,19 @@
 {
   "id": "simple",
-  "name": "Simple",
-  "description": "One direct response in the selected mode. Code and Agentic keep their mode-specific context.",
+  "name": "Simple Answer",
+  "description": "A single direct answer step. Best for normal chat, quick code questions, and low-overhead agentic prompts.",
   "modes": ["chat", "code", "agentic"],
   "execution": "direct",
   "max_iterations": 1,
   "nodes": [
     {
-      "id": "assistant",
-      "type": "role",
+      "id": "answer",
+      "type": "answer",
       "role": "assistant",
-      "title": "Assistant"
+      "title": "Answer",
+      "input": ["user_message", "history", "code_context", "agentic_context"],
+      "output": "final_answer",
+      "position": {"x": 244, "y": 80}
     }
   ],
   "edges": []

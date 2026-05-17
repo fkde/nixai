@@ -23,6 +23,10 @@ let desktopWindowControlsBound = false;
 
 function bindDesktopWindowControls(api) {
   if (desktopWindowControlsBound || !api) return;
+  if (window.__nixaiDesktopChromeFallbackBound) {
+    desktopWindowControlsBound = true;
+    return;
+  }
 
   const actionMethods = {
     close: "close_window",

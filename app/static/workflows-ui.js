@@ -42,6 +42,7 @@ const {
   workflowEditorSaveAssign,
   workflowEditorAddNode,
   workflowEditorRelayout,
+  workflowDebugMode,
   workflowHealthPanel,
   workflowCanvas,
   workflowCanvasNodes,
@@ -259,6 +260,8 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
   });
 
   function init() {
+    if (workflowDebugMode) workflowDebugMode.checked = Boolean(state.workflowDebugMode);
+
     workflowEditorNew?.addEventListener("click", () => {
       inspector.showWorkflowBuilderView(null);
       resetEditorHistory();
@@ -339,6 +342,13 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       markDraftChanged({ structural: true });
     });
 
+    workflowDebugMode?.addEventListener("change", () => {
+      state.workflowDebugMode = Boolean(workflowDebugMode.checked);
+      canvas.renderWorkflowCanvas();
+      canvas.renderWorkflowHealthPanel(workflowHealthPanel);
+      setStatus(state.workflowDebugMode ? "Debug Mode enabled" : "Debug Mode disabled");
+    });
+
     workflowEditorUndo?.addEventListener("click", undoWorkflowEdit);
     workflowEditorRedo?.addEventListener("click", redoWorkflowEdit);
 
@@ -346,6 +356,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       const issue = event.target.closest?.(".workflow-health-issue");
       const nodeId = issue?.dataset.nodeId || "";
       if (!nodeId) return;
+      if (issue.classList.contains("debug")) return;
       inspector.selectWorkflowNode(nodeId);
       workflowCanvas?.focus();
     });

@@ -23,75 +23,147 @@ import {
 const WORKFLOW_NAME_MAX = 200;
 const WORKFLOW_DESCRIPTION_MAX = 1000;
 const WORKFLOW_FIELD_MAX = 120;
+
+const NODE_PROPERTY_TYPES = {
+  identity: { kind: "identity" },
+  type: { kind: "select" },
+  role: { kind: "select" },
+  json: { kind: "boolean" },
+  input: { kind: "csv" },
+  output: { kind: "state_key" },
+  prompt: { kind: "textarea" },
+  retry: { kind: "retry" },
+  workers: { kind: "number" },
+  max_items: { kind: "number" },
+  branches: { kind: "branch_list" },
+  body: { kind: "node_list" },
+  break_when: { kind: "expression" },
+  sub_workflow: { kind: "workflow_ref" },
+};
+
+function nodeProperties(keys, overrides = {}) {
+  return Object.fromEntries(keys.map((key) => [key, { key, ...(NODE_PROPERTY_TYPES[key] || { kind: "text" }), ...(overrides[key] || {}) }]));
+}
+
 const NODE_TYPE_DEFINITIONS = [
   {
     type: "role",
     label: "Agent",
     description: "Single role-prompt node for planning, synthesis, or custom work.",
-    fields: ["identity", "type", "role", "json", "input", "output", "prompt", "retry"],
+    properties: nodeProperties(["identity", "type", "role", "json", "input", "output", "prompt", "retry"], {
+      role: { label: "Role", tip: "Markdown role prompt that defines this agent's behavior." },
+      prompt: { label: "Extra Instruction", placeholder: "Optional instruction for this node only." },
+      input: { label: "Input Fields", placeholder: "input, plan" },
+      output: { label: "Output Field", placeholder: "agent_result" },
+    }),
     defaults: { id: "agent", title: "Agent", role: "orchestrator", output: "agent_result" },
   },
   {
     type: "worker_pool",
     label: "Worker Pool",
     description: "Parallel workers over a list input; worker count is capped by the UI.",
-    fields: ["identity", "type", "role", "json", "input", "output", "workers", "max_items", "prompt", "retry"],
+    properties: nodeProperties(["identity", "type", "role", "json", "input", "output", "workers", "max_items", "prompt", "retry"], {
+      role: { label: "Worker Role", tip: "Markdown role prompt used for every worker instance." },
+      prompt: { label: "Worker Instruction", placeholder: "Describe how each work item should be handled." },
+      input: { label: "Work Items Input", placeholder: "plan.work_items" },
+      output: { label: "Reports Field", placeholder: "worker_reports" },
+      workers: { label: "Max Worker Instances" },
+      max_items: { label: "Max Work Items" },
+    }),
     defaults: { id: "workers", title: "Workers", role: "worker", input: ["plan.work_items"], output: "worker_reports", max_items: 4, worker_instances: 2, max_parallel: 2 },
   },
   {
     type: "report",
     label: "Report",
     description: "Consolidates predecessor outputs into a structured non-terminal report.",
-    fields: ["identity", "type", "role", "json", "input", "output", "prompt", "retry"],
+    properties: nodeProperties(["identity", "type", "role", "json", "input", "output", "prompt", "retry"], {
+      role: { label: "Report Role", tip: "Markdown role prompt that consolidates or reviews previous outputs." },
+      prompt: { label: "Report Instruction", placeholder: "Optional criteria for the report." },
+      input: { label: "Inputs To Review", placeholder: "plan, worker_reports" },
+      output: { label: "Report Field", placeholder: "review" },
+    }),
     defaults: { id: "report", title: "Report", role: "reviewer", input: ["plan", "worker_reports"], output: "review", expects_json: true },
   },
   {
     type: "decision",
     label: "Decision",
     description: "Returns decision.status and routes the workflow through structured branches.",
-    fields: ["identity", "type", "role", "json", "input", "output", "branches", "prompt", "retry"],
+    properties: nodeProperties(["identity", "type", "role", "json", "input", "output", "branches", "prompt", "retry"], {
+      role: { label: "Decision Role", tip: "Markdown role prompt that judges state and returns branchable JSON." },
+      prompt: { label: "Decision Instruction", placeholder: "Tell the judge what done, retry, or needs_user means here." },
+      input: { label: "Decision Inputs", placeholder: "plan, worker_reports, review" },
+      output: { label: "Decision Field", placeholder: "decision" },
+      branches: { label: "Branches" },
+    }),
     defaults: { id: "decision", title: "Decision", role: "judge", input: ["plan", "worker_reports", "review"], output: "decision", expects_json: true, config: { branches: defaultDecisionBranches() } },
   },
   {
     type: "pause",
     label: "Ask User",
     description: "Pauses the run and waits for user feedback before continuing.",
-    fields: ["identity", "type", "input", "output", "prompt"],
+    properties: nodeProperties(["identity", "type", "input", "output", "prompt"], {
+      prompt: { label: "Question", placeholder: "Ask the user for the missing requirement." },
+      input: { label: "Question Context", placeholder: "decision, review" },
+      output: { label: "Feedback Field", placeholder: "pause" },
+    }),
     defaults: { id: "ask_user", title: "Ask User", role: "", input: ["decision"], output: "pause", prompt: "" },
   },
   {
     type: "answer",
     label: "Answer",
     description: "Synthesizes the final user-facing response.",
-    fields: ["identity", "type", "role", "input", "output", "prompt"],
+    properties: nodeProperties(["identity", "type", "role", "input", "output", "prompt"], {
+      role: { label: "Answer Role", tip: "Markdown role prompt used to write the final user-facing response." },
+      prompt: { label: "Answer Instruction", placeholder: "Optional style or synthesis instruction." },
+      input: { label: "Answer Inputs", placeholder: "plan, worker_reports, review" },
+      output: { label: "Final Answer Field", placeholder: "final_answer" },
+    }),
     defaults: { id: "answer", title: "Answer", role: "orchestrator", input: ["plan", "worker_reports", "review", "decision"], output: "final_answer" },
   },
   {
     type: "tool_agent",
     label: "Tool Agent",
     description: "Runs the Agentic runner with approved web/code/MCP-style tools.",
-    fields: ["identity", "type", "input", "output", "prompt", "retry"],
+    properties: nodeProperties(["identity", "type", "input", "output", "prompt", "retry"], {
+      prompt: { label: "Tool Task", placeholder: "Research the task and return grounded findings." },
+      input: { label: "Tool Context", placeholder: "input, plan" },
+      output: { label: "Tool Result Field", placeholder: "research_result" },
+    }),
     defaults: { id: "research", title: "Research", role: "orchestrator", input: [], output: "research_result", prompt: "Research the task and return grounded findings." },
   },
   {
     type: "for_each",
     label: "For Each",
     description: "Iterates over an input list using body nodes configured in JSON.",
-    fields: ["identity", "type", "input", "output", "body", "max_items"],
+    properties: nodeProperties(["identity", "type", "input", "output", "body", "max_items"], {
+      input: { label: "List Input", placeholder: "plan.work_items" },
+      output: { label: "Results Field", placeholder: "iteration_results" },
+      body: { label: "Body Nodes" },
+      max_items: { label: "Max Iterations" },
+    }),
     defaults: { id: "for_each", title: "For Each", role: "", input: ["plan.work_items"], output: "iteration_results", config: { body: [] } },
   },
   {
     type: "while",
     label: "While",
     description: "Repeats body nodes until a safe break condition becomes true.",
-    fields: ["identity", "type", "input", "output", "body", "break_when"],
+    properties: nodeProperties(["identity", "type", "input", "output", "body", "break_when"], {
+      break_when: { label: "Break Condition", placeholder: "decision.status == 'done'" },
+      input: { label: "Loop Inputs", placeholder: "decision, review" },
+      output: { label: "Loop Result Field", placeholder: "while_result" },
+      body: { label: "Body Nodes" },
+    }),
     defaults: { id: "while_loop", title: "While", role: "", input: [], output: "while_result", break_when: "decision.status == 'done'", config: { body: [] } },
   },
   {
     type: "workflow",
     label: "Sub Workflow",
     description: "Runs another saved workflow by id as a reusable block.",
-    fields: ["identity", "type", "input", "output", "sub_workflow", "retry"],
+    properties: nodeProperties(["identity", "type", "input", "output", "sub_workflow", "retry"], {
+      sub_workflow: { label: "Sub Workflow" },
+      input: { label: "Workflow Inputs", placeholder: "input, plan" },
+      output: { label: "Workflow Result Field", placeholder: "workflow_result" },
+    }),
     defaults: { id: "sub_workflow", title: "Sub Workflow", role: "", input: [], output: "workflow_result", ref: "deep_orchestra" },
   },
 ];
@@ -146,6 +218,53 @@ export function createWorkflowInspector({
     return NODE_TYPE_DEFINITIONS.find((item) => item.type === clean) || NODE_TYPE_DEFINITIONS[0];
   }
 
+  function nodeTypeProperties(type) {
+    const definition = nodeTypeDefinition(type);
+    if (definition.properties && typeof definition.properties === "object") return definition.properties;
+    return nodeProperties(definition.fields || []);
+  }
+
+  function nodeTypePropertyKeys(type) {
+    return new Set(Object.keys(nodeTypeProperties(type)));
+  }
+
+  function nodeTypeProperty(type, property) {
+    return nodeTypeProperties(type)[property] || {};
+  }
+
+  function applyFieldCopy(control, copy) {
+    const label = control?.closest("label");
+    if (!label || !copy) return;
+    const fieldLabel = label.querySelector(".field-label");
+    if (fieldLabel && copy.label) {
+      fieldLabel.childNodes[0].textContent = `${copy.label} `;
+    }
+    const tip = fieldLabel?.querySelector(".info-tip");
+    if (tip && copy.tip) {
+      tip.dataset.tip = copy.tip;
+      tip.setAttribute("aria-label", copy.tip);
+    }
+    if (copy.placeholder !== undefined && "placeholder" in control) {
+      control.placeholder = copy.placeholder || "";
+    }
+  }
+
+  function normalizeNodeForType(node) {
+    const fields = nodeTypePropertyKeys(node.type);
+    if (!fields.has("role")) node.role = "";
+    if (!fields.has("json")) node.expects_json = false;
+    if (!fields.has("retry")) node.retry = { max: 0, backoff: 0 };
+    if (!fields.has("workers")) {
+      node.worker_instances = 1;
+      node.max_parallel = 1;
+    }
+    if (!fields.has("max_items") && node.type !== "worker_pool") node.max_items = 4;
+    if (!fields.has("body") && node.config) delete node.config.body;
+    if (!fields.has("branches") && node.config) delete node.config.branches;
+    if (!fields.has("break_when")) node.break_when = "";
+    if (!fields.has("sub_workflow")) node.ref = "";
+  }
+
   function nodeTypeOptionsHtml(selectedType) {
     const selected = canonicalNodeType(selectedType);
     return NODE_TYPE_DEFINITIONS
@@ -189,7 +308,7 @@ export function createWorkflowInspector({
     const defaults = nodeTypeDefaults(type);
     const cleanType = nodeTypeDefinition(type).type;
     const id = nextNodeId(draft, defaults.id || cleanType);
-    return {
+    const node = {
       id,
       type: cleanType,
       role: defaults.role || "",
@@ -209,6 +328,8 @@ export function createWorkflowInspector({
       break_when: defaults.break_when || "",
       ref: defaults.ref || "",
     };
+    normalizeNodeForType(node);
+    return node;
   }
 
   function ensureInspectorDynamicControls() {
@@ -259,7 +380,7 @@ export function createWorkflowInspector({
   }
 
   function setInspectorFieldVisibility(node) {
-    const fields = new Set(nodeTypeDefinition(node.type).fields || []);
+    const fields = nodeTypePropertyKeys(node.type);
     const controls = [
       [nodeEditRole?.closest(".node-edit-role-row"), fields.has("role") || fields.has("json")],
       [nodeEditRole?.closest("label"), fields.has("role")],
@@ -278,8 +399,15 @@ export function createWorkflowInspector({
     controls.forEach(([element, visible]) => {
       if (element) element.hidden = !visible;
     });
-    const refLabel = nodeEditSubWorkflowRef?.closest("label")?.querySelector(".field-label");
-    if (refLabel) refLabel.firstChild.textContent = fields.has("break_when") ? "Break Condition " : "Sub Workflow ";
+    applyFieldCopy(nodeEditRole, nodeTypeProperty(node.type, "role"));
+    applyFieldCopy(nodeEditPrompt, nodeTypeProperty(node.type, "prompt"));
+    applyFieldCopy(nodeEditBody, nodeTypeProperty(node.type, fields.has("branches") ? "branches" : "body"));
+    applyFieldCopy(nodeEditInput, nodeTypeProperty(node.type, "input"));
+    applyFieldCopy(nodeEditOutput, nodeTypeProperty(node.type, "output"));
+    applyFieldCopy(nodeEditWorkers, nodeTypeProperty(node.type, "workers"));
+    applyFieldCopy(nodeEditMaxItems, nodeTypeProperty(node.type, "max_items"));
+    applyFieldCopy(nodeEditSubWorkflowRef, nodeTypeProperty(node.type, fields.has("break_when") ? "break_when" : "sub_workflow"));
+    if (nodeEditBreakWhen) applyFieldCopy(nodeEditBreakWhen, nodeTypeProperty(node.type, "break_when"));
     if (nodeEditSubWorkflowRef) nodeEditSubWorkflowRef.hidden = !fields.has("sub_workflow");
     if (nodeEditBreakWhen) nodeEditBreakWhen.hidden = !fields.has("break_when");
   }
@@ -643,6 +771,7 @@ export function createWorkflowInspector({
     nodeEditId.value = node.id;
     nodeEditTitleInput.value = node.title || "";
     node.type = canonicalNodeType(node.type);
+    normalizeNodeForType(node);
     if (node.type === "decision") node.config = { ...(node.config || {}), branches: normalizeDecisionBranches(node.config || {}) };
     nodeEditType.innerHTML = nodeTypeOptionsHtml(node.type);
     nodeEditType.value = nodeTypeDefinition(node.type).type;
@@ -734,11 +863,12 @@ export function createWorkflowInspector({
     node.title = clampLength(nodeEditTitleInput.value.trim(), WORKFLOW_NAME_MAX);
     const previousType = String(node.type || "").toLowerCase();
     const selectedType = nodeTypeDefinition(nodeEditType?.value || previousType).type;
+    const selectedFields = nodeTypePropertyKeys(selectedType);
     if (selectedType !== previousType) {
       const defaults = nodeTypeDefaults(selectedType);
       const previousDefaults = nodeTypeDefaults(previousType);
       node.type = selectedType;
-      node.role = defaults.role || node.role || "";
+      node.role = selectedFields.has("role") ? (defaults.role || node.role || "") : "";
       if (!node.title || previousTitle === previousDefaults.title || previousTitle === nodeTypeLabel(previousType)) {
         node.title = defaults.title || nodeTypeLabel(selectedType);
         nodeEditTitleInput.value = node.title;
@@ -753,6 +883,7 @@ export function createWorkflowInspector({
       node.config = typeof defaults.config === "object" && defaults.config ? JSON.parse(JSON.stringify(defaults.config)) : {};
       node.break_when = defaults.break_when || "";
       node.ref = defaults.ref || "";
+      normalizeNodeForType(node);
       nodeEditRole.innerHTML = nodeRoleSelectOptionsHtml(node.role);
       nodeEditInput.value = (node.input || []).join(", ");
       nodeEditOutput.value = node.output || "";
@@ -771,13 +902,14 @@ export function createWorkflowInspector({
       node.type = selectedType;
     }
     const chosenRole = String(nodeEditRole.value || "").trim();
-    node.role = clampLength(chosenRole || nodeTypeDefaults(node.type).role || "", WORKFLOW_FIELD_MAX);
+    const activeFields = nodeTypePropertyKeys(node.type);
+    node.role = activeFields.has("role") ? clampLength(chosenRole || nodeTypeDefaults(node.type).role || "", WORKFLOW_FIELD_MAX) : "";
     const workers = clampInt(nodeEditWorkers.value, 1, 8);
-    node.prompt = clampLength(nodeEditPrompt?.value || "", WORKFLOW_DESCRIPTION_MAX);
+    node.prompt = activeFields.has("prompt") ? clampLength(nodeEditPrompt?.value || "", WORKFLOW_DESCRIPTION_MAX) : "";
     const breakWhenValue = clampLength(nodeEditBreakWhen?.value || "", WORKFLOW_FIELD_MAX);
     const subWorkflowValue = clampLength(nodeEditSubWorkflowRef?.value || "", WORKFLOW_FIELD_MAX);
-    node.break_when = node.type === "while" ? breakWhenValue : "";
-    node.ref = node.type === "workflow" ? subWorkflowValue : "";
+    node.break_when = activeFields.has("break_when") ? breakWhenValue : "";
+    node.ref = activeFields.has("sub_workflow") ? subWorkflowValue : "";
     node.config = typeof node.config === "object" && node.config ? node.config : {};
     const checkedBodyNodes = [...(nodeEditBody?.parentElement?.querySelectorAll(".node-edit-body-chips input:checked") || [])]
       .map((input) => String(input.value || "").trim())
@@ -808,10 +940,12 @@ export function createWorkflowInspector({
       });
       node.config.branches = branches;
     }
-    node.retry = {
-      max: clampInt(nodeEditRetryMax?.value || 0, 0, 5),
-      backoff: Math.min(60, Math.max(0, Number(nodeEditRetryBackoff?.value || 0))),
-    };
+    node.retry = activeFields.has("retry")
+      ? {
+          max: clampInt(nodeEditRetryMax?.value || 0, 0, 5),
+          backoff: Math.min(60, Math.max(0, Number(nodeEditRetryBackoff?.value || 0))),
+        }
+      : { max: 0, backoff: 0 };
     node.receive_from = [];
     node.reports_to = [];
     const previousInput = Array.isArray(node.input) ? [...node.input] : [];
@@ -827,12 +961,13 @@ export function createWorkflowInspector({
     if (node.config) {
       node.config._removed_auto_inputs = dedupeList([...removedAutoInputs, ...newlyRemovedAutoInputs]);
     }
-    node.input = nextInput;
-    node.output = clampLength(nodeEditOutput.value.trim(), WORKFLOW_FIELD_MAX);
-    node.worker_instances = node.type === "worker_pool" ? workers : 1;
-    node.max_parallel = node.type === "worker_pool" ? workers : 1;
-    node.max_items = clampInt(nodeEditMaxItems.value, 1, 12);
-    node.expects_json = Boolean(nodeEditJson.checked);
+    node.input = activeFields.has("input") ? nextInput : [];
+    node.output = activeFields.has("output") ? clampLength(nodeEditOutput.value.trim(), WORKFLOW_FIELD_MAX) : "";
+    node.worker_instances = activeFields.has("workers") ? workers : 1;
+    node.max_parallel = activeFields.has("workers") ? workers : 1;
+    node.max_items = activeFields.has("max_items") ? clampInt(nodeEditMaxItems.value, 1, 12) : 4;
+    node.expects_json = activeFields.has("json") ? Boolean(nodeEditJson.checked) : false;
+    normalizeNodeForType(node);
     const nextOutputIdentifier = nodeOutputIdentifier(node);
     if (safeId !== oldId) {
       draft.nodes.forEach((other) => {

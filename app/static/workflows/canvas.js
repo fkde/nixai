@@ -26,8 +26,12 @@ import {
   nodeTileMarkup,
   realWorkflowNodes,
   removeAutoInputReference,
+  restoreAutoBoundaryEdge,
   syncDerivedEdges,
+  suppressAutoBoundaryEdge,
   validateWorkflowHealth,
+  WORKFLOW_INPUT_ID,
+  WORKFLOW_OUTPUT_ID,
 } from "../workflow-builder.js";
 
 const EDGE_CONDITION_PRESETS_DEFAULT = [
@@ -83,25 +87,83 @@ export function createWorkflowCanvas({
     return clean.length > 28 ? `${clean.slice(0, 25)}...` : clean;
   }
 
+  function routeLabel(condition) {
+    const clean = String(condition || "").trim();
+    if (!clean) return "always";
+    const label = edgeLabel(clean);
+    return label.toLowerCase();
+  }
+
+  function edgeRouteLabel(edge, draft) {
+    const condition = String(edge?.when || "").trim();
+    if (!condition) return "";
+    const source = nodeById(draft, edge.from);
+    if (canonicalNodeType(source?.type) === "decision") {
+      const branch = normalizeDecisionBranches(source.config || {}).find((item) => item.when === condition);
+      if (branch?.label) return String(branch.label).toLowerCase();
+    }
+    return routeLabel(condition);
+  }
+
+  function nodeDisplayName(node, fallback = "") {
+    return node?.title || node?.id || fallback;
+  }
+
+  function routeSummary(edge, draft) {
+    const source = nodeById(draft, edge.from);
+    const target = nodeById(draft, edge.to);
+    const sourceName = nodeDisplayName(source, edge.from);
+    const targetName = nodeDisplayName(target, edge.to);
+    const condition = String(edge.when || "").trim();
+    const label = edgeRouteLabel(edge, draft) || "always";
+    if (!condition) {
+      return {
+        badge: "always",
+        path: `${sourceName} -- always --> ${targetName}`,
+        sentence: `After ${sourceName} finishes, go to ${targetName}.`,
+      };
+    }
+    if (condition === "error") {
+      return {
+        badge: "error",
+        path: `${sourceName} -- error --> ${targetName}`,
+        sentence: `If ${sourceName} fails, go to ${targetName}.`,
+      };
+    }
+    if (canonicalNodeType(source?.type) === "decision") {
+      return {
+        badge: label,
+        path: `${sourceName} -- ${label} --> ${targetName}`,
+        sentence: `If ${sourceName} returns ${label}, go to ${targetName}.`,
+      };
+    }
+    return {
+      badge: label,
+      path: `${sourceName} -- ${label} --> ${targetName}`,
+      sentence: `When ${condition} is true, go to ${targetName}.`,
+    };
+  }
+
   function edgeConditionPresets(edge, draft) {
     const source = nodeById(draft, edge.from);
     const target = nodeById(draft, edge.to);
     const sourceType = canonicalNodeType(source?.type);
     const targetType = canonicalNodeType(target?.type);
-    const presets = [{ label: "Always", value: "" }];
+    const sourceName = nodeDisplayName(source, edge.from);
+    const presets = [{ label: "Always after this step", value: "" }];
 
     if (sourceType === "decision") {
       normalizeDecisionBranches(source.config || {}).forEach((branch) => {
-        presets.push({ label: branch.label, value: branch.when });
+        presets.push({ label: `${sourceName} returns ${branch.label}`, value: branch.when });
       });
     }
     if (sourceType === "role" || sourceType === "orchestrator") {
-      presets.push({ label: "Low confidence", value: "plan.confidence < 0.7" });
+      presets.push({ label: "Plan confidence is low", value: "plan.confidence < 0.7" });
     }
     if (targetType === "report") {
-      presets.push({ label: "Enough reports", value: "worker_reports.length >= 3" });
+      presets.push({ label: "Enough worker reports exist", value: "worker_reports.length >= 3" });
     }
-    presets.push({ label: "Error", value: "error" });
+    presets.push({ label: "If this step errors", value: "error" });
     return dedupeConditionPresets(presets);
   }
 
@@ -269,7 +331,7 @@ export function createWorkflowCanvas({
         const source = positions[edge.from];
         const target = positions[edge.to];
         if (!source || !target) return "";
-        const labelText = edgeLabel(edge.when);
+        const labelText = edgeRouteLabel(edge, workflow);
         if (target.x > source.x) {
           const sx = source.x + nodeWidth;
           const sy = source.y + nodeHeight / 2;
@@ -455,8 +517,24 @@ export function createWorkflowCanvas({
   function canvasPortFromPoint(event) {
     const element = document.elementFromPoint(event.clientX, event.clientY);
     const port = element?.closest?.(".workflow-canvas-port");
-    if (!port || !workflowCanvas?.contains(port)) return null;
-    return port;
+    if (port && workflowCanvas?.contains(port)) return port;
+    return nearestCanvasPort(event, 18);
+  }
+
+  function nearestCanvasPort(event, radius = 18) {
+    let best = null;
+    let bestDistance = radius;
+    workflowCanvasNodes?.querySelectorAll(".workflow-canvas-port").forEach((port) => {
+      const rect = port.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const distance = Math.hypot(event.clientX - cx, event.clientY - cy);
+      if (distance <= bestDistance) {
+        best = port;
+        bestDistance = distance;
+      }
+    });
+    return best;
   }
 
   function canvasLinkTargetIdFromPointer(event) {
@@ -533,7 +611,7 @@ export function createWorkflowCanvas({
     const draft = bridge.activeWorkflowDraft();
     const target = draft?.nodes.find((node) => node.id === targetId);
     if (!draft || !target || !hasInputPort(target)) return false;
-    const edge = incomingEdgeForNode(draft, targetId);
+    const edge = incomingEdgeForNode(draft, targetId, true);
     if (!edge) return false;
     const source = draft.nodes.find((node) => node.id === edge.from);
     if (!source || !hasOutputPort(source)) return false;
@@ -562,6 +640,8 @@ export function createWorkflowCanvas({
     const target = draft.nodes.find((node) => node.id === targetId);
     if (!source || !target) return false;
     if (!hasOutputPort(source) || !hasInputPort(target)) return false;
+    restoreAutoBoundaryEdge(target, WORKFLOW_INPUT_ID, target.id);
+    restoreAutoBoundaryEdge(source, source.id, WORKFLOW_OUTPUT_ID);
     const outputIdentifier = nodeOutputIdentifier(source);
     const previousEdges = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []);
     const exists = previousEdges.some((edge) => edge.from === source.id && edge.to === target.id);
@@ -602,9 +682,16 @@ export function createWorkflowCanvas({
     const before = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []).length;
     mutateWorkflowEdges(draft, { type: "remove", from: sourceId, to: targetId });
     const changed = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || []).length !== before;
+    let suppressedAutoEdge = false;
+    if (!changed && sourceId === WORKFLOW_INPUT_ID) {
+      suppressedAutoEdge = suppressAutoBoundaryEdge(target, sourceId, targetId);
+    }
+    if (!changed && targetId === WORKFLOW_OUTPUT_ID) {
+      suppressedAutoEdge = suppressAutoBoundaryEdge(source, sourceId, targetId);
+    }
     const inputChanged = removeAutoInputReference(draft, target, inputIdentifier);
-    if (changed || inputChanged) bridge.afterWorkflowMutation?.();
-    return changed || inputChanged;
+    if (changed || inputChanged || suppressedAutoEdge) bridge.afterWorkflowMutation?.();
+    return changed || inputChanged || suppressedAutoEdge;
   }
 
   function refreshWorkflowCanvasAfterLinkChange() {
@@ -741,7 +828,7 @@ export function createWorkflowCanvas({
 
   function renderCanvasEdgeLabel(edge, sourcePoint, targetPoint, isLoop = false, laneOffset = 0) {
     if (!workflowCanvasLabels) return;
-    const label = edgeLabel(edge.when);
+    const label = edgeRouteLabel(edge, bridge.activeWorkflowDraft()) || edgeLabel(edge.when);
     const x = (sourcePoint.x + targetPoint.x) / 2;
     const y = isLoop
       ? Math.max(sourcePoint.y, targetPoint.y) + 38 + laneOffset
@@ -772,10 +859,15 @@ export function createWorkflowCanvas({
         const current = String(edge.when || "");
         const presets = edgeConditionPresets(edge, draft);
         const presetValue = presets.some((item) => item.value === current) ? current : "__custom";
+        const route = routeSummary(edge, draft);
         const path = edgeDisplayName(edge, draft);
         return `
           <div class="workflow-edge-rule" data-edge-index="${index}">
-            <span class="workflow-edge-rule-path">${escapeHtml(path)}</span>
+            <div class="workflow-edge-rule-route">
+              <span class="workflow-edge-rule-path">${escapeHtml(route.path)}</span>
+              <span class="workflow-edge-rule-sentence">${escapeHtml(route.sentence)}</span>
+            </div>
+            <span class="workflow-edge-rule-badge ${escapeHtml(route.badge === "error" ? "error" : "")}">${escapeHtml(route.badge)}</span>
             <select class="workflow-edge-rule-preset" aria-label="Condition preset for ${escapeHtml(path)}">
               ${presets.map((item) => `<option value="${escapeHtml(item.value)}"${presetValue === item.value ? " selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
             </select>
@@ -905,16 +997,27 @@ export function createWorkflowCanvas({
     if (!container) return;
     const draft = bridge.activeWorkflowDraft();
     const issues = validateWorkflowHealth(draft, state.workflowPresets || []);
-    if (!draft || issues.length === 0) {
-      container.innerHTML = '<span class="workflow-health-ok">Workflow health: no structural issues.</span>';
+    const debugMode = Boolean(state.workflowDebugMode);
+    const visibleIssues = issues.filter((issue) => debugMode || !issue.debug);
+    const hiddenDebugCount = issues.length - visibleIssues.length;
+    if (!draft || visibleIssues.length === 0) {
+      container.innerHTML = '<span class="workflow-health-ok">Looks good. No workflow issues found.</span>';
+      if (hiddenDebugCount > 0) {
+        container.innerHTML += `<span class="workflow-health-debug-note">${hiddenDebugCount} debug hint${hiddenDebugCount === 1 ? "" : "s"} hidden.</span>`;
+      }
       return;
     }
     container.innerHTML = `
-      <strong>Workflow Health</strong>
+      <div class="workflow-health-heading">
+        <strong>Workflow Health</strong>
+        <span>${visibleIssues.length} thing${visibleIssues.length === 1 ? "" : "s"} to check${hiddenDebugCount > 0 ? ` · ${hiddenDebugCount} debug hidden` : ""}</span>
+      </div>
       <div class="workflow-health-issues">
-        ${issues.map((issue) => `
-          <button type="button" class="workflow-health-issue ${escapeHtml(issue.severity)}" data-node-id="${escapeHtml(issue.nodeId || "")}">
-            ${escapeHtml(issue.message)}
+        ${visibleIssues.map((issue) => `
+          <button type="button" class="workflow-health-issue ${escapeHtml(issue.severity)}${issue.debug ? " debug" : ""}" data-node-id="${escapeHtml(issue.nodeId || "")}" aria-label="${escapeHtml(issue.message || issue.title || "")}">
+            <span class="workflow-health-title">${escapeHtml(issue.title || issue.message || "Check this step")}</span>
+            ${issue.action ? `<span class="workflow-health-action"><span>To do:</span> ${escapeHtml(issue.action)}</span>` : ""}
+            ${issue.detail ? `<span class="workflow-health-detail"><span>Why:</span> ${escapeHtml(issue.detail)}</span>` : ""}
           </button>
         `).join("")}
       </div>

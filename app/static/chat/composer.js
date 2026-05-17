@@ -16,10 +16,26 @@ export function createComposer({
   toolApprovals,
   getSettingsUi,
   getAgenticTasksUi,
+  getRunsUi,
   streaming,
   messageRendering,
   chatList,
 }) {
+  function attachInspectorBadge(assistantEl, runId) {
+    if (!assistantEl || !runId) return;
+    if (assistantEl.querySelector(".inspector-badge")) return;
+    const badge = document.createElement("button");
+    badge.type = "button";
+    badge.className = "inspector-badge";
+    badge.dataset.runId = runId;
+    badge.textContent = "Open Inspector";
+    badge.addEventListener("click", () => {
+      const runsUi = getRunsUi && getRunsUi();
+      runsUi?.openRunInInspector?.(runId);
+    });
+    assistantEl.prepend(badge);
+  }
+
   function closeComposerMenu() {
     composerPlusMenu.hidden = true;
     composerPlusButton.setAttribute("aria-expanded", "false");
@@ -227,6 +243,10 @@ export function createComposer({
           const label = event.message || "Thinking…";
           setStatus(label);
           pushRuntimeStatus(label);
+        } else if (event.type === "workflow_run") {
+          stream.runId = event.run_id;
+          assistantEl = streaming.ensureStreamAssistantElement(stream);
+          attachInspectorBadge(assistantEl, event.run_id);
         } else if (event.type === "workflow_status") {
           const label = event.message || "Workflow step running...";
           setStatus(label);

@@ -54,6 +54,30 @@ def test_workflow_definition_uses_explicit_edges_as_canonical_links() -> None:
     assert review.receive_from == ["start"]
 
 
+def test_workflow_definition_does_not_duplicate_conditional_edges_on_revalidation() -> None:
+    workflow = WorkflowDefinition.model_validate(
+        {
+            "id": "wf-conditional",
+            "name": "Conditional Edges",
+            "nodes": [
+                {"id": "judge", "type": "decision"},
+                {"id": "answer", "type": "answer"},
+                {"id": "ask_user", "type": "pause"},
+            ],
+            "edges": [
+                {"from": "judge", "to": "answer", "when": "decision.status == 'done'"},
+                {"from": "judge", "to": "ask_user", "when": "decision.status == 'needs_user'"},
+            ],
+        }
+    )
+    round_tripped = WorkflowDefinition.model_validate(workflow.model_dump(by_alias=True))
+
+    assert [(edge.from_node, edge.to, edge.when) for edge in round_tripped.edges] == [
+        ("judge", "answer", "decision.status == 'done'"),
+        ("judge", "ask_user", "decision.status == 'needs_user'"),
+    ]
+
+
 def test_workflow_model_normalizes_modes_and_positions() -> None:
     workflow = WorkflowDefinition.model_validate(
         {
