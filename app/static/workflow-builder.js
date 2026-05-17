@@ -143,6 +143,7 @@ export function normalizeWorkflowNodes(workflow) {
       type,
       role: String(node.role || ""),
       title: String(node.title || ""),
+      prompt: String(node.prompt || ""),
       input: inputValues,
       output: String(node.output || ""),
       max_parallel: Math.min(8, Math.max(1, Number(node.max_parallel || 1))),
@@ -160,6 +161,9 @@ export function normalizeWorkflowNodes(workflow) {
         y: Number.isFinite(py) ? py : 0,
       },
       config: typeof node.config === "object" && node.config ? node.config : {},
+      retry: typeof node.retry === "object" && node.retry ? node.retry : { max: 0, backoff: 0 },
+      break_when: String(node.break_when || ""),
+      ref: String(node.ref || ""),
     };
   });
 

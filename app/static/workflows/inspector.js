@@ -4,7 +4,6 @@ import { dedupeList, parseCsvList } from "../workflow-editor.js";
 import {
   CANVAS_PAD,
   NODE_GRID_X,
-  deriveNodeTypeFromRole,
   deriveWorkflowEdgesFromNodes,
   ensureWorkflowBoundaryNodes,
   isBoundaryNode,
@@ -19,6 +18,68 @@ import {
 const WORKFLOW_NAME_MAX = 200;
 const WORKFLOW_DESCRIPTION_MAX = 1000;
 const WORKFLOW_FIELD_MAX = 120;
+const NODE_TYPE_DEFINITIONS = [
+  {
+    type: "role",
+    label: "Agent",
+    description: "Single role-prompt node for planning, synthesis, or custom work.",
+    defaults: { id: "agent", title: "Agent", role: "orchestrator", output: "agent_result" },
+  },
+  {
+    type: "worker_pool",
+    label: "Worker Pool",
+    description: "Parallel workers over a list input; worker count is capped by the UI.",
+    defaults: { id: "workers", title: "Workers", role: "worker", input: ["plan.work_items"], output: "worker_reports", max_items: 4, worker_instances: 2, max_parallel: 2 },
+  },
+  {
+    type: "reviewer",
+    label: "Reviewer",
+    description: "Critiques or consolidates prior outputs before a decision.",
+    defaults: { id: "reviewer", title: "Review", role: "reviewer", input: ["plan", "worker_reports"], output: "review", expects_json: true },
+  },
+  {
+    type: "judge",
+    label: "Judge",
+    description: "Returns decision.status values used by connection rules.",
+    defaults: { id: "judge", title: "Judge", role: "judge", input: ["plan", "worker_reports", "review"], output: "decision", expects_json: true },
+  },
+  {
+    type: "pause",
+    label: "Ask User",
+    description: "Pauses the run and waits for user feedback before continuing.",
+    defaults: { id: "ask_user", title: "Ask User", role: "", input: ["decision"], output: "pause", prompt: "" },
+  },
+  {
+    type: "answer",
+    label: "Answer",
+    description: "Synthesizes the final user-facing response.",
+    defaults: { id: "answer", title: "Answer", role: "orchestrator", input: ["plan", "worker_reports", "review", "decision"], output: "final_answer" },
+  },
+  {
+    type: "tool_agent",
+    label: "Tool Agent",
+    description: "Runs the Agentic runner with approved web/code/MCP-style tools.",
+    defaults: { id: "research", title: "Research", role: "orchestrator", input: [], output: "research_result", prompt: "Research the task and return grounded findings." },
+  },
+  {
+    type: "for_each",
+    label: "For Each",
+    description: "Iterates over an input list using body nodes configured in JSON.",
+    defaults: { id: "for_each", title: "For Each", role: "", input: ["plan.work_items"], output: "iteration_results", config: { body: [] } },
+  },
+  {
+    type: "while",
+    label: "While",
+    description: "Repeats body nodes until a safe break condition becomes true.",
+    defaults: { id: "while_loop", title: "While", role: "", input: [], output: "while_result", break_when: "decision.status == 'done'", config: { body: [] } },
+  },
+  {
+    type: "workflow",
+    label: "Sub Workflow",
+    description: "Runs another saved workflow by id as a reusable block.",
+    defaults: { id: "sub_workflow", title: "Sub Workflow", role: "", input: [], output: "workflow_result", ref: "deep_orchestra" },
+  },
+];
 
 export function createWorkflowInspector({
   workflowSection,
@@ -46,6 +107,12 @@ export function createWorkflowInspector({
   workflowNodeEditTitle,
   nodeEditId,
   nodeEditTitleInput,
+  nodeEditType,
+  nodeEditRef,
+  nodeEditPrompt,
+  nodeEditBody,
+  nodeEditRetryMax,
+  nodeEditRetryBackoff,
   nodeEditRole,
   nodeEditReceive,
   nodeEditReports,
@@ -57,6 +124,134 @@ export function createWorkflowInspector({
   getSettingsUi,
   canvas,
 }) {
+  function nodeTypeDefinition(type) {
+    const clean = String(type || "role").trim().toLowerCase();
+    return NODE_TYPE_DEFINITIONS.find((item) => item.type === clean) || NODE_TYPE_DEFINITIONS[0];
+  }
+
+  function nodeTypeOptionsHtml(selectedType) {
+    const selected = String(selectedType || "role").trim().toLowerCase();
+    return NODE_TYPE_DEFINITIONS
+      .map((item) => `<option value="${escapeHtml(item.type)}"${item.type === selected ? " selected" : ""}>${escapeHtml(item.label)}</option>`)
+      .join("");
+  }
+
+  function nodeTypeLabel(type) {
+    return nodeTypeDefinition(type).label;
+  }
+
+  function nodeTypeDefaults(type) {
+    const defaults = nodeTypeDefinition(type).defaults;
+    return {
+      ...defaults,
+      input: Array.isArray(defaults.input) ? [...defaults.input] : [],
+      config: typeof defaults.config === "object" && defaults.config ? JSON.parse(JSON.stringify(defaults.config)) : {},
+    };
+  }
+
+  function nextNodeId(draft, baseId) {
+    const taken = new Set((draft?.nodes || []).map((node) => node.id));
+    const cleanBase = slugifyWorkflowId(baseId || "node") || "node";
+    if (!taken.has(cleanBase)) return cleanBase;
+    let n = 2;
+    let candidate = `${cleanBase}_${n}`;
+    while (taken.has(candidate)) {
+      n += 1;
+      candidate = `${cleanBase}_${n}`;
+    }
+    return candidate;
+  }
+
+  function nextNodePosition(draft) {
+    const existingNodes = realWorkflowNodes(draft?.nodes || []);
+    const lastPos = existingNodes[existingNodes.length - 1]?.position || { x: CANVAS_PAD + NODE_GRID_X, y: CANVAS_PAD };
+    return { x: lastPos.x + NODE_GRID_X, y: lastPos.y };
+  }
+
+  function createNodeForType(draft, type) {
+    const defaults = nodeTypeDefaults(type);
+    const cleanType = nodeTypeDefinition(type).type;
+    const id = nextNodeId(draft, defaults.id || cleanType);
+    return {
+      id,
+      type: cleanType,
+      role: defaults.role || "",
+      title: defaults.title || nodeTypeLabel(cleanType),
+      prompt: defaults.prompt || "",
+      input: Array.isArray(defaults.input) ? [...defaults.input] : [],
+      output: defaults.output || id,
+      max_parallel: Math.min(8, Math.max(1, Number(defaults.max_parallel || 1))),
+      max_items: Math.min(12, Math.max(1, Number(defaults.max_items || 4))),
+      expects_json: Boolean(defaults.expects_json),
+      receive_from: [],
+      reports_to: [],
+      worker_instances: Math.min(8, Math.max(1, Number(defaults.worker_instances || defaults.max_parallel || 1))),
+      position: nextNodePosition(draft),
+      config: typeof defaults.config === "object" && defaults.config ? { ...defaults.config } : {},
+      retry: { max: 0, backoff: 0 },
+      break_when: defaults.break_when || "",
+      ref: defaults.ref || "",
+    };
+  }
+
+  function addWorkflowNode(type = "role") {
+    const draft = activeWorkflowDraft();
+    if (!draft) return null;
+    const node = createNodeForType(draft, type);
+    draft.nodes.push(node);
+    state.workflowEditorDraft = {
+      ...draft,
+      nodes: ensureWorkflowBoundaryNodes(draft.nodes),
+    };
+    canvas.renderWorkflowCanvas();
+    selectWorkflowNode(node.id);
+    return node;
+  }
+
+  function closeNodeTypeMenu() {
+    document.querySelector(".workflow-node-type-menu")?.remove();
+    document.removeEventListener("pointerdown", handleNodeTypeMenuOutside);
+  }
+
+  function handleNodeTypeMenuOutside(event) {
+    const menu = document.querySelector(".workflow-node-type-menu");
+    if (!menu) return;
+    if (menu.contains(event.target)) return;
+    closeNodeTypeMenu();
+  }
+
+  function openNodeTypeMenu(anchor) {
+    const draft = activeWorkflowDraft();
+    if (!draft || !anchor) return;
+    closeNodeTypeMenu();
+    const rect = anchor.getBoundingClientRect();
+    const menu = document.createElement("div");
+    menu.className = "workflow-node-type-menu";
+    menu.style.top = `${rect.bottom + 8}px`;
+    menu.style.left = `${Math.max(12, Math.min(window.innerWidth - 372, rect.right - 360))}px`;
+    menu.innerHTML = `
+      <strong>Add Node</strong>
+      <div class="workflow-node-type-grid">
+        ${NODE_TYPE_DEFINITIONS.map((item) => `
+          <button type="button" class="workflow-node-type-option" data-node-type="${escapeHtml(item.type)}">
+            <span>${escapeHtml(item.label)}</span>
+            <small>${escapeHtml(item.description)}</small>
+          </button>
+        `).join("")}
+      </div>
+    `;
+    menu.addEventListener("click", (event) => {
+      const option = event.target.closest?.(".workflow-node-type-option");
+      if (!option) return;
+      addWorkflowNode(option.dataset.nodeType || "role");
+      closeNodeTypeMenu();
+    });
+    document.body.append(menu);
+    const menuRect = menu.getBoundingClientRect();
+    menu.style.top = `${Math.max(12, Math.min(rect.bottom + 8, window.innerHeight - menuRect.height - 12))}px`;
+    setTimeout(() => document.addEventListener("pointerdown", handleNodeTypeMenuOutside), 0);
+  }
+
   function workflowPresetsForMode(mode) {
     return state.workflowPresets.filter((workflow) => {
       const modes = Array.isArray(workflow.modes) && workflow.modes.length > 0 ? workflow.modes : [workflow.mode];
@@ -220,6 +415,7 @@ export function createWorkflowInspector({
           type: "role",
           role: "orchestrator",
           title: "Orchestrator",
+          prompt: "",
           input: [],
           output: "",
           max_parallel: 1,
@@ -262,8 +458,16 @@ export function createWorkflowInspector({
     workflowNodeEditPanel.hidden = false;
     workflowNodeEditPanel.setAttribute("aria-hidden", "false");
     if (workflowNodeEditTitle) workflowNodeEditTitle.textContent = node.title || node.id;
+    const retry = typeof node.retry === "object" && node.retry ? node.retry : {};
     nodeEditId.value = node.id;
     nodeEditTitleInput.value = node.title || "";
+    nodeEditType.innerHTML = nodeTypeOptionsHtml(node.type);
+    nodeEditType.value = nodeTypeDefinition(node.type).type;
+    nodeEditRef.value = String(node.type || "").toLowerCase() === "while" ? (node.break_when || "") : (node.ref || "");
+    nodeEditPrompt.value = node.prompt || "";
+    nodeEditBody.value = Array.isArray(node.config?.body) ? node.config.body.join(", ") : "";
+    nodeEditRetryMax.value = String(Math.max(0, Number(retry.max || 0)));
+    nodeEditRetryBackoff.value = String(Math.max(0, Number(retry.backoff || 0)));
     nodeEditRole.innerHTML = nodeRoleSelectOptionsHtml(node.role);
     nodeEditReceive.value = (node.receive_from || []).join(", ");
     nodeEditReports.value = (node.reports_to || []).join(", ");
@@ -330,19 +534,66 @@ export function createWorkflowInspector({
     const safeId = otherIds.has(desiredId) ? node.id : desiredId;
     const oldId = node.id;
     const previousOutputIdentifier = nodeOutputIdentifier(node);
+    const previousTitle = node.title || "";
     node.id = safeId;
     node.title = clampLength(nodeEditTitleInput.value.trim(), WORKFLOW_NAME_MAX);
-    const chosenRole = String(nodeEditRole.value || "").trim();
-    node.role = clampLength(chosenRole || "orchestrator", WORKFLOW_FIELD_MAX);
-    const workers = clampInt(nodeEditWorkers.value, 1, 8);
     const previousType = String(node.type || "").toLowerCase();
-    node.type = previousType === "answer" ? "answer" : deriveNodeTypeFromRole(node.role, workers);
+    const selectedType = nodeTypeDefinition(nodeEditType?.value || previousType).type;
+    if (selectedType !== previousType) {
+      const defaults = nodeTypeDefaults(selectedType);
+      const previousDefaults = nodeTypeDefaults(previousType);
+      node.type = selectedType;
+      node.role = defaults.role || node.role || "";
+      if (!node.title || previousTitle === previousDefaults.title || previousTitle === nodeTypeLabel(previousType)) {
+        node.title = defaults.title || nodeTypeLabel(selectedType);
+        nodeEditTitleInput.value = node.title;
+      }
+      node.output = defaults.output || node.output || safeId;
+      node.input = Array.isArray(defaults.input) ? [...defaults.input] : [];
+      node.prompt = defaults.prompt || "";
+      node.expects_json = Boolean(defaults.expects_json);
+      node.worker_instances = Math.min(8, Math.max(1, Number(defaults.worker_instances || defaults.max_parallel || 1)));
+      node.max_parallel = Math.min(8, Math.max(1, Number(defaults.max_parallel || node.worker_instances || 1)));
+      node.max_items = Math.min(12, Math.max(1, Number(defaults.max_items || node.max_items || 4)));
+      node.config = typeof defaults.config === "object" && defaults.config ? { ...defaults.config } : {};
+      node.break_when = defaults.break_when || "";
+      node.ref = defaults.ref || "";
+      nodeEditRole.innerHTML = nodeRoleSelectOptionsHtml(node.role);
+      nodeEditInput.value = (node.input || []).join(", ");
+      nodeEditOutput.value = node.output || "";
+      nodeEditWorkers.value = String(Math.max(1, Number(node.worker_instances || node.max_parallel || 1)));
+      nodeEditMaxItems.value = String(Math.max(1, Number(node.max_items || 4)));
+      nodeEditJson.checked = Boolean(node.expects_json);
+      nodeEditPrompt.value = node.prompt || "";
+      nodeEditRef.value = selectedType === "while" ? node.break_when : node.ref;
+      nodeEditBody.value = Array.isArray(node.config?.body) ? node.config.body.join(", ") : "";
+    } else {
+      node.type = selectedType;
+    }
+    const chosenRole = String(nodeEditRole.value || "").trim();
+    node.role = clampLength(chosenRole || nodeTypeDefaults(node.type).role || "", WORKFLOW_FIELD_MAX);
+    const workers = clampInt(nodeEditWorkers.value, 1, 8);
+    node.prompt = clampLength(nodeEditPrompt?.value || "", WORKFLOW_DESCRIPTION_MAX);
+    const refValue = clampLength(nodeEditRef?.value || "", WORKFLOW_FIELD_MAX);
+    node.break_when = node.type === "while" ? refValue : "";
+    node.ref = node.type === "workflow" ? refValue : "";
+    node.config = typeof node.config === "object" && node.config ? node.config : {};
+    const bodyNodes = parseCsvList(nodeEditBody?.value || "");
+    if (node.type === "for_each" || node.type === "while") {
+      node.config.body = bodyNodes;
+    } else {
+      delete node.config.body;
+    }
+    node.retry = {
+      max: clampInt(nodeEditRetryMax?.value || 0, 0, 5),
+      backoff: Math.min(60, Math.max(0, Number(nodeEditRetryBackoff?.value || 0))),
+    };
     node.receive_from = dedupeList(parseCsvList(nodeEditReceive.value));
     node.reports_to = dedupeList(parseCsvList(nodeEditReports.value));
     node.input = parseCsvList(nodeEditInput.value);
     node.output = clampLength(nodeEditOutput.value.trim(), WORKFLOW_FIELD_MAX);
     node.worker_instances = node.type === "worker_pool" ? workers : 1;
-    node.max_parallel = workers;
+    node.max_parallel = node.type === "worker_pool" ? workers : 1;
     node.max_items = clampInt(nodeEditMaxItems.value, 1, 12);
     node.expects_json = Boolean(nodeEditJson.checked);
     const nextOutputIdentifier = nodeOutputIdentifier(node);
@@ -378,6 +629,8 @@ export function createWorkflowInspector({
     closeNodeEditPanel,
     collectWorkflowDraftFromEditor,
     syncSelectedNodeRoleOptions,
+    openNodeTypeMenu,
+    addWorkflowNode,
     applyNodeEditChanges,
   };
 }

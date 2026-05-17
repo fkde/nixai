@@ -1,15 +1,11 @@
 import { dom } from "./dom.js";
 import { state } from "./state.js";
 import {
-  CANVAS_PAD,
   DRAG_THRESHOLD,
-  NODE_GRID_X,
   PORT_INPUT,
   PORT_OUTPUT,
   deriveWorkflowEdgesFromNodes,
-  ensureWorkflowBoundaryNodes,
   newWorkflowDraftFrom,
-  realWorkflowNodes,
 } from "./workflow-builder.js";
 import { createWorkflowCanvas } from "./workflows/canvas.js";
 import { createWorkflowInspector } from "./workflows/inspector.js";
@@ -53,6 +49,12 @@ const {
   workflowNodeEditRemove,
   nodeEditId,
   nodeEditTitleInput,
+  nodeEditType,
+  nodeEditRef,
+  nodeEditPrompt,
+  nodeEditBody,
+  nodeEditRetryMax,
+  nodeEditRetryBackoff,
   nodeEditRole,
   nodeEditReceive,
   nodeEditReports,
@@ -103,6 +105,12 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     workflowNodeEditTitle,
     nodeEditId,
     nodeEditTitleInput,
+    nodeEditType,
+    nodeEditRef,
+    nodeEditPrompt,
+    nodeEditBody,
+    nodeEditRetryMax,
+    nodeEditRetryBackoff,
     nodeEditRole,
     nodeEditReceive,
     nodeEditReports,
@@ -179,41 +187,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     });
 
     workflowEditorAddNode?.addEventListener("click", () => {
-      const draft = inspector.activeWorkflowDraft();
-      if (!draft) return;
-      const baseId = "node";
-      const taken = new Set(draft.nodes.map((node) => node.id));
-      const existingNodes = realWorkflowNodes(draft.nodes);
-      let id = `${baseId}_${existingNodes.length + 1}`;
-      let i = existingNodes.length + 1;
-      while (taken.has(id)) {
-        i += 1;
-        id = `${baseId}_${i}`;
-      }
-      const lastPos = existingNodes[existingNodes.length - 1]?.position || { x: CANVAS_PAD + NODE_GRID_X, y: CANVAS_PAD };
-      const position = { x: lastPos.x + NODE_GRID_X, y: lastPos.y };
-      draft.nodes.push({
-        id,
-        type: "role",
-        role: "orchestrator",
-        title: "New Node",
-        input: [],
-        output: "",
-        max_parallel: 1,
-        max_items: 4,
-        expects_json: false,
-        receive_from: [],
-        reports_to: [],
-        worker_instances: 1,
-        position,
-        config: {},
-      });
-      state.workflowEditorDraft = {
-        ...draft,
-        nodes: ensureWorkflowBoundaryNodes(draft.nodes),
-      };
-      canvas.renderWorkflowCanvas();
-      inspector.selectWorkflowNode(id);
+      inspector.openNodeTypeMenu(workflowEditorAddNode);
     });
 
     [
@@ -351,6 +325,12 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
     [
       nodeEditId,
       nodeEditTitleInput,
+      nodeEditType,
+      nodeEditRef,
+      nodeEditPrompt,
+      nodeEditBody,
+      nodeEditRetryMax,
+      nodeEditRetryBackoff,
       nodeEditRole,
       nodeEditReceive,
       nodeEditReports,

@@ -371,6 +371,34 @@
                             <input id="node-edit-title-input" type="text" />
                           </label>
                         </div>
+                        <div class="settings-grid two">
+                          <label class="field">
+                            <span class="field-label">Node Type <span class="info-tip" tabindex="0" role="button" aria-label="What is the node type for?" data-tip="Controls how the workflow executor runs this node. Use **Answer** to synthesize the user-facing reply, **Pause** to ask the user mid-run, **Judge** to return branch decisions, **Tool Agent** for autonomous tool-capable research, and loop/workflow types for reusable or iterative flows.">?</span></span>
+                            <select id="node-edit-type"></select>
+                          </label>
+                          <label class="field node-edit-ref-field">
+                            <span class="field-label">Workflow Ref / Break Condition <span class="info-tip" tabindex="0" role="button" aria-label="What is this field for?" data-tip="For **Workflow** nodes, enter the reusable workflow id to run. For **While** nodes, enter the safe expression that stops the loop, e.g. `review.score >= 0.8`. Other node types can leave this empty.">?</span></span>
+                            <input id="node-edit-ref" type="text" placeholder="deep_research or review.score >= 0.8" />
+                          </label>
+                        </div>
+                        <label class="field node-edit-prompt-field">
+                          <span class="field-label">Prompt / Question <span class="info-tip" tabindex="0" role="button" aria-label="What is Prompt / Question for?" data-tip="Optional node-specific prompt. For **Pause** this is the question shown to the user. For **Tool Agent** it is the task instruction. Role-based nodes usually get their behavior from the selected Markdown role prompt.">?</span></span>
+                          <textarea id="node-edit-prompt" rows="3" placeholder="Ask the user for the missing requirement, or describe the tool-agent task."></textarea>
+                        </label>
+                        <div class="settings-grid three">
+                          <label class="field">
+                            <span class="field-label">Loop Body Nodes <span class="info-tip" tabindex="0" role="button" aria-label="What are loop body nodes?" data-tip="Comma-separated **node IDs** that should run inside a For Each or While node. Example: `research, review`. Leave empty for non-loop nodes.">?</span></span>
+                            <input id="node-edit-body" type="text" placeholder="research, review" />
+                          </label>
+                          <label class="field">
+                            <span class="field-label">Retry Max <span class="info-tip" tabindex="0" role="button" aria-label="What is Retry Max?" data-tip="How many times this node may retry after an error before an error connection is followed or the workflow fails.">?</span></span>
+                            <input id="node-edit-retry-max" type="number" min="0" max="5" value="0" />
+                          </label>
+                          <label class="field">
+                            <span class="field-label">Retry Backoff <span class="info-tip" tabindex="0" role="button" aria-label="What is Retry Backoff?" data-tip="Seconds to wait before retrying this node after an error. Keep this low for interactive workflows.">?</span></span>
+                            <input id="node-edit-retry-backoff" type="number" min="0" max="60" step="0.5" value="0" />
+                          </label>
+                        </div>
                         <div class="settings-grid two node-edit-role-row">
                           <label class="field">
                             <span class="field-label">Role <span class="info-tip" tabindex="0" role="button" aria-label="What is the role for?" data-tip="The **Markdown role prompt** that defines this agent's behavior. Each role lives as a file under **Prompts**. The role name also implies execution semantics: `judge` returns decisions that drive branching, `reviewer` critiques prior work, and anything with **Max Worker Instances** > 1 may run as a parallel worker pool when the planner recommends it.">?</span></span>
