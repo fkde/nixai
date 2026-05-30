@@ -161,3 +161,32 @@ def test_cascade_delete_on_run_removes_events(db):
     # cascade via chat delete (workflow_runs FK ON DELETE CASCADE, and workflow_run_events FK too)
     db.delete_chat(chat_id)
     assert db.list_trace_events(run_id) == []
+
+
+def test_projection_failure_rolls_back_trace_insert(db, monkeypatch) -> None:
+    """Regression: projection failure must not leave an orphan trace event.
+
+    Before the fix the trace event was committed in its own transaction, then
+    the projection ran in a second transaction — failure of the projection
+    would leave the workflow_run_events log out of sync with workflow_node_states.
+    With atomic persistence both inserts share one transaction.
+    """
+    from app.workflows.runtime_trace import SqliteTracePersistence, TraceEmitter
+    from app.db import workflow_state
+
+    chat = db.create_chat(title="t", workspace_path="")
+    run_id = "atomic-1"
+    db.create_workflow_run(run_id, workflow_id="wf", chat_id=chat.id, mode="chat")
+
+    def broken_apply(*_args, **_kwargs):
+        raise RuntimeError("projection broken")
+
+    monkeypatch.setattr(workflow_state, "apply_trace_event_to_runtime_state", broken_apply)
+
+    emitter = TraceEmitter(run_id=run_id, workflow_id="wf", persistence=SqliteTracePersistence())
+    # emit() catches the persistence exception and returns a step_id without raising
+    emitter.emit("node_started", node_id="role")
+
+    # Atomicity: because the projection raised, the trace insert must have
+    # rolled back. The log is empty.
+    assert db.list_trace_events(run_id) == []

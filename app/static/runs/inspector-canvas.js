@@ -197,8 +197,10 @@ export function createInspectorCanvas({ host }) {
       width = Math.max(width, (node.position?.x || 0) + NODE_TILE_WIDTH + CANVAS_PAD);
       height = Math.max(height, (node.position?.y || 0) + NODE_TILE_HEIGHT + CANVAS_PAD);
     }
-    host.style.minWidth = `${width}px`;
-    host.style.minHeight = `${height}px`;
+    host.style.minWidth = "";
+    host.style.minHeight = "";
+    nodesHost.style.minWidth = `${width}px`;
+    nodesHost.style.minHeight = `${height}px`;
     svg.setAttribute("width", String(width));
     svg.setAttribute("height", String(height));
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);

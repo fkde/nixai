@@ -382,6 +382,30 @@ Platform notes:
 
 The browser UI and desktop UI intentionally share `app/static/*`.
 
+### Planned: native Swift shell for macOS
+
+A native Swift/WKWebView wrapper for the macOS app is planned for the future
+(no concrete timeline). The intent is to replace the PyInstaller + pywebview
+bundle on macOS with a thin Swift shell that launches the FastAPI backend as a
+sidecar process, for faster cold start, smaller bundle size, proper code
+signing/notarisation, and Sparkle updates.
+
+Implications for agents working on new features today:
+
+- Treat the FastAPI backend as if it could be launched as a standalone sidecar
+  process — avoid hard assumptions that backend and UI share one Python
+  process (e.g. no in-process globals shared between `app/desktop.py` and
+  request handlers that could not be reconstructed over HTTP).
+- Keep desktop-only integrations that currently rely on PyObjC (file dialogs,
+  window chrome in `app/desktop.py`) isolated and replaceable; do not spread
+  PyObjC calls into core modules.
+- Anything user-facing must keep working through the browser UI alone, since
+  the Swift shell will just point a WKWebView at the local FastAPI server.
+- Do not invest in deepening the pywebview/PyObjC integration on macOS beyond
+  what is needed today — that surface is expected to be retired on macOS.
+
+pywebview remains the desktop wrapper on Linux and Windows.
+
 ## Frontend Direction
 
 Keep the frontend simple and app-like:

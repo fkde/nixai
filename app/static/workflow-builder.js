@@ -589,7 +589,7 @@ export function validateWorkflowHealth(draft, workflowPresets = []) {
         severity: "info",
         title: `${nodeName} returns structured data`,
         detail: "This is usually fine. The runner adds the JSON instruction automatically.",
-        action: "Only edit the prompt if the model keeps returning plain text.",
+        action: "Only edit the node instruction if the model keeps returning plain text.",
         debug: true,
       });
     }

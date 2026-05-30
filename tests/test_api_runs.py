@@ -64,13 +64,13 @@ def test_get_run_returns_fork_metadata(db) -> None:
         chat_id=chat.id,
         mode="chat",
         fork_of_run_id="parent",
-        fork_at_step_id="reviewer",
+        fork_at_node_id="reviewer",
     )
 
     client = _make_app()
     body = client.get("/api/runs/child").json()
     assert body["run"]["fork_of_run_id"] == "parent"
-    assert body["run"]["fork_at_step_id"] == "reviewer"
+    assert body["run"]["fork_at_node_id"] == "reviewer"
 
 
 def test_get_run_404_when_missing(db) -> None:

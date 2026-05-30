@@ -4,6 +4,8 @@ import { state } from "../state.js";
 import { thumbIcon } from "../ui.js";
 
 export function createMessageRendering({ messagesEl, setStatus, streaming, bridge }) {
+  let emptyGreetingTimer = null;
+
   function shouldRenderMarkdown(message) {
     return message?.role === "assistant";
   }
@@ -12,43 +14,107 @@ export function createMessageRendering({ messagesEl, setStatus, streaming, bridg
     return (state.settings?.user_name || "").trim().split(/\s+/)[0] || "";
   }
 
-  function emptyGreeting() {
+  function emptyGreetingVariants() {
     const name = firstName();
-    const suffix = name ? `, ${escapeHtml(name)}` : "";
-    const variants = [
+    const suffix = name ? ` ${escapeHtml(name)}` : "";
+    return [
       {
-        title: `Ready when you are${suffix}.`,
-        text: "Start a conversation, inspect a project, or hand off a task.",
+        title: `Awaiting signal${suffix}`,
+        text: "Drop the first packet. I will route it through chat, code context, or the agentic loop.",
+        meta: "local-first / approval-gated / no cloud handoff",
       },
       {
-        title: `Local runtime online${suffix}.`,
-        text: "Ask naturally. NixAI will use the selected mode for the next step.",
+        title: `Runtime warm${suffix}`,
+        text: "Local stack is awake. Feed it a question, a repo, or a tiny impossible thing.",
+        meta: "ollama linkup / sqlite memory / tools on standby",
       },
       {
-        title: `What should we work on${suffix}?`,
-        text: "Send a message to begin.",
+        title: `Console armed${suffix}`,
+        text: "Messy intent is fine. We can compile it into a plan after the first keystroke.",
+        meta: "mode switch ready / workspace optional",
       },
       {
-        title: `NixAI is ready${suffix}.`,
-        text: "Use Chat for conversation, Code for project context, or Agentic for multi-step work.",
+        title: `NixAI standing by${suffix}`,
+        text: "Chat for thinking, Code for project context, Agentic when the task wants a runbook.",
+        meta: "chat <-> code <-> agentic",
+      },
+      {
+        title: `Prompt socket open${suffix}`,
+        text: "Send raw intent. I will negotiate with the local machinery and ask before touching sharp tools.",
+        meta: "bounded tools / visible approvals / local trace",
       },
     ];
+  }
+
+  function emptyGreeting(index = null) {
+    const variants = emptyGreetingVariants();
     const seed = state.activeChatId
       ? [...state.activeChatId].reduce((sum, char) => sum + char.charCodeAt(0), 0)
       : new Date().getDate();
-    return variants[seed % variants.length];
+    return variants[(index ?? seed) % variants.length];
+  }
+
+  function emptyGreetingCopy(greeting) {
+    return `
+      <span class="empty-kicker">nixai://session</span>
+      <h3>${greeting.title}</h3>
+      <p>${greeting.text}</p>
+      <div class="empty-meta">
+        <span>${greeting.meta}</span>
+      </div>
+    `;
+  }
+
+  function stopEmptyGreetingRotation() {
+    if (emptyGreetingTimer !== null) {
+      clearInterval(emptyGreetingTimer);
+      emptyGreetingTimer = null;
+    }
+  }
+
+  function startEmptyGreetingRotation() {
+    stopEmptyGreetingRotation();
+    const empty = messagesEl.querySelector(".empty");
+    const copy = empty?.querySelector(".empty-copy");
+    if (!empty || !copy || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
+    let index = Number(empty.dataset.greetingIndex || 0);
+    emptyGreetingTimer = setInterval(() => {
+      const current = messagesEl.querySelector(".empty");
+      const target = current?.querySelector(".empty-copy");
+      if (!current || !target) {
+        stopEmptyGreetingRotation();
+        return;
+      }
+      index = (index + 1) % emptyGreetingVariants().length;
+      current.dataset.greetingIndex = String(index);
+      target.classList.add("is-swapping");
+      window.setTimeout(() => {
+        if (!messagesEl.contains(target)) return;
+        target.innerHTML = emptyGreetingCopy(emptyGreeting(index));
+        target.classList.remove("is-swapping");
+      }, 260);
+    }, 5600);
   }
 
   function emptyChatHtml(kind = "chat") {
-    const greeting = emptyGreeting();
+    const variants = emptyGreetingVariants();
+    const seed = state.activeChatId
+      ? [...state.activeChatId].reduce((sum, char) => sum + char.charCodeAt(0), 0)
+      : new Date().getDate();
+    const index = seed % variants.length;
+    const greeting = variants[index];
     const helper = kind === "none"
-      ? "Create a new chat on the left to get started."
+      ? "Create a chat on the left to start the loop."
       : "";
     return `
-      <section class="empty">
-        <h3>${greeting.title}</h3>
-        <p>${greeting.text}</p>
-        ${helper ? `<small>${helper}</small>` : ""}
+      <section class="empty" data-greeting-index="${index}">
+        <div class="empty-shell" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <div class="empty-copy">
+          ${emptyGreetingCopy(greeting)}
+        </div>
+        ${helper ? `<small class="empty-helper">${helper}</small>` : ""}
       </section>
     `;
   }
@@ -87,13 +153,16 @@ export function createMessageRendering({ messagesEl, setStatus, streaming, bridg
     messagesEl.innerHTML = "";
     if (!state.activeChatId) {
       messagesEl.innerHTML = emptyChatHtml("none");
+      startEmptyGreetingRotation();
       return;
     }
     if (messages.length === 0) {
       messagesEl.innerHTML = emptyChatHtml("chat");
+      startEmptyGreetingRotation();
       streaming.renderActiveStream();
       return;
     }
+    stopEmptyGreetingRotation();
     for (const message of messages) {
       const feedback = message.feedback || "";
       const item = document.createElement("article");
@@ -146,6 +215,7 @@ export function createMessageRendering({ messagesEl, setStatus, streaming, bridg
       ` : ""}
     `;
     if (messagesEl.querySelector(".empty")) {
+      stopEmptyGreetingRotation();
       messagesEl.innerHTML = "";
     }
     messagesEl.append(item);
@@ -191,6 +261,7 @@ export function createMessageRendering({ messagesEl, setStatus, streaming, bridg
     firstName,
     emptyGreeting,
     emptyChatHtml,
+    stopEmptyGreetingRotation,
     isMessagesNearBottom,
     scrollMessagesToBottom,
     stabilizeMessagesBottomScroll,

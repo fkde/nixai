@@ -43,8 +43,8 @@ export function createTimelineSlider({ host, onChange }) {
     return `seq ${event.seq ?? position} · event ${position}/${events.length}${ts ? ` · ${ts}` : ""}`;
   }
 
-  function emit() {
-    onChange && onChange({ position, live });
+  function emit(details = {}) {
+    onChange && onChange({ position, live, ...details });
   }
 
   function setPosition(next, { user = false } = {}) {
@@ -52,7 +52,7 @@ export function createTimelineSlider({ host, onChange }) {
     if (user && position < events.length) live = false;
     if (position >= events.length && user) live = true;
     render();
-    emit();
+    emit({ user });
   }
 
   function step(delta) {
@@ -79,7 +79,7 @@ export function createTimelineSlider({ host, onChange }) {
         render();
         return;
       }
-      setPosition(position + 1);
+      setPosition(position + 1, { user: true });
     }, 450);
     render();
   }
@@ -125,11 +125,11 @@ export function createTimelineSlider({ host, onChange }) {
       else if (!keepPosition) position = Math.min(position, events.length);
       render();
     },
-    reset(nextEvents) {
+    reset(nextEvents, { live: nextLive = false } = {}) {
       stopPlayback();
       events = Array.isArray(nextEvents) ? nextEvents : [];
-      live = true;
-      position = events.length;
+      live = Boolean(nextLive);
+      position = live ? events.length : 0;
       render();
     },
     get live() { return live; },

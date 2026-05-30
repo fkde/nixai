@@ -41,6 +41,7 @@ def default_model_roles() -> list[ModelRole]:
         ModelRole(role="reviewer", model="gemma4:e4b"),
         ModelRole(role="judge", model="llama3.1:8b"),
         ModelRole(role="task_discovery", model="llama3.1:8b"),
+        ModelRole(role="vision", model=""),
     ]
 
 
@@ -182,11 +183,22 @@ def load_settings() -> Settings:
             ModelRole(role="reviewer", model=settings.reviewer_model),
             ModelRole(role="judge", model=settings.judge_model),
             ModelRole(role="task_discovery", model=settings.default_model),
+            ModelRole(role="vision", model=""),
         ]
         save_settings(settings)
-    elif not any(role.role.strip().casefold() == "task_discovery" for role in settings.model_roles):
-        settings.model_roles.append(ModelRole(role="task_discovery", model=settings.default_model))
-        save_settings(settings)
+    else:
+        changed_roles = False
+        required_roles = {
+            "task_discovery": settings.default_model,
+            "vision": "",
+        }
+        existing = {role.role.strip().casefold() for role in settings.model_roles}
+        for role, model in required_roles.items():
+            if role not in existing:
+                settings.model_roles.append(ModelRole(role=role, model=model))
+                changed_roles = True
+        if changed_roles:
+            save_settings(settings)
     normalized_workflows = {
         mode: normalize_workflow_preset_id(str(settings.workflow_presets.get(mode) or fallback).strip())
         for mode, fallback in default_workflow_presets().items()

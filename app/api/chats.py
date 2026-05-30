@@ -57,14 +57,26 @@ def get_messages(chat_id: str, mode: Optional[MessageMode] = Query(default=None)
 @router.post("/{chat_id}/messages", response_model=CreateMessageResponse)
 async def post_message(chat_id: str, request: CreateMessageRequest) -> CreateMessageResponse:
     try:
-        return await Agent(effort=request.effort).run(chat_id, request.content, mode=request.mode)
+        return await Agent(effort=request.effort).run(
+            chat_id,
+            request.content,
+            mode=request.mode,
+            attachments=request.attachments,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/{chat_id}/messages/stream")
 async def post_message_stream(chat_id: str, request: CreateMessageRequest):
-    return sse_response(Agent(effort=request.effort).stream(chat_id, request.content, mode=request.mode))
+    return sse_response(
+        Agent(effort=request.effort).stream(
+            chat_id,
+            request.content,
+            mode=request.mode,
+            attachments=request.attachments,
+        )
+    )
 
 
 @router.post("/messages/{message_id}/feedback", response_model=MessageFeedbackResponse)

@@ -11,6 +11,9 @@ export function createComposer({
   modeButtons,
   composerPlusButton,
   composerPlusMenu,
+  composerAttachButton,
+  composerAttachmentInput,
+  composerAttachments,
   addWorkspaceButton,
   setStatus,
   toolApprovals,
@@ -21,6 +24,11 @@ export function createComposer({
   messageRendering,
   chatList,
 }) {
+  const maxAttachments = 4;
+  const maxAttachmentBytes = 5 * 1024 * 1024;
+  const allowedAttachmentTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
+  let pendingAttachments = [];
+
   function attachInspectorBadge(assistantEl, runId) {
     if (!assistantEl || !runId) return;
     if (assistantEl.querySelector(".inspector-badge")) return;
@@ -141,7 +149,88 @@ export function createComposer({
     state.loading = loading;
     input.disabled = loading;
     sendButton.disabled = loading;
+    if (composerAttachButton) composerAttachButton.disabled = loading;
     setStatus(loading ? "Thinking…" : "Ready");
+  }
+
+  function renderAttachments() {
+    if (!composerAttachments) return;
+    composerAttachments.hidden = pendingAttachments.length === 0;
+    composerAttachments.innerHTML = "";
+    pendingAttachments.forEach((attachment, index) => {
+      const chip = document.createElement("span");
+      chip.className = "composer-attachment-chip";
+      const img = document.createElement("img");
+      img.alt = "";
+      img.src = attachment.preview;
+      const name = document.createElement("span");
+      name.textContent = attachment.name;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.setAttribute("aria-label", `Remove ${attachment.name}`);
+      remove.textContent = "×";
+      remove.addEventListener("click", () => {
+        pendingAttachments.splice(index, 1);
+        renderAttachments();
+      });
+      chip.append(img, name, remove);
+      composerAttachments.append(chip);
+    });
+  }
+
+  function clearAttachments() {
+    pendingAttachments = [];
+    if (composerAttachmentInput) composerAttachmentInput.value = "";
+    renderAttachments();
+  }
+
+  function fileToAttachment(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener("load", () => {
+        const dataUrl = String(reader.result || "");
+        const data = dataUrl.includes(",") ? dataUrl.split(",", 2)[1] : dataUrl;
+        resolve({
+          name: file.name || "image",
+          mime_type: file.type,
+          size: file.size,
+          data,
+          preview: dataUrl,
+        });
+      });
+      reader.addEventListener("error", () => reject(new Error(`Could not read ${file.name || "image"}.`)));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function addAttachmentFiles(files) {
+    const incoming = [...(files || [])];
+    if (incoming.length === 0) return;
+    const availableSlots = maxAttachments - pendingAttachments.length;
+    if (availableSlots <= 0) {
+      setStatus(`You can attach up to ${maxAttachments} images.`, true);
+      return;
+    }
+    const accepted = [];
+    for (const file of incoming.slice(0, availableSlots)) {
+      if (!allowedAttachmentTypes.has(file.type)) {
+        setStatus("Only PNG, JPEG, and WebP images are supported.", true);
+        continue;
+      }
+      if (file.size > maxAttachmentBytes) {
+        setStatus("Image is too large. Maximum size is 5 MB.", true);
+        continue;
+      }
+      accepted.push(file);
+    }
+    if (incoming.length > availableSlots) {
+      setStatus(`Only ${maxAttachments} images can be attached at once.`, true);
+    }
+    if (accepted.length === 0) return;
+    const attachments = await Promise.all(accepted.map(fileToAttachment));
+    pendingAttachments = [...pendingAttachments, ...attachments];
+    renderAttachments();
+    setStatus(`${pendingAttachments.length} image attachment(s) ready.`);
   }
 
   async function sendMessage(content) {
@@ -290,11 +379,13 @@ export function createComposer({
       };
 
       try {
+        const attachments = pendingAttachments.map(({ preview: _preview, ...attachment }) => attachment);
         await startMessageStream({
           chatId,
-          body: { content, mode, effort: getSettingsUi()?.currentEffort() || "medium" },
+          body: { content, mode, effort: getSettingsUi()?.currentEffort() || "medium", attachments },
           onEvent: handleStreamEvent,
         });
+        clearAttachments();
 
         await chatList.loadChats();
         chatList.renderChats();
@@ -364,5 +455,7 @@ export function createComposer({
     setLoading,
     sendMessage,
     callTool,
+    addAttachmentFiles,
+    clearAttachments,
   };
 }

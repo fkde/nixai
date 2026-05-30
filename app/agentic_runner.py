@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, Optional
 
 from app import database
@@ -14,6 +15,7 @@ from app.services import AgenticTaskService, compose_role_block
 from app.services.tool_policy import AUTO_TOOL_NAMES, ToolPolicyService
 from app.tools.registry import registry
 from app.workflows.presets import selected_workflow
+from app.workflows.runtime_trace import TraceEmitter
 
 
 # Re-exported for backward compatibility with any external import.
@@ -36,6 +38,8 @@ class AgenticRunner:
         prompt: str,
         reason: str = "workflow",
         context: dict[str, Any] | None = None,
+        trace: TraceEmitter | None = None,
+        node_id: str = "tool_agent",
     ) -> dict[str, Any]:
         task = AgenticTask(
             id="workflow-inline",
@@ -61,7 +65,7 @@ class AgenticRunner:
                 status = "needs_review"
                 summary = str(plan.get("summary") or "Tool agent needs review.")
             else:
-                tool_results = self._execute_tool_calls(plan.get("tool_calls"))
+                tool_results = self._execute_tool_calls(plan.get("tool_calls"), trace=trace, node_id=node_id)
                 summary = await self._summarize(task, reason, tool_results)
                 if any(not item.get("success") for item in tool_results):
                     status = "needs_review"
@@ -261,7 +265,13 @@ class AgenticRunner:
         await asyncio.sleep(0)
         return {"status": "needs_review", "summary": summary, "tool_results": tool_results}
 
-    def _execute_tool_calls(self, tool_calls: Any) -> list[dict[str, Any]]:
+    def _execute_tool_calls(
+        self,
+        tool_calls: Any,
+        *,
+        trace: TraceEmitter | None = None,
+        node_id: str = "tool_agent",
+    ) -> list[dict[str, Any]]:
         if not isinstance(tool_calls, list):
             return []
         results = []
@@ -271,24 +281,81 @@ class AgenticRunner:
             name = str(raw_call.get("name") or "").strip()
             arguments = raw_call.get("arguments") if isinstance(raw_call.get("arguments"), dict) else {}
             if name not in AUTO_TOOLS:
-                results.append({"tool": name, "arguments": arguments, "success": False, "error": "Tool is not approved for autonomous runs."})
+                error = "Tool is not approved for autonomous runs."
+                results.append({"tool": name, "arguments": arguments, "success": False, "error": error})
+                self._emit_tool_trace(trace, node_id, name, arguments, error=error, allowed=False)
                 continue
             if not self._is_autonomous_tool_allowed(name):
-                results.append(
-                    {
-                        "tool": name,
-                        "arguments": arguments,
-                        "success": False,
-                        "error": "Tool requires user approval. Allow it permanently in settings or disable tool confirmations.",
-                    }
-                )
+                error = "Tool requires user approval. Allow it permanently in settings or disable tool confirmations."
+                results.append({"tool": name, "arguments": arguments, "success": False, "error": error})
+                self._emit_tool_trace(trace, node_id, name, arguments, error=error, allowed=False)
                 continue
+            started_iso = utc_now_dt().isoformat()
+            started_perf = time.perf_counter()
             try:
                 result = registry.call(name, arguments)
                 results.append({"tool": name, "arguments": arguments, "success": True, "result": result})
+                self._emit_tool_trace(
+                    trace,
+                    node_id,
+                    name,
+                    arguments,
+                    result=result,
+                    allowed=True,
+                    started_at=started_iso,
+                    duration_ms=int((time.perf_counter() - started_perf) * 1000),
+                )
             except Exception as exc:
                 results.append({"tool": name, "arguments": arguments, "success": False, "error": str(exc)})
+                self._emit_tool_trace(
+                    trace,
+                    node_id,
+                    name,
+                    arguments,
+                    error=str(exc),
+                    allowed=True,
+                    started_at=started_iso,
+                    duration_ms=int((time.perf_counter() - started_perf) * 1000),
+                )
         return results
+
+    def _emit_tool_trace(
+        self,
+        trace: TraceEmitter | None,
+        node_id: str,
+        name: str,
+        arguments: dict[str, Any],
+        *,
+        result: Any = None,
+        error: Any = None,
+        allowed: bool,
+        started_at: str | None = None,
+        duration_ms: int = 0,
+    ) -> None:
+        if trace is None:
+            return
+        trace.emit_tool_call(
+            node_id=node_id,
+            tool_name=name,
+            arguments=arguments,
+            result=result,
+            error=error,
+            approval_context={
+                "autonomous": True,
+                "allowed": allowed,
+                "require_tool_confirmation": self.settings.require_tool_confirmation,
+                "always_allowed": self.settings.is_tool_always_allowed(name),
+            },
+            security_context={
+                "auto_tool": name in AUTO_TOOLS,
+                "write_capable": False,
+                "policy": "scheduled/autonomous-safe allowlist",
+            },
+            started_at=started_at,
+            finished_at=utc_now_dt().isoformat(),
+            duration_ms=duration_ms,
+            replayable=bool(allowed and error is None),
+        )
 
     def _system_prompt(self, task: AgenticTask) -> str:
         prefix = compose_role_block(

@@ -2,7 +2,7 @@
   position: relative;
   z-index: 2;
   display: grid;
-  grid-template-columns: var(--footer-action-size) minmax(0, 1fr) 126px 134px;
+  grid-template-columns: var(--footer-action-size) var(--footer-action-size) minmax(0, 1fr) 126px 134px;
   align-items: center;
   gap: 10px;
   min-height: calc(var(--footer-action-size) + var(--footer-strip-top) + var(--footer-strip-bottom));
@@ -30,7 +30,7 @@
 }
 
 body[data-active-mode="chat"] .composer {
-  grid-template-columns: minmax(0, 1fr) 126px 134px;
+  grid-template-columns: var(--footer-action-size) minmax(0, 1fr) 126px 134px;
 }
 
 body[data-active-mode="chat"] .composer-plus {
@@ -39,7 +39,7 @@ body[data-active-mode="chat"] .composer-plus {
 
 @media (max-width: 760px) {
   body[data-active-mode="chat"] .composer {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: var(--footer-action-size) minmax(0, 1fr);
   }
 
   body[data-active-mode="chat"] #message-input,
@@ -66,6 +66,89 @@ body[data-active-mode="chat"] .composer-plus {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.065),
     0 0 22px rgba(69, 230, 242, 0.065);
+}
+
+.composer-attach-button {
+  display: grid;
+  place-items: center;
+  width: var(--footer-action-size);
+  height: var(--footer-action-size);
+  min-height: var(--footer-action-size);
+  padding: 0;
+  border-radius: 10px;
+  border-color: rgba(69, 230, 242, 0.18);
+  background: rgba(8, 15, 22, 0.9);
+  color: var(--muted);
+}
+
+.composer-attach-button:hover,
+.composer-attach-button:focus-visible {
+  border-color: rgba(157, 250, 255, 0.56);
+  color: #e8fdff;
+  background: rgba(10, 25, 34, 0.96);
+}
+
+.composer-attach-button svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.composer-attachments {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.composer-attachments[hidden] {
+  display: none;
+}
+
+.composer-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 230px;
+  gap: 8px;
+  padding: 4px 6px 4px 4px;
+  border: 1px solid rgba(69, 230, 242, 0.18);
+  border-radius: 8px;
+  background: rgba(7, 13, 20, 0.92);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.composer-attachment-chip img {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.composer-attachment-chip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attachment-chip button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
 }
 
 .composer-plus-button:hover {

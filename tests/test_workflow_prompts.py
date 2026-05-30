@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from app.workflows.prompts import (
+    append_node_instruction,
+    build_node_instruction_block,
     build_final_answer_prompt,
     build_judge_prompt,
     build_plan_prompt,
@@ -8,6 +10,21 @@ from app.workflows.prompts import (
     build_review_prompt,
     build_worker_prompt,
 )
+from app.workflows.models import WorkflowNode
+
+
+def test_node_instruction_block_is_empty_for_blank_prompt() -> None:
+    node = WorkflowNode.model_validate({"id": "agent", "type": "role", "prompt": "   "})
+    prompt = "base prompt"
+
+    assert build_node_instruction_block(node) == ""
+    assert append_node_instruction(prompt, node) == prompt
+
+
+def test_node_instruction_block_wraps_prompt_with_heading() -> None:
+    node = WorkflowNode.model_validate({"id": "review", "type": "report", "prompt": "Check only legal risk."})
+
+    assert build_node_instruction_block(node) == "## Node Instruction\nCheck only legal risk."
 
 
 def test_plan_prompts_include_json_schema_and_limits() -> None:
@@ -53,9 +70,12 @@ def test_worker_prompt_adds_available_context_blocks() -> None:
         code_context="files",
         agentic_context="tools",
         retry_feedback="try again",
+        node_instruction="Prioritize source quality.",
     )
 
+    assert "## Node Instruction\nPrioritize source quality." in prompt
     assert "Assigned item:" in prompt
+    assert prompt.index("Prioritize source quality.") < prompt.index("Assigned item:")
     assert '"id": "main"' in prompt
     assert "Workspace context:\nfiles" in prompt
     assert "Agentic tool context:\ntools" in prompt

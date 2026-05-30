@@ -101,6 +101,18 @@ def test_workflow_node_uses_answer_type() -> None:
     assert workflow.nodes[0].type == "answer"
 
 
+def test_workflow_node_keeps_legacy_prompt_field_as_instruction() -> None:
+    workflow = WorkflowDefinition.model_validate(
+        {
+            "id": "wf",
+            "name": "Legacy Prompt",
+            "nodes": [{"id": "review", "type": "report", "prompt": "Use these review criteria."}],
+        }
+    )
+
+    assert workflow.node("review").prompt == "Use these review criteria."
+
+
 def test_workflow_definition_migrates_legacy_answer_node_id() -> None:
     workflow = WorkflowDefinition.model_validate(
         {

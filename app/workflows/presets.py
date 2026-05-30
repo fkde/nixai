@@ -6,6 +6,7 @@ from pathlib import Path
 from app.config import config_dir, default_workflow_presets, normalize_workflow_preset_id
 from app.models import MessageMode
 from app.validation import validate_slug
+from app.workflows.ir import export_workflow_payload, migrate_workflow_payload
 from app.workflows.models import WorkflowDefinition, WorkflowSummary
 
 
@@ -43,6 +44,7 @@ def list_workflow_summaries(mode: MessageMode | None = None) -> list[WorkflowSum
             mode=workflow.supported_modes()[0],
             modes=workflow.supported_modes(),
             execution=workflow.execution,
+            execution_profile=workflow.execution_profile,
             max_iterations=workflow.max_iterations,
             nodes=workflow.nodes,
             edges=workflow.edges,
@@ -79,10 +81,7 @@ def save_custom_workflow(workflow: WorkflowDefinition) -> WorkflowDefinition:
     workflow_id = _sanitize_workflow_id(workflow.id)
     payload = workflow.model_copy(update={"id": workflow_id})
     path = custom_workflow_dir() / f"{workflow_id}.json"
-    data = payload.model_dump(by_alias=True)
-    for node in data.get("nodes", []):
-        node["receive_from"] = []
-        node["reports_to"] = []
+    data = export_workflow_payload(payload.model_dump(by_alias=True))
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     loaded = _load_workflow_file(path)
     if loaded is None:
@@ -102,7 +101,7 @@ def delete_custom_workflow(workflow_id: str) -> bool:
 def _load_workflow_file(path: Path) -> WorkflowDefinition | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return WorkflowDefinition.model_validate(data)
+        return WorkflowDefinition.model_validate(migrate_workflow_payload(data))
     except Exception:
         return None
 

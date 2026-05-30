@@ -40,6 +40,21 @@ def test_build_plan_phase_uses_fake_ollama_and_records_note() -> None:
     assert client.chat_payload_calls[-1]["response_format"] == "json"
 
 
+def test_role_node_instruction_is_in_system_prompt() -> None:
+    scratchpad = InMemoryWorkflowScratchpad()
+    state = workflow_state(scratchpad)
+    client = StaticJsonOllamaClient(plan_payload())
+    workflow = workflow_definition(
+        orchestrator_prompt="Plan only the legal-risk review path."
+    )
+    deps = phase_deps(client, scratchpad)
+
+    run_async(build_plan(workflow, state, deps))
+
+    system_prompt = client.chat_payload_calls[-1]["messages"][0]["content"]
+    assert "## Node Instruction\nPlan only the legal-risk review path." in system_prompt
+
+
 def test_replan_for_retry_phase_includes_retry_context() -> None:
     scratchpad = InMemoryWorkflowScratchpad()
     state = workflow_state(scratchpad)
@@ -73,6 +88,25 @@ def test_run_workers_phase_returns_individual_reports(fake_ollama) -> None:
     assert all(report["content"] == "worker report" for report in reports)
     assert deps.event_sink.events[-1].message == "Worker pool completed 2 report(s)."
     assert fake_ollama.chat_payload_calls[-1]["response_format"] is None
+
+
+def test_worker_pool_instruction_is_visible_before_work_item(fake_ollama) -> None:
+    scratchpad = InMemoryWorkflowScratchpad()
+    state = workflow_state(scratchpad)
+    state["plan"] = {
+        "work_items": [
+            {"id": "alpha", "title": "Alpha", "instructions": "Do alpha"},
+        ]
+    }
+    workflow = workflow_definition(worker_prompt="Use only repository evidence.")
+    deps = phase_deps(fake_ollama, scratchpad)
+
+    run_async(run_workers(workflow, state, deps))
+
+    system_prompt = fake_ollama.chat_payload_calls[-1]["messages"][0]["content"]
+    assert "## Node Instruction\nUse only repository evidence." in system_prompt
+    assert '"instructions": "Do alpha"' in system_prompt
+    assert system_prompt.index("Use only repository evidence.") < system_prompt.index("Assigned item:")
 
 
 def test_run_workers_phase_uses_planner_recommended_parallelism(fake_ollama) -> None:
@@ -112,6 +146,21 @@ def test_review_phase_parses_json_review(fake_ollama) -> None:
     assert deps.event_sink.events[-1].message == "Reviewer status: approved."
 
 
+def test_review_instruction_keeps_json_contract(fake_ollama) -> None:
+    scratchpad = InMemoryWorkflowScratchpad()
+    state = workflow_state(scratchpad)
+    workflow = workflow_definition(reviewer_prompt="Evaluate only completeness and sources.")
+    deps = phase_deps(fake_ollama, scratchpad)
+
+    result = run_async(review(workflow, state, deps))
+
+    system_prompt = fake_ollama.chat_payload_calls[-1]["messages"][0]["content"]
+    assert result["status"] == "approved"
+    assert fake_ollama.chat_payload_calls[-1]["response_format"] == "json"
+    assert "## Node Instruction\nEvaluate only completeness and sources." in system_prompt
+    assert "## Output Format" in system_prompt
+
+
 def test_judge_phase_normalizes_unknown_status() -> None:
     scratchpad = InMemoryWorkflowScratchpad()
     state = workflow_state(scratchpad)
@@ -122,6 +171,21 @@ def test_judge_phase_normalizes_unknown_status() -> None:
 
     assert decision["status"] == "done"
     assert deps.event_sink.events[-1].message == "Judge decision: done."
+
+
+def test_judge_instruction_keeps_decision_json_contract(fake_ollama) -> None:
+    scratchpad = InMemoryWorkflowScratchpad()
+    state = workflow_state(scratchpad)
+    workflow = workflow_definition(judge_prompt="Use retry only when facts are missing.")
+    deps = phase_deps(fake_ollama, scratchpad)
+
+    decision = run_async(judge(workflow, state, deps))
+
+    system_prompt = fake_ollama.chat_payload_calls[-1]["messages"][0]["content"]
+    assert decision["status"] == "done"
+    assert fake_ollama.chat_payload_calls[-1]["response_format"] == "json"
+    assert "## Node Instruction\nUse retry only when facts are missing." in system_prompt
+    assert '"status":"done|retry|needs_user"' in system_prompt
 
 
 def test_final_answer_phase_streams_tokens_to_callback(fake_ollama) -> None:
@@ -138,6 +202,21 @@ def test_final_answer_phase_streams_tokens_to_callback(fake_ollama) -> None:
     assert state["final_answer_streamed"] is True
     assert [event.message for event in callbacks if event.type == "token"] == ["Final ", "answer."]
     assert [event.type for event in deps.event_sink.events] == ["status"]
+
+
+def test_answer_node_instruction_is_in_final_synthesis_prompt(fake_ollama) -> None:
+    scratchpad = InMemoryWorkflowScratchpad()
+    state = workflow_state(scratchpad)
+    state["decision"] = {"status": "done", "reason": "Complete"}
+    fake_ollama.stream_chunks = ["Kurz."]
+    workflow = workflow_definition(answer_prompt="Answer in German and separate observation from conclusion.")
+    deps = phase_deps(fake_ollama, scratchpad, final_ollama_factory=lambda: fake_ollama)
+
+    answer = run_async(final_answer(workflow, state, deps))
+
+    system_prompt = fake_ollama.stream_payload_calls[-1]["messages"][0]["content"]
+    assert answer == "Kurz."
+    assert "## Node Instruction\nAnswer in German and separate observation from conclusion." in system_prompt
 
 
 def test_build_plan_falls_back_when_response_is_not_json() -> None:
@@ -239,16 +318,44 @@ class RawTextOllamaClient(FakeOllamaClient):
         return self.text
 
 
-def workflow_definition() -> WorkflowDefinition:
+def workflow_definition(
+    *,
+    orchestrator_prompt: str = "",
+    worker_prompt: str = "",
+    reviewer_prompt: str = "",
+    judge_prompt: str = "",
+    answer_prompt: str = "",
+) -> WorkflowDefinition:
     return WorkflowDefinition.model_validate(
         {
             "id": "wf-test",
             "name": "Test Workflow",
             "nodes": [
-                {"id": "orchestrator", "type": "role", "role": "ORCHESTRATOR", "expects_json": True, "max_items": 2},
-                {"id": "workers", "type": "worker_pool", "role": "WORKER", "worker_instances": 2, "max_parallel": 2},
-                {"id": "reviewer", "type": "reviewer", "role": "REVIEWER", "expects_json": True},
-                {"id": "judge", "type": "judge", "role": "JUDGE", "expects_json": True},
+                {
+                    "id": "orchestrator",
+                    "type": "role",
+                    "role": "ORCHESTRATOR",
+                    "expects_json": True,
+                    "max_items": 2,
+                    "prompt": orchestrator_prompt,
+                },
+                {
+                    "id": "workers",
+                    "type": "worker_pool",
+                    "role": "WORKER",
+                    "worker_instances": 2,
+                    "max_parallel": 2,
+                    "prompt": worker_prompt,
+                },
+                {
+                    "id": "reviewer",
+                    "type": "reviewer",
+                    "role": "REVIEWER",
+                    "expects_json": True,
+                    "prompt": reviewer_prompt,
+                },
+                {"id": "judge", "type": "judge", "role": "JUDGE", "expects_json": True, "prompt": judge_prompt},
+                {"id": "answer", "type": "answer", "role": "ORCHESTRATOR", "prompt": answer_prompt},
             ],
         }
     )

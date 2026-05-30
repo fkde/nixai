@@ -2,7 +2,7 @@ import { api } from "../api.js";
 import { dom } from "../dom.js";
 import { escapeHtml } from "../helpers.js";
 import { state } from "../state.js";
-import { forkRun, getRun, listRuns, pauseRun, resumeRun } from "./api.js";
+import { forkRun, getRun, listRuns, pauseRun, planReplay, replayRun, resumeRun } from "./api.js";
 import { createInspectorCanvas } from "./inspector-canvas.js";
 import { applyEvent, applyEvents, createRunState, rebuildState, stepsForNode } from "./reducer.js";
 import { openRunStream } from "./sse-client.js";
@@ -90,8 +90,11 @@ export function createRunsUi({ setStatus }) {
   let currentRun = null;
   let currentStream = null;
   let currentEvents = [];
+  let currentNodeStates = [];
+  let currentToolCalls = [];
   let timeline = null;
   let timelineRunId = null;
+  let timelinePreviewing = false;
   let selectedNodeId = null;
 
   function ensureCanvas() {
@@ -120,7 +123,10 @@ export function createRunsUi({ setStatus }) {
     currentRun = null;
     selectedNodeId = null;
     currentEvents = [];
+    currentNodeStates = [];
+    currentToolCalls = [];
     timelineRunId = null;
+    timelinePreviewing = false;
     if (runsDetail) runsDetail.hidden = true;
     if (runsList) runsList.hidden = false;
   }
@@ -189,6 +195,9 @@ export function createRunsUi({ setStatus }) {
       const data = await getRun(runId);
       const events = data.events || [];
       currentEvents = events;
+      currentNodeStates = Array.isArray(data.node_states) ? data.node_states : [];
+      currentToolCalls = Array.isArray(data.tool_calls) ? data.tool_calls : [];
+      timelinePreviewing = false;
       currentRunState = applyEvents(createRunState(), events);
       currentRun = data.run;
       currentWorkflow = await ensureWorkflow(data.run.workflow_id);
@@ -207,23 +216,24 @@ export function createRunsUi({ setStatus }) {
 
   function startLiveStream() {
     if (!currentRunId) return;
+    const sinceSeq = Math.max(0, ...currentEvents.map((event) => Number(event.seq) || 0));
     currentStream = openRunStream(currentRunId, {
-      since: currentRunState?.lastSeq || 0,
+      since: sinceSeq,
       onEvent: (event) => {
         if (!event || !currentRunState) return;
         currentEvents.push(event);
-        if (!timeline || timeline.live) {
+        if (!timelinePreviewing) {
           applyEvent(currentRunState, event);
         }
         timeline?.setEvents(currentEvents, { keepPosition: true });
         // Refresh node colours + edges + run-status pill
-        if (canvas && (!timeline || timeline.live)) canvas.update(currentRunState);
-        if (currentRun && currentRunState.runStatus !== currentRun.status) {
+        if (canvas && !timelinePreviewing) canvas.update(currentRunState);
+        if (!timelinePreviewing && currentRun && currentRunState.runStatus !== currentRun.status) {
           currentRun = { ...currentRun, status: currentRunState.runStatus };
           renderMeta(currentRun);
         }
         // Re-render step panel if the selected node was affected.
-        if (selectedNodeId && event.node_id === selectedNodeId && (!timeline || timeline.live)) {
+        if (selectedNodeId && event.node_id === selectedNodeId && !timelinePreviewing) {
           renderStepPanel(selectedNodeId);
         }
       },
@@ -255,7 +265,7 @@ export function createRunsUi({ setStatus }) {
       </div>
       <dl class="runs-detail-grid">
         <dt>Run ID</dt><dd><code>${escapeHtml(run.id)}</code></dd>
-        ${run.fork_of_run_id ? `<dt>Forked from</dt><dd><button class="runs-parent-link" type="button" data-parent-run-id="${escapeHtml(run.fork_of_run_id)}">${escapeHtml(run.fork_of_run_id)}</button> at <code>${escapeHtml(run.fork_at_step_id || "")}</code></dd>` : ""}
+        ${run.fork_of_run_id ? `<dt>Forked from</dt><dd><button class="runs-parent-link" type="button" data-parent-run-id="${escapeHtml(run.fork_of_run_id)}">${escapeHtml(run.fork_of_run_id)}</button> at <code>${escapeHtml(run.fork_at_node_id || "")}</code></dd>` : ""}
         <dt>Chat</dt><dd><code>${escapeHtml(run.chat_id)}</code></dd>
         <dt>Mode</dt><dd>${escapeHtml(run.mode)}</dd>
         <dt>Started</dt><dd>${escapeHtml(formatTimestamp(run.created_at))}</dd>
@@ -271,9 +281,10 @@ export function createRunsUi({ setStatus }) {
     if (!timeline) {
       timeline = createTimelineSlider({
         host: runsTimeline,
-        onChange: ({ position }) => {
+        onChange: ({ position, live, user }) => {
+          timelinePreviewing = Boolean(user && (!live || position < currentEvents.length));
           currentRunState = rebuildState(currentEvents, position);
-          if (currentRun && currentRunState.runStatus !== "idle") {
+          if (!timelinePreviewing && currentRun && currentRunState.runStatus !== "idle") {
             currentRun = { ...currentRun, status: currentRunState.runStatus };
             renderMeta(currentRun);
           }
@@ -284,6 +295,7 @@ export function createRunsUi({ setStatus }) {
     }
     if (timelineRunId !== currentRunId) {
       timelineRunId = currentRunId;
+      timelinePreviewing = false;
       timeline.reset(currentEvents);
     } else {
       timeline.setEvents(currentEvents);
@@ -309,6 +321,21 @@ export function createRunsUi({ setStatus }) {
       return;
     }
     const steps = currentRunState ? stepsForNode(currentRunState, nodeId) : [];
+    if (steps.length === 0) {
+      const persisted = currentNodeStates.filter((item) => item.node_id === nodeId);
+      if (persisted.length > 0) {
+        const controls = renderRunControls(nodeId, { outputSnapshot: persisted.at(-1)?.output_snapshot });
+        runsStepPanel.innerHTML = `
+          <header class="runs-step-header">
+            <span class="runs-step-node">${escapeHtml(nodeId)}</span>
+            <span class="runs-step-count">${persisted.length} persisted state${persisted.length === 1 ? "" : "s"}</span>
+          </header>
+          ${controls}
+          <div class="runs-step-list">${persisted.map(renderPersistedNodeState).join("")}</div>
+        `;
+        return;
+      }
+    }
     if (steps.length === 0) {
       runsStepPanel.innerHTML = `
         <header class="runs-step-header">
@@ -343,6 +370,8 @@ export function createRunsUi({ setStatus }) {
           <button type="button" class="settings-secondary-button" data-run-action="resume">Resume</button>
         ` : ""}
         <button type="button" class="settings-secondary-button" data-run-action="fork" ${canFork ? "" : "disabled"}>Fork from here</button>
+        <button type="button" class="settings-secondary-button" data-run-action="replay-plan">Replay plan</button>
+        <button type="button" class="settings-secondary-button" data-run-action="replay">Replay downstream</button>
       </section>
     `;
   }
@@ -369,11 +398,31 @@ export function createRunsUi({ setStatus }) {
         </header>
         ${step.summary ? `<p class="runs-step-summary">${escapeHtml(step.summary)}</p>` : ""}
         ${step.error ? `<p class="runs-step-error">${escapeHtml(step.error)}</p>` : ""}
-        ${step.prompt ? renderField("Prompt", step.prompt) : ""}
+        ${step.prompt ? renderField("Node Instruction", step.prompt) : ""}
         ${inputText ? renderField("Input", inputText) : ""}
         ${outputText ? renderField("Output", outputText) : ""}
         ${renderLlmCalls(llmCalls)}
         ${renderToolCalls(toolCalls)}
+      </article>
+    `;
+  }
+
+  function renderPersistedNodeState(item) {
+    const status = item.status || "done";
+    const durationLabel = Number.isFinite(item.duration_ms) ? `${item.duration_ms} ms` : "—";
+    const toolCalls = currentToolCalls.filter((call) => call.parent_step_id === item.step_id);
+    return `
+      <article class="runs-step runs-step-${escapeHtml(status)}">
+        <header class="runs-step-block-header">
+          <span class="runs-step-heading">${escapeHtml(item.node_type || "Node")}</span>
+          <span class="runs-row-status runs-status-${escapeHtml(status)}">${escapeHtml(STATUS_LABEL[status] || status)}</span>
+          <span class="runs-step-duration">${escapeHtml(durationLabel)}</span>
+        </header>
+        ${item.model_used ? `<p class="runs-step-summary">Model: ${escapeHtml(item.model_used)}</p>` : ""}
+        ${item.prompt_snapshot ? renderField("Node Instruction", snapshotToText(item.prompt_snapshot)) : ""}
+        ${item.input_snapshot ? renderField("Input", snapshotToText(item.input_snapshot)) : ""}
+        ${item.output_snapshot ? renderField("Output", snapshotToText(item.output_snapshot)) : ""}
+        ${renderPersistedToolCalls(toolCalls)}
       </article>
     `;
   }
@@ -429,6 +478,24 @@ export function createRunsUi({ setStatus }) {
     return `<section class="runs-step-section"><h5>Tool calls (${events.length})</h5><ul class="runs-tool-list">${items}</ul></section>`;
   }
 
+  function renderPersistedToolCalls(items) {
+    if (items.length === 0) return "";
+    const rendered = items
+      .map((item) => `
+        <li class="runs-tool-call">
+          <header>
+            <span class="runs-tool-name">${escapeHtml(item.tool_name || "tool")}</span>
+            <span class="runs-llm-meta">${escapeHtml(`${item.duration_ms ?? "?"} ms · ${item.status || "done"}`)}</span>
+          </header>
+          ${item.arguments_snapshot ? renderField("Arguments", snapshotToText(item.arguments_snapshot)) : ""}
+          ${item.result_snapshot ? renderField("Result", snapshotToText(item.result_snapshot)) : ""}
+          ${item.error_snapshot ? renderField("Error", snapshotToText(item.error_snapshot)) : ""}
+        </li>
+      `)
+      .join("");
+    return `<section class="runs-step-section"><h5>Tool calls (${items.length})</h5><ul class="runs-tool-list">${rendered}</ul></section>`;
+  }
+
   async function handleRunAction(action, nodeId) {
     if (!currentRunId || !action) return;
     try {
@@ -445,6 +512,21 @@ export function createRunsUi({ setStatus }) {
       }
       if (action === "fork") {
         await openForkPrompt(nodeId);
+      }
+      if (action === "replay-plan") {
+        const response = await planReplay(currentRunId, { startNodeId: nodeId, scope: "downstream" });
+        const plan = response?.plan || {};
+        if (plan.can_replay) {
+          setStatus(`Replay plan ready for ${plan.replay_node_ids?.length || 0} node(s).`);
+        } else {
+          const firstBlocker = Array.isArray(plan.blockers) && plan.blockers.length ? `: ${plan.blockers[0]}` : "";
+          setStatus(`Replay is blocked${firstBlocker}`, true);
+        }
+      }
+      if (action === "replay") {
+        const response = await replayRun(currentRunId, { startNodeId: nodeId, scope: "downstream" });
+        const newRunId = response?.run_id;
+        if (newRunId) await openRunInInspector(newRunId);
       }
     } catch (error) {
       setStatus(error.message, true);
@@ -475,13 +557,15 @@ export function createRunsUi({ setStatus }) {
     return new Promise((resolve) => {
       const backdrop = document.createElement("div");
       backdrop.className = "runs-fork-modal-backdrop";
+      // Build the chrome via innerHTML, but populate the textarea via `.value`
+      // so HTML entities in the initial text (e.g. `&`) are not double-encoded.
       backdrop.innerHTML = `
         <section class="runs-fork-modal" role="dialog" aria-modal="true" aria-labelledby="runs-fork-title">
           <header>
             <h3 id="runs-fork-title">Fork from here</h3>
             <button type="button" class="settings-secondary-button" data-fork-cancel>Cancel</button>
           </header>
-          <textarea class="runs-fork-editor" rows="14">${escapeHtml(initialText)}</textarea>
+          <textarea class="runs-fork-editor" rows="14"></textarea>
           <footer>
             <button type="button" class="settings-secondary-button" data-fork-cancel>Cancel</button>
             <button type="button" class="secondary-button" data-fork-submit>Create fork</button>
@@ -490,6 +574,7 @@ export function createRunsUi({ setStatus }) {
       `;
       document.body.appendChild(backdrop);
       const editor = backdrop.querySelector(".runs-fork-editor");
+      if (editor) editor.value = initialText ?? "";
       editor?.focus();
       editor?.select();
       function close(value) {

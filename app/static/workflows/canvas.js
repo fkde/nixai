@@ -738,8 +738,6 @@ export function createWorkflowCanvas({
     closeEdgeRulePopover();
     ensureNodePositions(draft);
     workflowCanvasNodes.innerHTML = "";
-    let maxRight = CANVAS_PAD + NODE_TILE_WIDTH + CANVAS_PAD;
-    let maxBottom = CANVAS_PAD + NODE_TILE_HEIGHT + CANVAS_PAD;
     draft.nodes.forEach((node) => {
       const isWorker = canonicalNodeType(node.type) === "worker_pool";
       const isIteration = ["for_each", "while"].includes(canonicalNodeType(node.type));
@@ -756,14 +754,34 @@ export function createWorkflowCanvas({
       tile.style.top = `${node.position.y}px`;
       tile.innerHTML = nodeTileMarkup(visualNode);
       workflowCanvasNodes.append(tile);
-      maxRight = Math.max(maxRight, node.position.x + NODE_TILE_WIDTH + CANVAS_PAD);
-      maxBottom = Math.max(maxBottom, node.position.y + NODE_TILE_HEIGHT + CANVAS_PAD);
+    });
+    updateCanvasViewport(draft);
+    renderCanvasEdges(draft);
+    renderEdgeRules(draft);
+    bridge.renderWorkflowHealthPanel?.();
+  }
+
+  function canvasViewportBounds(draft) {
+    let maxRight = CANVAS_PAD + NODE_TILE_WIDTH + CANVAS_PAD;
+    let maxBottom = CANVAS_PAD + NODE_TILE_HEIGHT + CANVAS_PAD;
+    if (!draft) return { maxRight, maxBottom };
+    (draft?.nodes || []).forEach((node) => {
+      const pos = node.position || {};
+      const x = Number.isFinite(Number(pos.x)) ? Number(pos.x) : 0;
+      const y = Number.isFinite(Number(pos.y)) ? Number(pos.y) : 0;
+      maxRight = Math.max(maxRight, x + NODE_TILE_WIDTH + CANVAS_PAD);
+      maxBottom = Math.max(maxBottom, y + NODE_TILE_HEIGHT + CANVAS_PAD);
     });
     const canvasEdges = deriveWorkflowEdgesFromNodes(draft.nodes, draft.edges || [], true);
     const loopCount = canvasEdges.filter((edge) => isLoopCanvasEdge(edge, draft)).length;
     if (loopCount > 0) {
       maxBottom += 56 + (loopCount - 1) * 28;
     }
+    return { maxRight, maxBottom };
+  }
+
+  function updateCanvasViewport(draft) {
+    const { maxRight, maxBottom } = canvasViewportBounds(draft);
     workflowCanvasNodes.style.minWidth = `${maxRight}px`;
     workflowCanvasNodes.style.minHeight = `${maxBottom}px`;
     if (workflowCanvasLabels) {
@@ -773,9 +791,6 @@ export function createWorkflowCanvas({
     workflowCanvasEdges?.setAttribute("viewBox", `0 0 ${maxRight} ${maxBottom}`);
     workflowCanvasEdges?.setAttribute("width", String(maxRight));
     workflowCanvasEdges?.setAttribute("height", String(maxBottom));
-    renderCanvasEdges(draft);
-    renderEdgeRules(draft);
-    bridge.renderWorkflowHealthPanel?.();
   }
 
   function isLoopCanvasEdge(edge, draft) {
@@ -1032,6 +1047,7 @@ export function createWorkflowCanvas({
     edgeLabel,
     workflowGraphMarkup,
     renderWorkflowCanvas,
+    updateCanvasViewport,
     renderCanvasEdges,
     renderEdgeRules,
     applyEdgeRuleChange,

@@ -94,15 +94,11 @@ class OllamaClient:
 
     async def chat_payload(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         model: Optional[str] = None,
         response_format: str | dict[str, Any] | None = None,
     ) -> str:
-        payload = {
-            "model": model or self.settings.model_for_role("assistant"),
-            "messages": messages,
-            "stream": False,
-        }
+        payload = self.chat_payload_request(messages, model=model, stream=False)
         if response_format is not None:
             payload["format"] = response_format
 
@@ -126,12 +122,12 @@ class OllamaClient:
         async for event in self.stream_payload(payload, model=model):
             yield event
 
-    async def stream_payload(self, messages: list[dict[str, str]], model: Optional[str] = None) -> AsyncIterator[dict[str, object]]:
-        payload = {
-            "model": model or self.settings.model_for_role("assistant"),
-            "messages": messages,
-            "stream": True,
-        }
+    async def stream_payload(
+        self,
+        messages: list[dict[str, Any]],
+        model: Optional[str] = None,
+    ) -> AsyncIterator[dict[str, object]]:
+        payload = self.chat_payload_request(messages, model=model, stream=True)
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
@@ -213,6 +209,18 @@ class OllamaClient:
             fallback = urlunsplit((parsed.scheme, netloc, parsed.path.rstrip("/"), parsed.query, parsed.fragment))
             candidates.append(fallback + path)
         return candidates
+
+    def chat_payload_request(
+        self,
+        messages: list[dict[str, Any]],
+        model: Optional[str] = None,
+        stream: bool = False,
+    ) -> dict[str, Any]:
+        return {
+            "model": model or self.settings.model_for_role("assistant"),
+            "messages": messages,
+            "stream": stream,
+        }
 
 
 def _string_value(value: object) -> str:

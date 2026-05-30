@@ -167,6 +167,45 @@ class TraceEmitter:
             },
         )
 
+    def emit_tool_call(
+        self,
+        *,
+        node_id: str,
+        tool_name: str,
+        arguments: Any,
+        result: Any = None,
+        error: Any = None,
+        approval_context: dict[str, Any] | None = None,
+        security_context: dict[str, Any] | None = None,
+        started_at: str | None = None,
+        finished_at: str | None = None,
+        duration_ms: int = 0,
+        replayable: bool = False,
+    ) -> str:
+        arguments_snapshot, arguments_truncated = cap_snapshot(arguments)
+        result_snapshot, result_truncated = cap_snapshot(result)
+        error_snapshot, error_truncated = cap_snapshot(error)
+        return self.emit(
+            "tool_call",
+            node_id=node_id,
+            payload={
+                "tool_name": tool_name,
+                "status": "failed" if error else "done",
+                "arguments_snapshot": arguments_snapshot,
+                "arguments_snapshot_truncated": arguments_truncated,
+                "result_snapshot": result_snapshot,
+                "result_snapshot_truncated": result_truncated,
+                "error_snapshot": error_snapshot,
+                "error_snapshot_truncated": error_truncated,
+                "approval_context": approval_context or {},
+                "security_context": security_context or {},
+                "started_at": started_at,
+                "finished_at": finished_at,
+                "duration_ms": duration_ms,
+                "replayable": replayable,
+            },
+        )
+
     def emit(
         self,
         type: TraceEventType,
@@ -204,21 +243,45 @@ class TraceEmitter:
 
 
 class SqliteTracePersistence:
-    """Persists trace events into workflow_run_events via app.db.workflow_trace."""
+    """Persists trace events atomically into workflow_run_events + projections.
+
+    The raw event row and its derived projection rows (workflow_node_states,
+    workflow_tool_calls) share a single transaction so a partial failure
+    cannot leave the run-event log out of sync with its read-model.
+    """
 
     def insert(self, event: TraceEvent) -> int:
+        from app.db.connection import get_connection
+        from app.db.workflow_state import apply_trace_event_to_runtime_state
         from app.db.workflow_trace import insert_trace_event
 
-        return insert_trace_event(
-            step_id=event.step_id,
-            run_id=event.run_id,
-            workflow_id=event.workflow_id,
-            node_id=event.node_id,
-            type=event.type,
-            ts=event.ts,
-            payload_json=json.dumps(event.payload, ensure_ascii=False, default=str),
-            parent_step_id=event.parent_step_id,
-        )
+        with get_connection() as db:
+            seq = insert_trace_event(
+                step_id=event.step_id,
+                run_id=event.run_id,
+                workflow_id=event.workflow_id,
+                node_id=event.node_id,
+                type=event.type,
+                ts=event.ts,
+                payload_json=json.dumps(event.payload, ensure_ascii=False, default=str),
+                parent_step_id=event.parent_step_id,
+                db=db,
+            )
+            try:
+                apply_trace_event_to_runtime_state(event, seq, db=db)
+            except Exception:
+                # Roll back the trace insert too so the log stays consistent
+                # with the projections. The caller (TraceEmitter.emit) catches
+                # this and continues without breaking workflow execution.
+                logger.warning(
+                    "runtime state projection failed run_id=%s type=%s node_id=%s — rolling back trace insert",
+                    event.run_id,
+                    event.type,
+                    event.node_id,
+                    exc_info=True,
+                )
+                raise
+        return seq
 
 
 def default_emitter(run_id: str, workflow_id: str, bus: TraceBus | None = None) -> TraceEmitter:

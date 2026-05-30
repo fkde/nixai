@@ -173,12 +173,17 @@ export function createSettingsUi({
         { role: "reviewer", model: "" },
         { role: "judge", model: "" },
         { role: "task_discovery", model: "" },
+        { role: "vision", model: "" },
       ];
     }
-    return modelRoles.map((item) => ({
+    const roles = modelRoles.map((item) => ({
       role: item.role || "",
       model: item.model || "",
     }));
+    if (!roles.some((item) => item.role.toLowerCase() === "vision")) {
+      roles.push({ role: "vision", model: "" });
+    }
+    return roles;
   }
 
   function roleSelectOptionsHtml(selectedRole) {

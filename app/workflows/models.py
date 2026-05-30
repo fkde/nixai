@@ -17,6 +17,8 @@ from app.validation import (
 
 
 WorkflowExecution = Literal["direct", "loop"]
+WorkflowExecutionProfile = Literal["", "read_only", "local_dev", "internet_enabled", "autonomous"]
+WORKFLOW_IR_VERSION = 1
 
 
 class WorkflowRetryPolicy(BaseModel):
@@ -53,6 +55,8 @@ class NodePosition(BaseModel):
 class WorkflowNode(BaseModel):
     id: str
     type: str
+    schema_version: int = Field(default=WORKFLOW_IR_VERSION, ge=1, le=WORKFLOW_IR_VERSION)
+    execution_profile: WorkflowExecutionProfile = ""
     role: str = ""
     title: str = ""
     prompt: str = ""
@@ -95,6 +99,14 @@ class WorkflowNode(BaseModel):
             "reviewer": "report",
         }
         return aliases.get(node_type, node_type)
+
+    @field_validator("execution_profile", mode="before")
+    @classmethod
+    def _clean_execution_profile(cls, value: Any) -> WorkflowExecutionProfile:
+        profile = clean_single_line(value or "", max_length=MAX_NAME_LENGTH, field_name="execution_profile").lower()
+        if profile not in {"", "read_only", "local_dev", "internet_enabled", "autonomous"}:
+            raise ValueError("Unsupported execution profile.")
+        return profile  # type: ignore[return-value]
 
     @field_validator("role", "output", mode="before")
     @classmethod
@@ -148,12 +160,14 @@ class WorkflowEdge(BaseModel):
 
 
 class WorkflowDefinition(BaseModel):
+    schema_version: int = Field(default=WORKFLOW_IR_VERSION, ge=1, le=WORKFLOW_IR_VERSION)
     id: str
     name: str
     description: str = ""
     mode: MessageMode = "chat"
     modes: list[MessageMode] = Field(default_factory=list)
     execution: WorkflowExecution = "loop"
+    execution_profile: WorkflowExecutionProfile = ""
     max_iterations: int = Field(default=1, ge=1, le=8)
     nodes: list[WorkflowNode] = Field(default_factory=list)
     edges: list[WorkflowEdge] = Field(default_factory=list)
@@ -188,6 +202,14 @@ class WorkflowDefinition(BaseModel):
             if mode in {"chat", "code", "agentic"} and mode not in modes:
                 modes.append(mode)  # type: ignore[arg-type]
         return modes
+
+    @field_validator("execution_profile", mode="before")
+    @classmethod
+    def _clean_execution_profile(cls, value: Any) -> WorkflowExecutionProfile:
+        profile = clean_single_line(value or "", max_length=MAX_NAME_LENGTH, field_name="execution_profile").lower()
+        if profile not in {"", "read_only", "local_dev", "internet_enabled", "autonomous"}:
+            raise ValueError("Unsupported execution profile.")
+        return profile  # type: ignore[return-value]
 
     def is_direct(self) -> bool:
         return self.execution == "direct"
@@ -275,12 +297,14 @@ class WorkflowResult(BaseModel):
 
 
 class WorkflowSummary(BaseModel):
+    schema_version: int = WORKFLOW_IR_VERSION
     id: str
     name: str
     description: str = ""
     mode: MessageMode = "chat"
     modes: list[MessageMode] = Field(default_factory=list)
     execution: WorkflowExecution = "loop"
+    execution_profile: WorkflowExecutionProfile = ""
     max_iterations: int = 1
     nodes: list[WorkflowNode] = Field(default_factory=list)
     edges: list[WorkflowEdge] = Field(default_factory=list)

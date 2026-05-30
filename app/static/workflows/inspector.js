@@ -52,7 +52,11 @@ const NODE_TYPE_DEFINITIONS = [
     description: "Single role-prompt node for planning, synthesis, or custom work.",
     properties: nodeProperties(["identity", "type", "role", "json", "input", "output", "prompt", "retry"], {
       role: { label: "Role", tip: "Markdown role prompt that defines this agent's behavior." },
-      prompt: { label: "Extra Instruction", placeholder: "Optional instruction for this node only." },
+      prompt: {
+        label: "Node Instruction",
+        placeholder: "Describe what this agent should do in this workflow step.",
+        tip: "Applies only to this node in this workflow. The selected role prompt still defines the agent's general behavior.",
+      },
       input: { label: "Input Fields", placeholder: "input, plan" },
       output: { label: "Output Field", placeholder: "agent_result" },
     }),
@@ -64,7 +68,11 @@ const NODE_TYPE_DEFINITIONS = [
     description: "Parallel workers over a list input; worker count is capped by the UI.",
     properties: nodeProperties(["identity", "type", "role", "json", "input", "output", "workers", "max_items", "prompt", "retry"], {
       role: { label: "Worker Role", tip: "Markdown role prompt used for every worker instance." },
-      prompt: { label: "Worker Instruction", placeholder: "Describe how each work item should be handled." },
+      prompt: {
+        label: "Worker Instruction",
+        placeholder: "Describe how every worker should handle its assigned work item.",
+        tip: "Applies only to this worker pool in this workflow. The selected role prompt still defines each worker's general behavior.",
+      },
       input: { label: "Work Items Input", placeholder: "plan.work_items" },
       output: { label: "Reports Field", placeholder: "worker_reports" },
       workers: { label: "Max Worker Instances" },
@@ -73,12 +81,39 @@ const NODE_TYPE_DEFINITIONS = [
     defaults: { id: "workers", title: "Workers", role: "worker", input: ["plan.work_items"], output: "worker_reports", max_items: 4, worker_instances: 2, max_parallel: 2 },
   },
   {
+    type: "vision",
+    label: "Vision",
+    description: "Analyzes image inputs with a vision-capable model.",
+    properties: nodeProperties(["identity", "type", "role", "json", "input", "output", "prompt", "retry"], {
+      role: { label: "Vision Role", tip: "Markdown role prompt and model mapping used for image analysis." },
+      prompt: {
+        label: "Vision Instruction",
+        placeholder: "Extract the text from this document and preserve paragraphs.",
+        tip: "Applies only to this vision node. The selected vision role still defines the model's general behavior.",
+      },
+      input: { label: "Image Input", placeholder: "attachments" },
+      output: { label: "Vision Result Field", placeholder: "vision_result" },
+    }),
+    defaults: {
+      id: "vision",
+      title: "Vision",
+      role: "vision",
+      input: ["attachments"],
+      output: "vision_result",
+      prompt: "Extract the text from this document and preserve paragraphs.",
+    },
+  },
+  {
     type: "report",
     label: "Report",
     description: "Consolidates predecessor outputs into a structured non-terminal report.",
     properties: nodeProperties(["identity", "type", "role", "json", "input", "output", "prompt", "retry"], {
       role: { label: "Report Role", tip: "Markdown role prompt that consolidates or reviews previous outputs." },
-      prompt: { label: "Report Instruction", placeholder: "Optional criteria for the report." },
+      prompt: {
+        label: "Report Instruction",
+        placeholder: "Define the report or review criteria for this node only.",
+        tip: "Applies only to this report node in this workflow. The selected role prompt still defines the agent's general behavior.",
+      },
       input: { label: "Inputs To Review", placeholder: "plan, worker_reports" },
       output: { label: "Report Field", placeholder: "review" },
     }),
@@ -90,7 +125,11 @@ const NODE_TYPE_DEFINITIONS = [
     description: "Returns decision.status and routes the workflow through structured branches.",
     properties: nodeProperties(["identity", "type", "role", "json", "input", "output", "branches", "prompt", "retry"], {
       role: { label: "Decision Role", tip: "Markdown role prompt that judges state and returns branchable JSON." },
-      prompt: { label: "Decision Instruction", placeholder: "Tell the judge what done, retry, or needs_user means here." },
+      prompt: {
+        label: "Decision Instruction",
+        placeholder: "Define when this node should choose done, retry, or needs_user.",
+        tip: "Applies only to this decision node in this workflow. The selected role prompt still defines the agent's general behavior.",
+      },
       input: { label: "Decision Inputs", placeholder: "plan, worker_reports, review" },
       output: { label: "Decision Field", placeholder: "decision" },
       branches: { label: "Branches" },
@@ -102,7 +141,11 @@ const NODE_TYPE_DEFINITIONS = [
     label: "Ask User",
     description: "Pauses the run and waits for user feedback before continuing.",
     properties: nodeProperties(["identity", "type", "input", "output", "prompt"], {
-      prompt: { label: "Question", placeholder: "Ask the user for the missing requirement." },
+      prompt: {
+        label: "Question",
+        placeholder: "Ask the user for the missing requirement.",
+        tip: "Shown to the user when this pause node runs. It is not a role prompt.",
+      },
       input: { label: "Question Context", placeholder: "decision, review" },
       output: { label: "Feedback Field", placeholder: "pause" },
     }),
@@ -114,7 +157,11 @@ const NODE_TYPE_DEFINITIONS = [
     description: "Synthesizes the final user-facing response.",
     properties: nodeProperties(["identity", "type", "role", "input", "output", "prompt"], {
       role: { label: "Answer Role", tip: "Markdown role prompt used to write the final user-facing response." },
-      prompt: { label: "Answer Instruction", placeholder: "Optional style or synthesis instruction." },
+      prompt: {
+        label: "Answer Instruction",
+        placeholder: "Describe how the final user-facing answer should be synthesized.",
+        tip: "Applies only to this answer node in this workflow. The selected role prompt still defines the agent's general behavior.",
+      },
       input: { label: "Answer Inputs", placeholder: "plan, worker_reports, review" },
       output: { label: "Final Answer Field", placeholder: "final_answer" },
     }),
@@ -125,7 +172,11 @@ const NODE_TYPE_DEFINITIONS = [
     label: "Tool Agent",
     description: "Runs the Agentic runner with approved web/code/MCP-style tools.",
     properties: nodeProperties(["identity", "type", "input", "output", "prompt", "retry"], {
-      prompt: { label: "Tool Task", placeholder: "Research the task and return grounded findings." },
+      prompt: {
+        label: "Tool Instruction",
+        placeholder: "Describe the concrete tool task for this node.",
+        tip: "Applies only to this tool-agent node in this workflow. Input fields are added as tool context.",
+      },
       input: { label: "Tool Context", placeholder: "input, plan" },
       output: { label: "Tool Result Field", placeholder: "research_result" },
     }),
@@ -135,9 +186,14 @@ const NODE_TYPE_DEFINITIONS = [
     type: "for_each",
     label: "For Each",
     description: "Iterates over an input list using body nodes configured in JSON.",
-    properties: nodeProperties(["identity", "type", "input", "output", "body", "max_items"], {
+    properties: nodeProperties(["identity", "type", "input", "output", "prompt", "body", "max_items"], {
       input: { label: "List Input", placeholder: "plan.work_items" },
       output: { label: "Results Field", placeholder: "iteration_results" },
+      prompt: {
+        label: "Iteration Instruction",
+        placeholder: "Describe how each item should be processed by the loop body.",
+        tip: "Applies only while this loop node runs. Body nodes still keep their own role prompts and node instructions.",
+      },
       body: { label: "Body Nodes" },
       max_items: { label: "Max Iterations" },
     }),
@@ -147,10 +203,15 @@ const NODE_TYPE_DEFINITIONS = [
     type: "while",
     label: "While",
     description: "Repeats body nodes until a safe break condition becomes true.",
-    properties: nodeProperties(["identity", "type", "input", "output", "body", "break_when"], {
+    properties: nodeProperties(["identity", "type", "input", "output", "prompt", "body", "break_when"], {
       break_when: { label: "Break Condition", placeholder: "decision.status == 'done'" },
       input: { label: "Loop Inputs", placeholder: "decision, review" },
       output: { label: "Loop Result Field", placeholder: "while_result" },
+      prompt: {
+        label: "Loop Instruction",
+        placeholder: "Describe the loop goal and what each pass should improve.",
+        tip: "Applies only while this loop node runs. Body nodes still keep their own role prompts and node instructions.",
+      },
       body: { label: "Body Nodes" },
     }),
     defaults: { id: "while_loop", title: "While", role: "", input: [], output: "while_result", break_when: "decision.status == 'done'", config: { body: [] } },
@@ -159,10 +220,15 @@ const NODE_TYPE_DEFINITIONS = [
     type: "workflow",
     label: "Sub Workflow",
     description: "Runs another saved workflow by id as a reusable block.",
-    properties: nodeProperties(["identity", "type", "input", "output", "sub_workflow", "retry"], {
+    properties: nodeProperties(["identity", "type", "input", "output", "prompt", "sub_workflow", "retry"], {
       sub_workflow: { label: "Sub Workflow" },
       input: { label: "Workflow Inputs", placeholder: "input, plan" },
       output: { label: "Workflow Result Field", placeholder: "workflow_result" },
+      prompt: {
+        label: "Subworkflow Instruction",
+        placeholder: "Add context the child workflow should consider for this invocation.",
+        tip: "Applies only to this subworkflow call. The child workflow's own nodes keep their role prompts and node instructions.",
+      },
     }),
     defaults: { id: "sub_workflow", title: "Sub Workflow", role: "", input: [], output: "workflow_result", ref: "deep_orchestra" },
   },

@@ -14,6 +14,7 @@ from app.workflows.events import WorkflowEventSink
 from app.workflows.models import WorkflowDefinition, WorkflowNode
 from app.workflows.runtime_trace import TraceEmitter
 from app.workflows.prompts import (
+    append_node_instruction,
     build_final_answer_prompt,
     build_judge_prompt,
     build_plan_prompt,
@@ -27,13 +28,13 @@ from app.workflows.state import WorkflowState, final_answer_payload, workflow_st
 class WorkflowOllamaClient(Protocol):
     async def chat_payload(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         model: str | None = None,
         response_format: str | dict[str, Any] | None = None,
     ) -> str: ...
 
     def stream_payload(
-        self, messages: list[dict[str, str]], model: str | None = None
+        self, messages: list[dict[str, Any]], model: str | None = None
     ) -> AsyncIterator[dict[str, object]]: ...
 
 
@@ -136,7 +137,7 @@ async def run_workers(
             worker_label = f"worker-{(item_index % limit) + 1}"
             deps.event_sink.emit(item_id, "status", f"{worker_label} started: {title}.")
             prompt = worker_prompt(node, item, state)
-            content = await role_call(node, prompt, state_payload(state, deps), deps)
+            content = await role_call(node, prompt, state_payload(state, deps), deps, include_node_instruction=False)
             deps.event_sink.emit(item_id, "done", f"{worker_label} completed: {title}.")
             return {"id": item_id, "title": title, "worker": worker_label, "content": content.strip()}
 
@@ -193,7 +194,7 @@ async def judge(workflow: WorkflowDefinition, state: WorkflowState, deps: Workfl
 async def final_answer(
     workflow: WorkflowDefinition, state: WorkflowState, deps: WorkflowPhaseDeps, node_id: str = "answer"
 ) -> str:
-    del workflow
+    node = workflow.node(node_id)
     decision = state.get("decision") if isinstance(state.get("decision"), dict) else {}
     status = str(decision.get("status") or "done").strip().lower()
     if status == "needs_user":
@@ -204,14 +205,21 @@ async def final_answer(
         return "\n".join(lines).strip()
 
     deps.event_sink.emit(node_id, "status", "Preparing final answer.")
-    prompt = build_final_answer_prompt(runtime_context=state["runtime_context"], effort_context=state["effort_context"])
+    prompt = build_final_answer_prompt(
+        runtime_context=state["runtime_context"],
+        effort_context=state["effort_context"],
+        role=node.role if node is not None else "ORCHESTRATOR",
+    )
+    if node is not None:
+        prompt = append_node_instruction(prompt, node)
     messages = [
         {"role": "system", "content": prompt},
         {"role": "user", "content": json.dumps(final_payload(state, deps), ensure_ascii=False)},
     ]
     chunks: list[str] = []
     client = deps.final_ollama_factory() if deps.final_ollama_factory is not None else deps.ollama
-    final_model = deps.settings.model_for_role("orchestrator")
+    final_role = node.role if node is not None else "orchestrator"
+    final_model = deps.settings.model_for_role(final_role or "orchestrator")
     started_at = asyncio.get_event_loop().time()
     tokens_in: int | None = None
     tokens_out: int | None = None
@@ -244,12 +252,19 @@ async def final_answer(
     return answer
 
 
-async def role_call(node: WorkflowNode, system_prompt: str, payload: dict[str, Any], deps: WorkflowPhaseDeps) -> str:
+async def role_call(
+    node: WorkflowNode,
+    system_prompt: str,
+    payload: dict[str, Any],
+    deps: WorkflowPhaseDeps,
+    *,
+    include_node_instruction: bool = True,
+) -> str:
     role = node.role or role_for_node_type(node.type)
-    prompt = system_prompt
+    prompt = append_node_instruction(system_prompt, node) if include_node_instruction else system_prompt
     if node.expects_json:
         prompt = (
-            f"{system_prompt}\n\n"
+            f"{prompt}\n\n"
             "## Output Format\n"
             "Return strict valid JSON only — a single JSON object that fits "
             "the schema implied by the role and inputs. Do not wrap it in "
@@ -288,6 +303,7 @@ def worker_prompt(node: WorkflowNode, item: dict[str, Any], state: WorkflowState
         code_context=str(state.get("code_context") or ""),
         agentic_context=str(state.get("agentic_context") or ""),
         retry_feedback=state.get("retry_feedback"),
+        node_instruction=node.prompt,
     )
 
 

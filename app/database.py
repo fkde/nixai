@@ -41,10 +41,18 @@ from app.db.workflow_trace import (
     list_trace_events,
     list_workflow_runs,
 )
+from app.db.workflow_state import (
+    apply_trace_event_to_runtime_state,
+    list_node_states,
+    list_tool_calls,
+    node_state_row_to_dict,
+    tool_call_row_to_dict,
+)
 
 
 __all__ = [
     "add_message",
+    "apply_trace_event_to_runtime_state",
     "SCHEMA_VERSION",
     "connect",
     "create_agentic_task",
@@ -71,6 +79,8 @@ __all__ = [
     "list_chats",
     "list_due_agentic_tasks",
     "list_messages",
+    "list_node_states",
+    "list_tool_calls",
     "list_trace_events",
     "list_workflow_runs",
     "row_to_agentic_task",
@@ -78,9 +88,11 @@ __all__ = [
     "row_to_chat",
     "row_to_message",
     "row_to_workflow_run",
+    "node_state_row_to_dict",
     "request_workflow_run_signal",
     "set_message_feedback",
     "set_schema_version",
+    "tool_call_row_to_dict",
     "update_agentic_task",
     "update_agentic_task_schedule_state",
     "update_chat",

@@ -4,7 +4,10 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, field_validator
+import base64
+import binascii
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.validation import (
     MAX_PROMPT_LENGTH,
@@ -23,6 +26,10 @@ TaskStatus = Literal["active", "paused"]
 TaskRunStatus = Literal["running", "success", "failed", "needs_review"]
 WorkflowRunStatus = Literal["running", "paused", "done", "failed", "needs_user"]
 OllamaModelKind = Literal["chat", "embedding", "unknown"]
+
+MAX_IMAGE_ATTACHMENTS = 4
+MAX_IMAGE_ATTACHMENT_BYTES = 5 * 1024 * 1024
+SAFE_IMAGE_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}
 
 
 def utc_now() -> str:
@@ -49,6 +56,55 @@ class Message(BaseModel):
     mode: MessageMode = "chat"
     feedback: Optional[FeedbackRating] = None
     created_at: str
+    attachments: list["ImageAttachmentMeta"] = Field(default_factory=list)
+
+
+class ImageAttachmentMeta(BaseModel):
+    name: str
+    mime_type: str
+    size: int = 0
+
+
+class ImageAttachment(ImageAttachmentMeta):
+    data: str
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _clean_name(cls, value: Any) -> str:
+        return clean_single_line(value or "image", max_length=MAX_TITLE_LENGTH, field_name="attachment name") or "image"
+
+    @field_validator("mime_type", mode="before")
+    @classmethod
+    def _clean_mime_type(cls, value: Any) -> str:
+        mime_type = clean_single_line(value or "", max_length=80, field_name="mime_type").lower()
+        if mime_type not in SAFE_IMAGE_MIME_TYPES:
+            raise ValueError("Only PNG, JPEG, and WebP image attachments are supported.")
+        return mime_type
+
+    @field_validator("data", mode="before")
+    @classmethod
+    def _clean_data(cls, value: Any) -> str:
+        text = str(value or "").strip()
+        if "," in text and text.lower().startswith("data:"):
+            text = text.split(",", 1)[1].strip()
+        if not text:
+            raise ValueError("Image attachment data must not be empty.")
+        try:
+            base64.b64decode(text, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Image attachment data must be valid base64.") from exc
+        return text
+
+    @model_validator(mode="after")
+    def _sync_size(self) -> "ImageAttachment":
+        try:
+            raw = base64.b64decode(self.data, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Image attachment data must be valid base64.") from exc
+        if len(raw) > MAX_IMAGE_ATTACHMENT_BYTES:
+            raise ValueError("Image attachment is too large. Maximum size is 5 MB.")
+        self.size = len(raw)
+        return self
 
 
 class AgenticTask(BaseModel):
@@ -87,7 +143,7 @@ class WorkflowRun(BaseModel):
     events_json: str = "[]"
     initial_input: str = ""
     fork_of_run_id: Optional[str] = None
-    fork_at_step_id: Optional[str] = None
+    fork_at_node_id: Optional[str] = None
     created_at: str
     updated_at: str
     finished_at: Optional[str] = None
@@ -135,6 +191,7 @@ class CreateMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=MAX_PROMPT_LENGTH)
     mode: MessageMode = "chat"
     effort: Optional[str] = None
+    attachments: list[ImageAttachment] = Field(default_factory=list, max_length=MAX_IMAGE_ATTACHMENTS)
 
     @field_validator("content", mode="before")
     @classmethod

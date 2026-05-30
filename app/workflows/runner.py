@@ -16,6 +16,7 @@ from app.workflows.events import WorkflowEventSink
 from app.workflows.executor import WorkflowGraphExecutor
 from app.workflows.models import WorkflowDefinition, WorkflowEvent, WorkflowResult
 from app.workflows.nodes import NodeResult
+from app.workflows.replay import ReplayScope, WorkflowReplayPlanner
 from app.workflows.runtime_trace import TraceEmitter, default_emitter
 from app.workflows.phases import (
     WorkflowOllamaClient,
@@ -28,6 +29,9 @@ from app.workflows.state import compact_workflow_state, initial_workflow_state
 
 
 logger = logging.getLogger(__name__)
+
+# Sentinel for "no edited output" so callers can pass None as a legitimate value.
+_SENTINEL: Any = object()
 
 
 class WorkflowRunner:
@@ -51,10 +55,11 @@ class WorkflowRunner:
         chat_id: str,
         user_message: str,
         mode: MessageMode,
+        attachments: list[Any] | None = None,
         on_event: Callable[[WorkflowEvent], None] | None = None,
         on_run_started: Callable[[str], None] | None = None,
     ) -> WorkflowResult:
-        state = self._initial_state(chat_id, user_message, mode)
+        state = self._initial_state(chat_id, user_message, mode, attachments=attachments)
         if on_run_started is not None:
             run_id = str(state.get("workflow_run_id") or "")
             if run_id:
@@ -131,7 +136,7 @@ class WorkflowRunner:
             state["resume_feedback"] = feedback.strip()
             state["user_feedback"] = feedback.strip()
             note(deps, state, "User resume feedback", feedback.strip())
-        next_nodes = WorkflowGraphExecutor()._next_node_ids(workflow, paused_node, state) if paused_node else []
+        next_nodes = WorkflowGraphExecutor().next_node_ids(workflow, paused_node, state) if paused_node else []
         if not next_nodes:
             return WorkflowResult(
                 workflow_id=workflow.id,
@@ -161,6 +166,8 @@ class WorkflowRunner:
         label: str = "",
         on_event: Callable[[WorkflowEvent], None] | None = None,
     ) -> WorkflowResult:
+        # `from_step_id` carries a node_id (legacy field name kept for the API
+        # contract; the value has always been the node identifier).
         source_node_id = from_step_id.strip()
         node = workflow.node(source_node_id)
         if node is None:
@@ -168,8 +175,7 @@ class WorkflowRunner:
         if node.type in {"for_each", "while"}:
             raise ValueError("Forking from container nodes is not supported yet.")
 
-        rows = database.list_trace_events(original_run.id)
-        parsed_events = [self._trace_row_to_event(row) for row in rows]
+        parsed_events = self._load_parsed_trace(original_run.id)
         source_event = self._find_fork_source_event(parsed_events, source_node_id)
         if source_event is None:
             raise ValueError("Fork source step has no completed output snapshot.")
@@ -178,13 +184,120 @@ class WorkflowRunner:
 
         source_seq = int(source_event["seq"])
         replay_events = [event for event in parsed_events if int(event["seq"]) <= source_seq]
-        for event in replay_events:
-            if event["type"] == "node_finished" and event["payload"].get("output_snapshot_truncated"):
-                raise ValueError("Cannot replay a run that contains truncated output snapshots before the fork point.")
+
+        def resolve_start_nodes(state: dict[str, Any], executor: WorkflowGraphExecutor) -> list[str]:
+            next_nodes = executor.next_node_ids(workflow, source_node_id, state)
+            if not next_nodes:
+                raise ValueError("Fork source step has no continuation edge.")
+            return next_nodes
+
+        return await self._execute_with_replay_prefix(
+            workflow=workflow,
+            original_run=original_run,
+            fork_node_id=source_node_id,
+            replay_events=replay_events,
+            label=label,
+            on_event=on_event,
+            run_started_extras={"fork_of": {"run_id": original_run.id, "node_id": source_node_id}},
+            resolve_start_nodes=resolve_start_nodes,
+            edited_output=edited_output,
+            edited_at_seq=source_seq,
+        )
+
+    async def replay(
+        self,
+        workflow: WorkflowDefinition,
+        original_run: Any,
+        *,
+        start_node_id: str,
+        scope: ReplayScope = "downstream",
+        label: str = "",
+        on_event: Callable[[WorkflowEvent], None] | None = None,
+    ) -> WorkflowResult:
+        start_node_id = start_node_id.strip()
+        if scope != "downstream":
+            raise ValueError("Only downstream replay execution is supported for now.")
+        if workflow.node(start_node_id) is None:
+            raise ValueError("Replay start node was not found in the workflow.")
+
+        parsed_events = self._load_parsed_trace(original_run.id)
+        node_states = [database.node_state_row_to_dict(row) for row in database.list_node_states(original_run.id)]
+        plan = WorkflowReplayPlanner().build_plan(
+            workflow=workflow,
+            run_id=original_run.id,
+            start_node_id=start_node_id,
+            scope=scope,
+            events=parsed_events,
+            node_states=node_states,
+        )
+        if not plan.can_replay:
+            detail = "; ".join(plan.blockers[:3]) or "Replay plan is blocked."
+            raise ValueError(detail)
+
+        replay_prefix = [event for event in parsed_events if int(event["seq"]) <= plan.replay_until_seq]
+
+        result = await self._execute_with_replay_prefix(
+            workflow=workflow,
+            original_run=original_run,
+            fork_node_id=start_node_id,
+            replay_events=replay_prefix,
+            label=label,
+            on_event=on_event,
+            run_started_extras={
+                "replay_of": {
+                    "run_id": original_run.id,
+                    "start_node_id": start_node_id,
+                    "scope": scope,
+                    "replay_until_seq": plan.replay_until_seq,
+                },
+            },
+            resolve_start_nodes=lambda _state, _executor: [start_node_id],
+            state_extras={
+                "replay": {
+                    "source_run_id": original_run.id,
+                    "start_node_id": start_node_id,
+                    "scope": scope,
+                    "replay_node_ids": plan.replay_node_ids,
+                    "replay_until_seq": plan.replay_until_seq,
+                },
+            },
+            result_state_extras={"replay_plan": plan.model_dump()},
+        )
+        return result
+
+    def _load_parsed_trace(self, run_id: str) -> list[dict[str, Any]]:
+        return [self._trace_row_to_event(row) for row in database.list_trace_events(run_id)]
+
+    async def _execute_with_replay_prefix(
+        self,
+        *,
+        workflow: WorkflowDefinition,
+        original_run: Any,
+        fork_node_id: str,
+        replay_events: list[dict[str, Any]],
+        label: str,
+        on_event: Callable[[WorkflowEvent], None] | None,
+        run_started_extras: dict[str, Any],
+        resolve_start_nodes: Callable[[dict[str, Any], WorkflowGraphExecutor], list[str]],
+        edited_output: Any = _SENTINEL,
+        edited_at_seq: int | None = None,
+        state_extras: dict[str, Any] | None = None,
+        result_state_extras: dict[str, Any] | None = None,
+    ) -> WorkflowResult:
+        """Shared backbone for fork() and replay().
+
+        Reproduces a parent run's state up to `fork_node_id`, optionally
+        rewrites the output at `edited_at_seq`, persists the new run, copies
+        the trace prefix into the child's stream, then executes the workflow
+        from `resolve_start_nodes`.
+        """
+        self._validate_replay_events(replay_events)
 
         state = self._initial_state(original_run.chat_id, original_run.initial_input or "", original_run.mode)
         state["fork_of_run_id"] = original_run.id
-        state["fork_at_step_id"] = source_node_id
+        state["fork_at_node_id"] = fork_node_id
+        if state_extras:
+            state.update(state_extras)
         if label.strip():
             state["fork_label"] = label.strip()[:120]
 
@@ -193,14 +306,14 @@ class WorkflowRunner:
         deps = self._phase_deps(event_sink)
         executor = WorkflowGraphExecutor()
         self._replay_state_until(workflow, state, deps, event_sink, executor, replay_events)
-        self._apply_fork_output(workflow, state, deps, event_sink, executor, source_node_id, edited_output)
-        replay_events = [
-            self._edited_fork_trace_event(event, source_seq, edited_output) for event in replay_events
-        ]
 
-        next_nodes = executor._next_node_ids(workflow, source_node_id, state)
-        if not next_nodes:
-            raise ValueError("Fork source step has no continuation edge.")
+        if edited_output is not _SENTINEL and edited_at_seq is not None:
+            self._apply_fork_output(workflow, state, deps, event_sink, executor, fork_node_id, edited_output)
+            replay_events = [
+                self._edited_fork_trace_event(event, edited_at_seq, edited_output) for event in replay_events
+            ]
+
+        start_node_ids = resolve_start_nodes(state, executor)
 
         self._persist_started(
             workflow,
@@ -210,7 +323,7 @@ class WorkflowRunner:
             events,
             initial_input=original_run.initial_input or "",
             fork_of_run_id=original_run.id,
-            fork_at_step_id=source_node_id,
+            fork_at_node_id=fork_node_id,
         )
         trace = self._build_trace(workflow.id, state)
         deps.trace = trace
@@ -222,19 +335,34 @@ class WorkflowRunner:
                     "initial_input": original_run.initial_input or "",
                     "mode": original_run.mode,
                     "workflow_name": workflow.name,
-                    "fork_of": {"run_id": original_run.id, "step_id": source_node_id},
+                    **run_started_extras,
                 },
             )
             self._copy_fork_trace_events(trace, replay_events)
 
-        result = await executor.run(workflow, state, deps, event_sink, start_node_ids=next_nodes, trace=trace)
+        result = await executor.run(workflow, state, deps, event_sink, start_node_ids=start_node_ids, trace=trace)
         self._persist_finished(result, state)
         self._emit_run_stopped(trace, result)
         result.state["workflow_run_id"] = state.get("workflow_run_id")
+        if result_state_extras:
+            result.state.update(result_state_extras)
         return result
 
-    def _initial_state(self, chat_id: str, user_message: str, mode: MessageMode) -> dict[str, object]:
-        return initial_workflow_state(self.settings, chat_id, user_message, mode, scratchpad=self.scratchpad)
+    def _initial_state(
+        self,
+        chat_id: str,
+        user_message: str,
+        mode: MessageMode,
+        attachments: list[Any] | None = None,
+    ) -> dict[str, object]:
+        return initial_workflow_state(
+            self.settings,
+            chat_id,
+            user_message,
+            mode,
+            attachments=attachments,
+            scratchpad=self.scratchpad,
+        )
 
     def _phase_deps(self, event_sink: WorkflowEventSink) -> WorkflowPhaseDeps:
         return WorkflowPhaseDeps(
@@ -271,7 +399,7 @@ class WorkflowRunner:
         *,
         initial_input: str = "",
         fork_of_run_id: str | None = None,
-        fork_at_step_id: str | None = None,
+        fork_at_node_id: str | None = None,
     ) -> None:
         try:
             database.create_workflow_run(
@@ -279,11 +407,11 @@ class WorkflowRunner:
                 workflow_id=workflow.id,
                 chat_id=chat_id,
                 mode=mode,
-                state_json=json.dumps(state, ensure_ascii=False, default=str),
+                state_json=json.dumps(self._persistable_state(state), ensure_ascii=False, default=str),
                 events_json=json.dumps([event.model_dump() for event in events], ensure_ascii=False),
                 initial_input=initial_input,
                 fork_of_run_id=fork_of_run_id,
-                fork_at_step_id=fork_at_step_id,
+                fork_at_node_id=fork_at_node_id,
             )
         except Exception:
             logger.warning(
@@ -313,6 +441,20 @@ class WorkflowRunner:
             if event["node_id"] == source_node_id and event["type"] == "node_finished":
                 return event
         return None
+
+    def _validate_replay_events(self, events: list[dict[str, Any]]) -> None:
+        for event in events:
+            payload = event["payload"]
+            if event["type"] == "node_finished":
+                if "output_snapshot" not in payload:
+                    raise ValueError("Cannot replay a run with missing node output snapshots.")
+                if payload.get("output_snapshot_truncated"):
+                    raise ValueError("Cannot replay a run that contains truncated node output snapshots.")
+            if event["type"] == "tool_call":
+                if payload.get("arguments_snapshot_truncated") or payload.get("result_snapshot_truncated"):
+                    raise ValueError("Cannot replay a run that contains truncated tool call snapshots.")
+                if payload.get("error_snapshot_truncated"):
+                    raise ValueError("Cannot replay a run that contains truncated tool error snapshots.")
 
     def _replay_state_until(
         self,
@@ -357,10 +499,17 @@ class WorkflowRunner:
         executor._store_result(state, result)
         executor._apply_compatible_state(node.output, result, state, deps, workflow, event_sink)
 
+    # Run-lifecycle events from the parent run must never be replayed onto a
+    # fork or replay child: the child emits its own run_started at the start
+    # and its own run_finished / run_failed / run_paused at the end. Copying
+    # the parent's terminal events would close the child's SSE bus prematurely
+    # and confuse the frontend reducer ("status: done" before execution finished).
+    _NON_REPLAYED_TRACE_TYPES = frozenset({"run_started", "run_finished", "run_failed", "run_paused"})
+
     def _copy_fork_trace_events(self, trace: TraceEmitter, events: list[dict[str, Any]]) -> None:
         step_map: dict[str, str] = {}
         for event in events:
-            if event["type"] == "run_started":
+            if event["type"] in self._NON_REPLAYED_TRACE_TYPES:
                 continue
             parent = event.get("parent_step_id")
             mapped_parent = step_map.get(str(parent)) if parent else None
@@ -426,7 +575,7 @@ class WorkflowRunner:
             database.update_workflow_run(
                 run_id,
                 status=result.status if result.status in {"done", "failed", "needs_user", "paused"} else "failed",
-                state_json=json.dumps(state, ensure_ascii=False, default=str),
+                state_json=json.dumps(self._persistable_state(state), ensure_ascii=False, default=str),
                 events_json=json.dumps([event.model_dump() for event in result.events], ensure_ascii=False),
                 current_node=current_node,
                 finished=finished,
@@ -438,3 +587,14 @@ class WorkflowRunner:
                 result.status,
                 exc_info=True,
             )
+
+    def _persistable_state(self, state: dict[str, object]) -> dict[str, object]:
+        payload = dict(state)
+        attachments = payload.get("attachments")
+        if isinstance(attachments, list):
+            payload["attachments"] = [
+                {key: value for key, value in item.items() if key != "data"}
+                for item in attachments
+                if isinstance(item, dict)
+            ]
+        return payload

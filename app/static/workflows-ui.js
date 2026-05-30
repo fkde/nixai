@@ -449,6 +449,7 @@ export function createWorkflowsUi({ setStatus, getSettingsUi }) {
       const draft = inspector.activeWorkflowDraft();
       const node = draft?.nodes.find((n) => n.id === canvasDrag.id);
       if (node) node.position = { x, y };
+      canvas.updateCanvasViewport(draft);
       canvas.renderCanvasEdges(draft);
     });
 

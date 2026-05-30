@@ -22,7 +22,7 @@ def create_workflow_run(
     current_node: str = "",
     initial_input: str = "",
     fork_of_run_id: str | None = None,
-    fork_at_step_id: str | None = None,
+    fork_at_node_id: str | None = None,
 ) -> WorkflowRun:
     now = utc_now()
     run = WorkflowRun(
@@ -36,7 +36,7 @@ def create_workflow_run(
         events_json=events_json,
         initial_input=initial_input,
         fork_of_run_id=fork_of_run_id,
-        fork_at_step_id=fork_at_step_id,
+        fork_at_node_id=fork_at_node_id,
         created_at=now,
         updated_at=now,
         finished_at=None,
@@ -45,7 +45,7 @@ def create_workflow_run(
         db.execute(
             """
             INSERT OR REPLACE INTO workflow_runs
-              (id, workflow_id, chat_id, mode, status, current_node, state_json, events_json, initial_input, fork_of_run_id, fork_at_step_id, created_at, updated_at, finished_at)
+              (id, workflow_id, chat_id, mode, status, current_node, state_json, events_json, initial_input, fork_of_run_id, fork_at_node_id, created_at, updated_at, finished_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -59,7 +59,7 @@ def create_workflow_run(
                 run.events_json,
                 run.initial_input,
                 run.fork_of_run_id,
-                run.fork_at_step_id,
+                run.fork_at_node_id,
                 run.created_at,
                 run.updated_at,
                 run.finished_at,
@@ -98,7 +98,7 @@ def get_workflow_run(run_id: str) -> Optional[WorkflowRun]:
         row = db.execute(
             """
             SELECT id, workflow_id, chat_id, mode, status, current_node, state_json, events_json, initial_input,
-                   fork_of_run_id, fork_at_step_id, created_at, updated_at, finished_at
+                   fork_of_run_id, fork_at_node_id, created_at, updated_at, finished_at
             FROM workflow_runs
             WHERE id = ?
             """,
@@ -108,6 +108,13 @@ def get_workflow_run(run_id: str) -> Optional[WorkflowRun]:
 
 
 def request_workflow_run_signal(run_id: str, kind: str) -> bool:
+    """Record a pause/abort signal for `run_id`.
+
+    Idempotent: repeated requests for the same (run_id, kind) keep a single
+    row courtesy of the UNIQUE constraint + `INSERT OR IGNORE`. Returns True
+    iff the target run exists (regardless of whether the row was new or a
+    duplicate); callers use this to distinguish "queued" from "no such run".
+    """
     if kind not in {"pause", "abort"}:
         raise ValueError("Unsupported workflow run signal.")
     now = utc_now()
@@ -116,7 +123,7 @@ def request_workflow_run_signal(run_id: str, kind: str) -> bool:
         if exists is None:
             return False
         db.execute(
-            "INSERT INTO workflow_run_signals (run_id, kind, created_at) VALUES (?, ?, ?)",
+            "INSERT OR IGNORE INTO workflow_run_signals (run_id, kind, created_at) VALUES (?, ?, ?)",
             (run_id, kind, now),
         )
     return True

@@ -4,6 +4,21 @@ import json
 from typing import Any
 
 from app.roles import role_prompt
+from app.workflows.models import WorkflowNode
+
+
+def build_node_instruction_block(node: WorkflowNode) -> str:
+    instruction = str(node.prompt or "").strip()
+    if not instruction:
+        return ""
+    return f"## Node Instruction\n{instruction}"
+
+
+def append_node_instruction(prompt: str, node: WorkflowNode) -> str:
+    block = build_node_instruction_block(node)
+    if not block:
+        return prompt
+    return f"{prompt}\n\n{block}"
 
 
 def build_plan_prompt(
@@ -99,9 +114,9 @@ def build_judge_prompt(*, role: str, runtime_context: str, effort_context: str) 
     )
 
 
-def build_final_answer_prompt(*, runtime_context: str, effort_context: str) -> str:
+def build_final_answer_prompt(*, runtime_context: str, effort_context: str, role: str = "ORCHESTRATOR") -> str:
     return (
-        f"{role_prompt('ORCHESTRATOR')}\n\n"
+        f"{role_prompt(role or 'ORCHESTRATOR')}\n\n"
         f"{runtime_context}\n\n"
         f"{effort_context}\n\n"
         "Write the final answer for the user from the workflow state. "
@@ -123,7 +138,11 @@ def build_worker_prompt(
     code_context: str = "",
     agentic_context: str = "",
     retry_feedback: object = None,
+    node_instruction: str = "",
 ) -> str:
+    instruction_block = ""
+    if str(node_instruction or "").strip():
+        instruction_block = f"\n\n## Node Instruction\n{str(node_instruction).strip()}"
     prompt = (
         f"{role_prompt(role or 'WORKER')}\n\n"
         f"{runtime_context}\n\n"
@@ -131,7 +150,8 @@ def build_worker_prompt(
         f"Shared reviewed memory:\n{memory}\n\n"
         "Execute this assigned workflow item as far as possible from the provided context.\n"
         "Return concise Markdown with: result, evidence, open risks, and recommended next checks.\n"
-        "Do not claim tools, tests, or file edits were run unless they are visible in the supplied context.\n\n"
+        "Do not claim tools, tests, or file edits were run unless they are visible in the supplied context."
+        f"{instruction_block}\n\n"
         f"Assigned item:\n{json.dumps(item, ensure_ascii=False, indent=2)}"
     )
     if code_context:

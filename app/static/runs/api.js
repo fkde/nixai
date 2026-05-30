@@ -38,3 +38,17 @@ export function forkRun(runId, { fromStepId, editedOutput, label = "" }) {
     body: JSON.stringify({ from_step_id: fromStepId, edited_output: editedOutput, label }),
   });
 }
+
+export function planReplay(runId, { startNodeId, scope = "downstream" }) {
+  return api(`/api/runs/${encodeURIComponent(runId)}/replay-plan`, {
+    method: "POST",
+    body: JSON.stringify({ start_node_id: startNodeId, scope }),
+  });
+}
+
+export function replayRun(runId, { startNodeId, scope = "downstream", label = "" }) {
+  return api(`/api/runs/${encodeURIComponent(runId)}/replay`, {
+    method: "POST",
+    body: JSON.stringify({ start_node_id: startNodeId, scope, label }),
+  });
+}

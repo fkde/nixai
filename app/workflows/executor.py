@@ -3,16 +3,21 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import copy
+import logging
+import sqlite3
 import time
 from collections import deque
 from collections.abc import Iterator
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 from app.workflows.conditions import WorkflowConditionEvaluator
 from app.workflows.events import WorkflowEventSink
-from app.workflows.models import WorkflowDefinition, WorkflowResult
+from app.workflows.models import WorkflowDefinition, WorkflowEdge, WorkflowResult
 from app.workflows.nodes import NodeHandler, NodeResult, default_node_handlers
 from app.workflows.phases import WorkflowPhaseDeps, markdown_data, note
+from app.workflows.prompts import build_node_instruction_block
 from app.workflows.resolver import NodeInputResolver
 from app.workflows.runtime_trace import TraceEmitter, cap_snapshot
 from app.workflows.state import WorkflowState, compact_workflow_state, record_workflow_round
@@ -45,6 +50,11 @@ class WorkflowGraphExecutor:
         start_node_ids: list[str] | None = None,
         trace: TraceEmitter | None = None,
     ) -> WorkflowResult:
+        # Materialise any implicit routing (e.g. io.input → real start nodes)
+        # as real edges in a compiled copy so both the executor and any trace
+        # consumers see the same edges. Persistence is unaffected — the
+        # original workflow object is never mutated.
+        workflow = compile_workflow_for_execution(workflow)
         state.setdefault("node_results", {})
         queue = deque(start_node_ids or self._start_node_ids(workflow))
         steps = 0
@@ -74,17 +84,15 @@ class WorkflowGraphExecutor:
             if node.type in {"answer", "end", "needs_user"}:
                 final_status = result.status
                 break
+            if node.type == "io" and node.id == "output":
+                final_status = result.status
+                break
             if node.type == "pause" or result.status == "needs_user":
                 final_status = "needs_user"
                 break
-            if result.status == "failed":
-                next_nodes = self._failure_node_ids(workflow, node.id)
-                self._emit_edge_events(workflow, node.id, next_nodes, "error", trace)
-                if not next_nodes:
-                    break
-                queue.extend(next_nodes)
-                continue
-
+            # Check pause once before deciding the next branch — applies
+            # equally to success and failure paths so a pause requested while
+            # a node was running is always honoured at the next safe point.
             if self._consume_pause_signal(state):
                 state["pause"] = {"node": node.id, "kind": "cooperative"}
                 state["current_node"] = node.id
@@ -92,7 +100,15 @@ class WorkflowGraphExecutor:
                 final_status = "paused"
                 break
 
-            next_nodes = self._next_node_ids(workflow, node.id, state)
+            if result.status == "failed":
+                next_nodes = self.failure_node_ids(workflow, node.id)
+                self._emit_edge_events(workflow, node.id, next_nodes, "error", trace)
+                if not next_nodes:
+                    break
+                queue.extend(next_nodes)
+                continue
+
+            next_nodes = self.next_node_ids(workflow, node.id, state)
             self._emit_edge_events(workflow, node.id, next_nodes, "", trace)
             if next_nodes:
                 queue.extend(next_nodes)
@@ -121,6 +137,10 @@ class WorkflowGraphExecutor:
         started_at = time.perf_counter()
         if trace is not None:
             input_snapshot, truncated = cap_snapshot(self._input_snapshot(node, state))
+            prompt_snapshot, prompt_truncated = cap_snapshot(node.prompt or None)
+            instruction_block, instruction_block_truncated = cap_snapshot(
+                build_node_instruction_block(node) or None
+            )
             started_step_id = trace.emit(
                 "node_started",
                 node_id=node.id,
@@ -128,7 +148,13 @@ class WorkflowGraphExecutor:
                     "node_type": node.type,
                     "input_snapshot": input_snapshot,
                     "input_snapshot_truncated": truncated,
-                    "prompt": node.prompt or None,
+                    "prompt": prompt_snapshot,
+                    "prompt_snapshot": prompt_snapshot,
+                    "prompt_snapshot_truncated": prompt_truncated,
+                    "node_instruction": prompt_snapshot,
+                    "node_instruction_block": instruction_block,
+                    "node_instruction_block_truncated": instruction_block_truncated,
+                    "execution_profile": node.execution_profile or workflow.execution_profile or "",
                 },
             )
 
@@ -185,6 +211,28 @@ class WorkflowGraphExecutor:
             result = await self._run_subworkflow(workflow, node_id, state, deps, event_sink, trace)
             self._store_result(state, result)
             return result
+        if node.type == "io":
+            if node.id == "input":
+                output: Any = state.get("user_message", "")
+            else:
+                output = ""
+                for key in node.input or []:
+                    cleaned = str(key).strip()
+                    if not cleaned:
+                        continue
+                    if cleaned in state and state[cleaned] not in (None, ""):
+                        output = state[cleaned]
+                        break
+                    resolved = self.resolver.resolve_key(cleaned, state)
+                    if resolved not in (None, ""):
+                        output = resolved
+                        break
+                if not output:
+                    output = state.get("final_answer") or state.get("answer") or ""
+                state["final_answer"] = output
+            result = NodeResult(node_id=node.id, status="done", output=output, summary="")
+            self._store_result(state, result)
+            return result
         handler = self.handlers.get(node.type)
         if handler is None:
             result = NodeResult(
@@ -208,14 +256,24 @@ class WorkflowGraphExecutor:
                 if not cleaned:
                     continue
                 if cleaned in state:
-                    snapshot[cleaned] = state[cleaned]
+                    snapshot[cleaned] = self._snapshot_safe_value(state[cleaned])
                 else:
                     resolved = self.resolver.resolve_key(cleaned, state)
                     if resolved is not None:
-                        snapshot[cleaned] = resolved
+                        snapshot[cleaned] = self._snapshot_safe_value(resolved)
         except Exception:
             return snapshot
         return snapshot
+
+    def _snapshot_safe_value(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: ("[base64 image data omitted]" if key == "data" else self._snapshot_safe_value(child))
+                for key, child in value.items()
+            }
+        if isinstance(value, list):
+            return [self._snapshot_safe_value(item) for item in value]
+        return value
 
     @contextlib.contextmanager
     def _maybe_scope(self, trace: TraceEmitter | None, parent_step_id: str | None) -> Iterator[None]:
@@ -303,9 +361,12 @@ class WorkflowGraphExecutor:
 
         previous_item = state.get("item")
         previous_index = state.get("item_index")
+        previous_loop_context = state.get("loop_context")
         outputs: list[Any] = []
         event_sink.emit(node.id, "status", f"Iterating over {len(items)} item(s).")
         try:
+            if node.prompt.strip():
+                state["loop_context"] = {"node_id": node.id, "instruction": node.prompt.strip()}
             for index, item in enumerate(items):
                 state["item"] = item
                 state["item_index"] = index
@@ -330,6 +391,7 @@ class WorkflowGraphExecutor:
         finally:
             self._restore_loop_value(state, "item", previous_item)
             self._restore_loop_value(state, "item_index", previous_index)
+            self._restore_loop_value(state, "loop_context", previous_loop_context)
         event_sink.emit(node.id, "done", f"Completed {len(outputs)} item iteration(s).")
         return NodeResult(node_id=node.id, status="done", output=outputs, summary=f"{len(outputs)} item(s) processed.")
 
@@ -356,31 +418,41 @@ class WorkflowGraphExecutor:
             return NodeResult(node_id=node.id, status="failed", summary="while node is missing break_when.")
 
         outputs: list[Any] = []
-        for index in range(max_iterations):
-            if self.condition_evaluator.matches(break_when, state):
-                event_sink.emit(node.id, "done", f"Loop stopped before iteration {index + 1}.")
-                return NodeResult(
-                    node_id=node.id, status="done", output=outputs, summary="Loop break condition matched."
-                )
-            state["loop_iteration"] = index + 1
-            event_sink.emit(node.id, "status", f"Loop iteration {index + 1}/{max_iterations}.")
-            iteration_outputs: dict[str, Any] = {}
-            for body_node_id in body:
-                result = await self._run_node(workflow, body_node_id, state, deps, event_sink, trace)
-                body_node = workflow.node(body_node_id)
-                self._apply_compatible_state(
-                    body_node.output if body_node else "", result, state, deps, workflow, event_sink
-                )
-                iteration_outputs[body_node_id] = result.output
-                if result.status in {"failed", "needs_user"}:
+        previous_loop_context = state.get("loop_context")
+        if node.prompt.strip():
+            state["loop_context"] = {
+                "node_id": node.id,
+                "instruction": node.prompt.strip(),
+                "goal": "Repeat body nodes until the break condition is met.",
+            }
+        try:
+            for index in range(max_iterations):
+                if self.condition_evaluator.matches(break_when, state):
+                    event_sink.emit(node.id, "done", f"Loop stopped before iteration {index + 1}.")
                     return NodeResult(
-                        node_id=node.id,
-                        status=result.status,
-                        output=outputs,
-                        summary=result.summary,
-                        error=result.error,
+                        node_id=node.id, status="done", output=outputs, summary="Loop break condition matched."
                     )
-            outputs.append(iteration_outputs[body[0]] if len(body) == 1 else iteration_outputs)
+                state["loop_iteration"] = index + 1
+                event_sink.emit(node.id, "status", f"Loop iteration {index + 1}/{max_iterations}.")
+                iteration_outputs: dict[str, Any] = {}
+                for body_node_id in body:
+                    result = await self._run_node(workflow, body_node_id, state, deps, event_sink, trace)
+                    body_node = workflow.node(body_node_id)
+                    self._apply_compatible_state(
+                        body_node.output if body_node else "", result, state, deps, workflow, event_sink
+                    )
+                    iteration_outputs[body_node_id] = result.output
+                    if result.status in {"failed", "needs_user"}:
+                        return NodeResult(
+                            node_id=node.id,
+                            status=result.status,
+                            output=outputs,
+                            summary=result.summary,
+                            error=result.error,
+                        )
+                outputs.append(iteration_outputs[body[0]] if len(body) == 1 else iteration_outputs)
+        finally:
+            self._restore_loop_value(state, "loop_context", previous_loop_context)
         event_sink.emit(node.id, "done", f"Loop reached {max_iterations} iteration limit.")
         return NodeResult(node_id=node.id, status="done", output=outputs, summary="Loop iteration limit reached.")
 
@@ -409,6 +481,11 @@ class WorkflowGraphExecutor:
             return NodeResult(node_id=node.id, status="failed", summary=f"Unknown workflow ref: {ref}")
         child_state = copy.deepcopy(state)
         child_state["workflow_stack"] = [*stack, workflow.id]
+        if node.prompt.strip():
+            child_state["subworkflow_context"] = {
+                "node_id": node.id,
+                "instruction": node.prompt.strip(),
+            }
         event_sink.emit(node.id, "status", f"Running sub-workflow: {child.name}.")
         result = await WorkflowGraphExecutor(
             handlers=self.handlers,
@@ -439,7 +516,7 @@ class WorkflowGraphExecutor:
         starts = [node.id for node in workflow.nodes if node.id not in incoming and node.id not in body_nodes]
         return starts or ([workflow.nodes[0].id] if workflow.nodes else [])
 
-    def _next_node_ids(self, workflow: WorkflowDefinition, node_id: str, state: WorkflowState) -> list[str]:
+    def next_node_ids(self, workflow: WorkflowDefinition, node_id: str, state: WorkflowState) -> list[str]:
         return [
             edge.to
             for edge in workflow.edges
@@ -448,7 +525,7 @@ class WorkflowGraphExecutor:
             and self.condition_evaluator.matches(edge.when, state)
         ]
 
-    def _failure_node_ids(self, workflow: WorkflowDefinition, node_id: str) -> list[str]:
+    def failure_node_ids(self, workflow: WorkflowDefinition, node_id: str) -> list[str]:
         return [
             edge.to
             for edge in workflow.edges
@@ -536,6 +613,7 @@ class WorkflowGraphExecutor:
             "while": node.output if (node := workflow.node(node_id)) else "",
             "workflow": node.output if (node := workflow.node(node_id)) else "",
             "tool_agent": node.output if (node := workflow.node(node_id)) else "",
+            "vision": node.output if (node := workflow.node(node_id)) else "",
         }
         return mapping.get(node.type, "")
 
@@ -571,13 +649,26 @@ class WorkflowGraphExecutor:
             return False
         try:
             from app import database
-
+        except ImportError:
+            logger.warning("pause signal lookup skipped — database module unavailable")
+            return False
+        try:
             if not database.has_workflow_run_signal(run_id, "pause"):
                 return False
-            database.clear_workflow_run_signal(run_id, "pause")
-            return True
-        except Exception:
+        except sqlite3.Error:
+            # Don't silently pretend the pause didn't happen — surface it so
+            # operators see the problem in logs. Returning False here means
+            # the workflow continues; that's intentional because we can't
+            # confirm the signal, but the warning makes the gap visible.
+            logger.warning("pause signal check failed run_id=%s", run_id, exc_info=True)
             return False
+        try:
+            database.clear_workflow_run_signal(run_id, "pause")
+        except sqlite3.Error:
+            # Already detected the signal; honour the pause even if clearing
+            # fails. The orphan signal will be cleaned up next time.
+            logger.warning("pause signal clear failed run_id=%s", run_id, exc_info=True)
+        return True
 
     def _config_int(self, value: Any, *, default: int, min_value: int) -> int:
         try:
@@ -613,3 +704,53 @@ class WorkflowGraphExecutor:
             events=event_sink.events,
             state=compact_workflow_state(state, scratchpad=deps.scratchpad),
         )
+
+
+def compile_workflow_for_execution(workflow: WorkflowDefinition) -> WorkflowDefinition:
+    """Return a new workflow with implicit routing materialised as real edges.
+
+    The only auto-routing we currently inject is for an `io.input` boundary
+    node whose user-authored edges are missing or do not cover the actual
+    start nodes. Without this step the executor would dead-end at the input
+    node, and the inspector would have no edge to highlight when it ran.
+
+    The input definition is never mutated; persistence is unaffected.
+    """
+    input_node = next(
+        (node for node in workflow.nodes if node.type == "io" and node.id == "input"),
+        None,
+    )
+    if input_node is None:
+        return workflow
+    explicit_out = [edge for edge in workflow.edges if edge.from_node == input_node.id]
+    if explicit_out:
+        return workflow
+
+    # Find every "real" start node: not the input, not an io boundary, and not
+    # already the target of a non-error/retry edge. Skip pause sources too —
+    # they only fire on resume, never as flow entry.
+    main_flow_targets: set[str] = set()
+    for edge in workflow.edges:
+        when = str(edge.when or "").strip().lower()
+        if "retry" in when or when == "error":
+            continue
+        source = workflow.node(edge.from_node)
+        if source is not None and source.type == "pause":
+            continue
+        main_flow_targets.add(edge.to)
+
+    auto_targets = [
+        node.id
+        for node in workflow.nodes
+        if node.id != input_node.id
+        and node.type != "io"
+        and node.id not in main_flow_targets
+    ]
+    if not auto_targets:
+        return workflow
+
+    extra_edges = [
+        WorkflowEdge.model_validate({"from": input_node.id, "to": target_id, "when": ""})
+        for target_id in auto_targets
+    ]
+    return workflow.model_copy(update={"edges": list(workflow.edges) + extra_edges})

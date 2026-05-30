@@ -16,9 +16,25 @@ def insert_trace_event(
     ts: str,
     payload_json: str = "{}",
     parent_step_id: Optional[str] = None,
+    db: sqlite3.Connection | None = None,
 ) -> int:
-    with get_connection() as db:
+    """Insert a raw trace event row.
+
+    When `db` is provided, the INSERT runs in the caller's transaction so
+    callers can atomically combine the insert with derived projections.
+    """
+    if db is not None:
         cursor = db.execute(
+            """
+            INSERT INTO workflow_run_events
+              (step_id, run_id, parent_step_id, workflow_id, node_id, type, ts, payload_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (step_id, run_id, parent_step_id, workflow_id, node_id, type, ts, payload_json),
+        )
+        return int(cursor.lastrowid or 0)
+    with get_connection() as own_db:
+        cursor = own_db.execute(
             """
             INSERT INTO workflow_run_events
               (step_id, run_id, parent_step_id, workflow_id, node_id, type, ts, payload_json)
@@ -55,7 +71,7 @@ def list_workflow_runs(
 ) -> list[sqlite3.Row]:
     query = (
         "SELECT id, workflow_id, chat_id, mode, status, current_node, state_json, events_json, "
-        "initial_input, fork_of_run_id, fork_at_step_id, created_at, updated_at, finished_at FROM workflow_runs"
+        "initial_input, fork_of_run_id, fork_at_node_id, created_at, updated_at, finished_at FROM workflow_runs"
     )
     where: list[str] = []
     params: list[object] = []

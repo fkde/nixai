@@ -199,6 +199,32 @@ def test_input_snapshot_captures_referenced_state_keys() -> None:
     assert started.payload["input_snapshot"] == {"greeting": "hello", "user_message": "Please handle this"}
 
 
+def test_node_started_payload_labels_node_instruction() -> None:
+    workflow = WorkflowDefinition.model_validate(
+        {
+            "id": "wf",
+            "name": "Instruction Trace",
+            "nodes": [
+                {
+                    "id": "answer",
+                    "type": "answer",
+                    "prompt": "Answer briefly.",
+                    "output": "final_answer",
+                },
+            ],
+            "edges": [],
+        }
+    )
+    handlers = {"answer": StaticNodeHandler("final_answer", "ok")}
+    emitter, persistence = _emitter()
+
+    run_async(WorkflowGraphExecutor(handlers=handlers).run(workflow, state(), deps(), event_sink(), trace=emitter))
+
+    started = next(event for event in persistence.events if event.type == "node_started")
+    assert started.payload["node_instruction"] == "Answer briefly."
+    assert started.payload["node_instruction_block"] == "## Node Instruction\nAnswer briefly."
+
+
 def test_handler_emitted_events_inherit_node_started_as_parent() -> None:
     workflow = WorkflowDefinition.model_validate(
         {
@@ -249,3 +275,91 @@ def test_unknown_node_id_in_start_list_emits_node_failed() -> None:
 
     failed = [event for event in persistence.events if event.type == "node_failed" and event.node_id == "ghost"]
     assert failed, "unknown node should emit node_failed"
+
+
+def _failing_workflow():
+    return WorkflowDefinition.model_validate(
+        {
+            "id": "wf-pause",
+            "name": "Pause on failure",
+            "nodes": [
+                {"id": "boom", "type": "role", "output": "plan"},
+                {"id": "rescue", "type": "answer", "output": "final_answer"},
+            ],
+            "edges": [{"from": "boom", "to": "rescue", "when": "error"}],
+        }
+    )
+
+
+class _FailingHandler:
+    async def run(self, workflow, node, state, deps, resolver):
+        return NodeResult(node_id=node.id, status="failed", error="boom")
+
+
+def test_pause_signal_is_honoured_on_failure_path(monkeypatch) -> None:
+    """Regression P0-5: a pause requested mid-run must apply equally whether
+    the current node finishes successfully or fails."""
+    from app import database as db_mod
+
+    workflow = _failing_workflow()
+    rescue_called: list[str] = []
+
+    class _RescueHandler:
+        async def run(self, workflow, node, state, deps, resolver):
+            rescue_called.append(node.id)
+            return NodeResult(node_id=node.id, status="done", output="ok")
+
+    handlers = {"role": _FailingHandler(), "answer": _RescueHandler()}
+
+    # Simulate one pending pause signal: True on first check, False after.
+    pending = {"n": 0}
+
+    def fake_has(_run_id, _kind):
+        pending["n"] += 1
+        return pending["n"] == 1
+
+    monkeypatch.setattr(db_mod, "has_workflow_run_signal", fake_has)
+    monkeypatch.setattr(db_mod, "clear_workflow_run_signal", lambda *_a, **_k: 1)
+
+    initial = state()
+    initial["workflow_run_id"] = "run-pause-1"
+
+    result = run_async(WorkflowGraphExecutor(handlers=handlers).run(workflow, initial, deps(), event_sink()))
+
+    # Pause was consumed after the failing node — the rescue branch must NOT run.
+    assert result.status == "paused"
+    assert rescue_called == []
+
+
+def test_pause_signal_db_error_is_logged_and_does_not_pause(monkeypatch, caplog) -> None:
+    """Regression P0-4: a DB error during pause check must not silently
+    pretend the pause didn't happen by swallowing the exception."""
+    import logging
+    import sqlite3
+
+    from app import database as db_mod
+
+    def boom(*_args, **_kwargs):
+        raise sqlite3.OperationalError("db down")
+
+    monkeypatch.setattr(db_mod, "has_workflow_run_signal", boom)
+
+    handlers = {
+        "role": StaticNodeHandler("plan", {"summary": "ok", "work_items": [{"id": "x"}]}),
+        "worker_pool": StaticNodeHandler("worker_reports", [{"id": "x"}]),
+        "reviewer": StaticNodeHandler("review", {"status": "approved"}),
+        "judge": StaticNodeHandler("decision", {"status": "done"}),
+        "answer": StaticNodeHandler("final_answer", "done"),
+    }
+    initial = state()
+    initial["workflow_run_id"] = "run-pause-err"
+
+    with caplog.at_level(logging.WARNING, logger="app.workflows.executor"):
+        result = run_async(
+            WorkflowGraphExecutor(handlers=handlers).run(workflow_definition(), initial, deps(), event_sink())
+        )
+
+    # Workflow completes despite the broken signal check (no pause applied).
+    assert result.status == "done"
+    # The failure was logged, not silently swallowed.
+    assert any("pause signal check failed" in record.getMessage() for record in caplog.records)

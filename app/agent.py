@@ -21,7 +21,7 @@ from app.context_builder import ModeContextBuilder
 from app.effort import normalize_effort
 from app.json_utils import parse_json_object
 from app.llm.ollama import OllamaClient
-from app.models import CreateMessageResponse, Message, MessageMode, new_id, utc_now
+from app.models import CreateMessageResponse, ImageAttachment, ImageAttachmentMeta, Message, MessageMode, new_id, utc_now
 from app.services import AgenticTaskService
 from app.task_discovery import TaskDiscovery
 from app.title_generation import DEFAULT_CHAT_TITLES, build_chat_title_messages, clean_chat_title
@@ -41,14 +41,26 @@ class Agent:
             self.settings.effort = normalize_effort(effort)
         self.ollama = ollama or OllamaClient(self.settings)
 
-    async def run(self, chat_id: str, user_message: str, mode: MessageMode = "chat") -> CreateMessageResponse:
-        user, answer = await self._answer(chat_id, user_message, mode)
+    async def run(
+        self,
+        chat_id: str,
+        user_message: str,
+        mode: MessageMode = "chat",
+        attachments: list[ImageAttachment] | None = None,
+    ) -> CreateMessageResponse:
+        user, answer = await self._answer(chat_id, user_message, mode, attachments=attachments)
         self._schedule_chat_title_generation(chat_id, user_message, mode)
         assistant = database.add_message(chat_id, "assistant", answer, mode=mode)
         return CreateMessageResponse(user_message=user, assistant_message=assistant)
 
-    async def stream(self, chat_id: str, user_message: str, mode: MessageMode = "chat") -> AsyncIterator[dict[str, object]]:
-        user = self._store_user_message(chat_id, user_message, mode)
+    async def stream(
+        self,
+        chat_id: str,
+        user_message: str,
+        mode: MessageMode = "chat",
+        attachments: list[ImageAttachment] | None = None,
+    ) -> AsyncIterator[dict[str, object]]:
+        user = self._store_user_message(chat_id, user_message, mode, attachments=attachments)
         yield {"type": "user_message", "message": user.model_dump()}
 
         static_answer = None
@@ -114,6 +126,7 @@ class Agent:
                     chat_id,
                     user_message,
                     mode,
+                    attachments=attachments,
                     on_event=on_workflow_event,
                     on_run_started=on_run_started,
                 )
@@ -142,6 +155,7 @@ class Agent:
             chat_id,
             user_message,
             mode,
+            attachments=attachments,
             agentic_workflow_route=agentic_workflow_route,
         )
         if workflow_answer is not None:
@@ -171,25 +185,41 @@ class Agent:
                 yield {"type": "assistant_message", "message": assistant.model_dump()}
                 yield {"type": "done", "stats": self._stream_stats(event)}
 
-    async def _answer(self, chat_id: str, user_message: str, mode: MessageMode) -> tuple[Message, str]:
-        user = self._store_user_message(chat_id, user_message, mode)
+    async def _answer(
+        self,
+        chat_id: str,
+        user_message: str,
+        mode: MessageMode,
+        attachments: list[ImageAttachment] | None = None,
+    ) -> tuple[Message, str]:
+        user = self._store_user_message(chat_id, user_message, mode, attachments=attachments)
         static_answer = await self._agentic_static_answer(user_message) if mode == "agentic" else None
         if static_answer is not None:
             return user, static_answer
-        workflow_answer = await self._workflow_answer(chat_id, user_message, mode)
+        workflow_answer = await self._workflow_answer(chat_id, user_message, mode, attachments=attachments)
         if workflow_answer is not None:
             return user, workflow_answer
         history = await self._history_with_mode_context(chat_id, mode, user_message)
         answer = await self.ollama.chat(history, model=self.settings.model_for_role(self._model_role_for_mode(mode)))
         return user, answer
 
-    def _store_user_message(self, chat_id: str, user_message: str, mode: MessageMode) -> Message:
+    def _store_user_message(
+        self,
+        chat_id: str,
+        user_message: str,
+        mode: MessageMode,
+        attachments: list[ImageAttachment] | None = None,
+    ) -> Message:
         chat = database.get_chat(chat_id)
         if chat is None:
             raise ValueError("Chat not found")
 
+        # Image bytes are intentionally not persisted in the MVP. They can be
+        # several MB per prompt, so only small metadata is attached to the
+        # returned message while base64 data stays in the active workflow run.
         user = database.add_message(chat_id, "user", user_message, mode=mode)
-        return user
+        metas = self._attachment_metadata(attachments)
+        return user.model_copy(update={"attachments": metas}) if metas else user
 
     def _schedule_chat_title_generation(self, chat_id: str, user_message: str, mode: MessageMode) -> None:
         chat = database.get_chat(chat_id)
@@ -248,6 +278,7 @@ class Agent:
         chat_id: str,
         user_message: str,
         mode: MessageMode,
+        attachments: list[ImageAttachment] | None = None,
         agentic_workflow_route: tuple[bool, str] | None = None,
     ) -> str | None:
         workflow = selected_workflow(self.settings, mode)
@@ -260,8 +291,20 @@ class Agent:
             )
             if not run_workflow:
                 return None
-        result = await WorkflowRunner(self.settings, self.ollama).run(workflow, chat_id, user_message, mode)
+        result = await WorkflowRunner(self.settings, self.ollama).run(
+            workflow,
+            chat_id,
+            user_message,
+            mode,
+            attachments=attachments,
+        )
         return result.answer
+
+    def _attachment_metadata(self, attachments: list[ImageAttachment] | None) -> list[ImageAttachmentMeta]:
+        return [
+            ImageAttachmentMeta(name=item.name, mime_type=item.mime_type, size=item.size)
+            for item in (attachments or [])
+        ]
 
     async def _should_run_agentic_workflow(self, chat_id: str, user_message: str) -> tuple[bool, str]:
         workflow = selected_workflow(self.settings, "agentic")

@@ -35,7 +35,7 @@ class FakeOllamaClient:
 
     async def chat_payload(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         model: Optional[str] = None,
         response_format: str | dict[str, Any] | None = None,
     ) -> str:
@@ -81,7 +81,7 @@ class FakeOllamaClient:
 
     async def stream_payload(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         model: Optional[str] = None,
     ) -> AsyncIterator[dict[str, object]]:
         self.stream_payload_calls.append({"messages": messages, "model": model})

@@ -340,11 +340,14 @@ def test_workflow_node_runs_referenced_subworkflow(monkeypatch: pytest.MonkeyPat
 
 
 def test_tool_agent_node_uses_inline_agentic_runner(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, Any]] = []
+
     class FakeAgenticRunner:
         def __init__(self, ollama: Any) -> None:
             self.ollama = ollama
 
         async def run_inline(self, **kwargs: Any) -> dict[str, Any]:
+            calls.append(kwargs)
             return {"status": "success", "summary": kwargs["title"], "tool_results": [{"success": True}], "error": ""}
 
     monkeypatch.setattr("app.agentic_runner.AgenticRunner", FakeAgenticRunner)
@@ -353,7 +356,14 @@ def test_tool_agent_node_uses_inline_agentic_runner(monkeypatch: pytest.MonkeyPa
             "id": "tool-agent",
             "name": "Tool Agent",
             "nodes": [
-                {"id": "research", "type": "tool_agent", "title": "Research", "output": "research_result"},
+                {
+                    "id": "research",
+                    "type": "tool_agent",
+                    "title": "Research",
+                    "input": ["user_message"],
+                    "output": "research_result",
+                    "prompt": "Use approved tools to verify the current facts.",
+                },
                 {"id": "answer", "type": "answer", "output": "final_answer"},
             ],
             "edges": [{"from": "research", "to": "answer"}],
@@ -364,6 +374,8 @@ def test_tool_agent_node_uses_inline_agentic_runner(monkeypatch: pytest.MonkeyPa
 
     assert result.status == "done"
     assert result.state["research_result"]["status"] == "success"
+    assert calls[-1]["prompt"] == "Use approved tools to verify the current facts."
+    assert calls[-1]["context"] == {"user_message": "Please handle this"}
 
 
 class StaticNodeHandler:
@@ -525,3 +537,68 @@ def event_sink() -> WorkflowEventSink:
 
 def run_async(coro):
     return asyncio.run(coro)
+
+
+def test_compile_workflow_injects_auto_edges_from_io_input() -> None:
+    """P1-9: an io.input node without explicit outbound edges auto-connects
+    to every non-IO node that isn't already an edge target."""
+    from app.workflows.executor import compile_workflow_for_execution
+
+    workflow = WorkflowDefinition.model_validate(
+        {
+            "id": "wf",
+            "name": "Boundary",
+            "nodes": [
+                {"id": "input", "type": "io", "config": {"boundary": "input"}, "output": "user_message"},
+                {"id": "answer", "type": "answer", "output": "final_answer"},
+            ],
+            "edges": [],
+        }
+    )
+    compiled = compile_workflow_for_execution(workflow)
+    edge_pairs = [(edge.from_node, edge.to) for edge in compiled.edges]
+    assert ("input", "answer") in edge_pairs
+    # Original is untouched
+    assert workflow.edges == []
+
+
+def test_compile_workflow_is_noop_when_input_has_explicit_edges() -> None:
+    from app.workflows.executor import compile_workflow_for_execution
+
+    workflow = WorkflowDefinition.model_validate(
+        {
+            "id": "wf",
+            "name": "Boundary",
+            "nodes": [
+                {"id": "input", "type": "io", "config": {"boundary": "input"}, "output": "user_message"},
+                {"id": "answer", "type": "answer", "output": "final_answer"},
+            ],
+            "edges": [{"from": "input", "to": "answer"}],
+        }
+    )
+    compiled = compile_workflow_for_execution(workflow)
+    assert compiled.edges == workflow.edges
+    # Same object reference would be best, but model_copy is also fine.
+
+
+def test_compile_workflow_skips_pause_sources_when_collecting_targets() -> None:
+    from app.workflows.executor import compile_workflow_for_execution
+
+    workflow = WorkflowDefinition.model_validate(
+        {
+            "id": "wf",
+            "name": "PauseSkip",
+            "nodes": [
+                {"id": "input", "type": "io", "config": {"boundary": "input"}, "output": "user_message"},
+                {"id": "a", "type": "answer", "output": "final_answer"},
+                {"id": "pause", "type": "pause"},
+                {"id": "b", "type": "answer", "output": "final_answer"},
+            ],
+            # b is only reachable from pause — so the auto-edge from input
+            # should still treat it as a valid root.
+            "edges": [{"from": "pause", "to": "b"}],
+        }
+    )
+    compiled = compile_workflow_for_execution(workflow)
+    targets = sorted(edge.to for edge in compiled.edges if edge.from_node == "input")
+    assert "a" in targets and "b" in targets

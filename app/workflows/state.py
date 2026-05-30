@@ -8,7 +8,7 @@ from app.code_context import CodeContextBuilder
 from app.config import Settings
 from app.effort import effort_context, normalize_effort
 from app.memory import memory_context
-from app.models import MessageMode
+from app.models import ImageAttachment, MessageMode
 from app.runtime_context import runtime_meta_context
 from app.workflow_scratch import WorkflowScratchpad, default_workflow_scratchpad
 
@@ -21,6 +21,7 @@ def initial_workflow_state(
     chat_id: str,
     user_message: str,
     mode: MessageMode,
+    attachments: list[ImageAttachment] | None = None,
     scratchpad: WorkflowScratchpad | None = None,
 ) -> WorkflowState:
     scratchpad = scratchpad or default_workflow_scratchpad
@@ -30,6 +31,15 @@ def initial_workflow_state(
         workspace = (chat.workspace_path if chat and chat.workspace_path.strip() else settings.workspace_path).strip()
     history = database.list_messages(chat_id, mode=mode)[-8:]
     code_context = CodeContextBuilder(workspace).build(user_message) if mode == "code" else ""
+    attachment_payload = [
+        {
+            "name": item.name,
+            "mime_type": item.mime_type,
+            "size": item.size,
+            "data": item.data,
+        }
+        for item in (attachments or [])
+    ]
     return {
         "chat_id": chat_id,
         "mode": mode,
@@ -49,6 +59,9 @@ def initial_workflow_state(
             for message in history
             if message.role in {"user", "assistant"}
         ],
+        # MVP: image bytes are run-scoped only and intentionally omitted from
+        # message persistence; compact state projection strips `data`.
+        "attachments": attachment_payload,
     }
 
 
@@ -68,9 +81,13 @@ def workflow_state_payload(
         "review": state.get("review"),
         "decision": state.get("decision"),
         "retry_feedback": state.get("retry_feedback"),
+        "loop_context": state.get("loop_context"),
+        "subworkflow_context": state.get("subworkflow_context"),
         "node_results": state.get("node_results", {}),
         "workflow_rounds": compact_workflow_rounds(state.get("workflow_rounds")),
     }
+    if state.get("attachments"):
+        payload["attachments"] = compact_attachments(state.get("attachments"))
     if state.get("code_context"):
         payload["code_context"] = str(state["code_context"])[:12000]
     if state.get("agentic_context"):
@@ -111,6 +128,23 @@ def compact_workflow_state(
     if state.get("final_answer_streamed"):
         compact["answer_streamed"] = True
     return compact
+
+
+def compact_attachments(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    result: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        result.append(
+            {
+                "name": str(item.get("name") or "")[:200],
+                "mime_type": str(item.get("mime_type") or "")[:80],
+                "size": item.get("size") if isinstance(item.get("size"), int) else 0,
+            }
+        )
+    return result
 
 
 _OMITTED_COMPACT_KEYS = {

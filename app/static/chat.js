@@ -15,6 +15,9 @@ const {
   sendButton,
   composerPlusButton,
   composerPlusMenu,
+  composerAttachButton,
+  composerAttachmentInput,
+  composerAttachments,
   addWorkspaceButton,
   newChatButton,
   modeSwitch,
@@ -48,6 +51,9 @@ export function createChatUi({ setStatus, toolApprovals, getSettingsUi, getAgent
     modeButtons,
     composerPlusButton,
     composerPlusMenu,
+    composerAttachButton,
+    composerAttachmentInput,
+    composerAttachments,
     addWorkspaceButton,
     setStatus,
     toolApprovals,
@@ -75,6 +81,14 @@ export function createChatUi({ setStatus, toolApprovals, getSettingsUi, getAgent
     addWorkspaceButton.addEventListener("click", () => {
       composer.closeComposerMenu();
       composer.requestWorkspacePath().catch((error) => setStatus(error.message, true));
+    });
+
+    composerAttachButton?.addEventListener("click", () => {
+      composerAttachmentInput?.click();
+    });
+
+    composerAttachmentInput?.addEventListener("change", () => {
+      composer.addAttachmentFiles(composerAttachmentInput.files).catch((error) => setStatus(error.message, true));
     });
 
     document.addEventListener("click", (event) => {

@@ -1,0 +1,33 @@
+{
+  "id": "vision_extract",
+  "name": "Vision Extract",
+  "description": "Analyzes an attached image or image-based document, then writes a concise final answer from the vision result.",
+  "modes": ["chat", "agentic"],
+  "execution": "loop",
+  "max_iterations": 1,
+  "nodes": [
+    {
+      "id": "vision",
+      "type": "vision",
+      "role": "vision",
+      "title": "Vision",
+      "prompt": "Analyze the attached image. If it looks like a document or screenshot, extract visible text with paragraph breaks. If it is a scene or object, describe the relevant visible details. Do not invent invisible details.",
+      "input": ["attachments"],
+      "output": "vision_result",
+      "position": {"x": 244, "y": 80}
+    },
+    {
+      "id": "answer",
+      "type": "answer",
+      "role": "assistant",
+      "title": "Answer",
+      "prompt": "Formulate the final answer from the user's request and the vision result. Preserve extracted text when that is the useful output.",
+      "input": ["user_message", "vision_result"],
+      "output": "final_answer",
+      "position": {"x": 464, "y": 80}
+    }
+  ],
+  "edges": [
+    {"from": "vision", "to": "answer"}
+  ]
+}
