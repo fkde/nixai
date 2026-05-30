@@ -257,6 +257,7 @@ class WorkflowGraphExecutor:
                     if resolved is not None:
                         snapshot[cleaned] = self._snapshot_safe_value(resolved)
         except Exception:
+            logger.debug("workflow input snapshot failed node_id=%s", getattr(node, "id", ""), exc_info=True)
             return snapshot
         return snapshot
 
@@ -323,6 +324,13 @@ class WorkflowGraphExecutor:
             try:
                 result = await handler.run(workflow, node, state, deps, self.resolver)
             except Exception as exc:
+                logger.warning(
+                    "workflow node handler failed workflow_id=%s node_id=%s attempt=%s",
+                    workflow.id,
+                    node.id,
+                    attempt,
+                    exc_info=True,
+                )
                 result = NodeResult(node_id=node.id, status="failed", summary="Node failed.", error=str(exc))
                 event_sink.emit(node.id, "failed", f"Node failed: {exc}")
             last_result = result

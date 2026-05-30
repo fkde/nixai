@@ -340,116 +340,100 @@ body.desktop-shell.frameless-window .desktop-titlebar::after {
 }
 
 body.desktop-shell.custom-window-controls .desktop-window-controls {
-  position: absolute;
-  top: 15px;
-  left: 22px;
-  z-index: 30;
+  position: fixed;
+  top: 16px;
+  left: 28px;
+  z-index: 60;
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 7px;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 body.desktop-shell.custom-window-controls .desktop-window-button {
-  --gem-mid: rgba(255, 255, 255, 0.3);
-  --gem-deep: rgba(255, 255, 255, 0.19);
-  --gem-ink: rgba(24, 17, 18, 0.68);
+  --window-action-color: #8d97a3;
+  --window-action-ink: rgba(25, 30, 36, 0.76);
   position: relative;
-  isolation: isolate;
-  width: 18px;
-  height: 18px;
-  min-height: 18px;
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
   padding: 0;
   border: 0;
-  border-radius: 0;
-  overflow: visible;
+  border-radius: 999px;
+  clip-path: none;
   background: transparent;
+  color: var(--window-action-ink);
+  overflow: visible;
   box-shadow: none;
   transform: none;
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
 
-body.desktop-shell.custom-window-controls .desktop-window-button::before,
-body.desktop-shell.custom-window-controls .desktop-window-button::after {
+body.desktop-shell.custom-window-controls .desktop-window-button::before {
   content: "";
   position: absolute;
+  inset: 3px;
   pointer-events: none;
-}
-
-body.desktop-shell.custom-window-controls .desktop-window-button::before {
-  top: 50%;
-  left: 50%;
-  z-index: 0;
-  width: 11px;
-  height: 15px;
-  border-radius: 8px 5px 5px 5px;
-  background: linear-gradient(135deg, var(--gem-mid) 0 56%, var(--gem-deep) 100%);
+  border-radius: 999px;
+  background: var(--window-action-color);
   box-shadow:
-    inset -0.5px -0.5px 0 rgba(0, 0, 0, 0.12),
-    0 1px 2px rgba(0, 0, 0, 0.34);
-  transform: translate(-50%, -50%) rotate(45deg);
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.16),
+    0 1px 3px rgba(0, 0, 0, 0.34);
   transition:
     box-shadow 140ms var(--ease-snap),
     filter 140ms var(--ease-snap),
     transform 140ms var(--ease-snap);
 }
 
-body.desktop-shell.custom-window-controls .desktop-window-button::after {
-  top: 50%;
-  left: 50%;
-  z-index: 1;
-  width: 11px;
-  height: 15px;
-  border-radius: 8px 5px 5px 5px;
-  background: transparent;
-  opacity: 0;
-  transform: translate(-50%, -50%) rotate(45deg);
-  transition:
-    filter 140ms var(--ease-snap),
-    opacity 140ms var(--ease-snap),
-    transform 140ms var(--ease-snap);
-}
-
 body.desktop-shell.custom-window-controls .desktop-window-button:hover {
   border: 0;
+  background: transparent;
   transform: none;
   box-shadow: none;
 }
 
 body.desktop-shell.custom-window-controls .desktop-window-button:hover::before {
-  filter: saturate(1.04);
-  transform: translate(-50%, -50%) rotate(45deg) scale(1.03);
+  filter: saturate(1.08) brightness(1.03);
+  transform: scale(1.04);
   box-shadow:
-    inset -0.5px -0.5px 0 rgba(0, 0, 0, 0.14),
-    0 2px 3px rgba(0, 0, 0, 0.38);
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+    0 2px 5px rgba(0, 0, 0, 0.38);
 }
 
-body.desktop-shell.custom-window-controls .desktop-window-button:hover::after {
-  opacity: 0;
-  transform: translate(-50%, -50%) rotate(45deg) scale(1.03);
+body.desktop-shell.custom-window-controls .desktop-window-button:active {
+  transform: none;
+}
+
+body.desktop-shell.custom-window-controls .desktop-window-button:active::before {
+  filter: saturate(0.98) brightness(0.92);
+  transform: scale(0.96);
 }
 
 body.desktop-shell.custom-window-controls .desktop-window-button:focus-visible {
-  outline: 2px solid rgba(184, 253, 255, 0.82);
-  outline-offset: 3px;
+  outline: 2px solid rgba(184, 253, 255, 0.78);
+  outline-offset: 2px;
 }
 
 body.desktop-shell.custom-window-controls .desktop-window-button.close {
-  --gem-mid: #ff564d;
-  --gem-deep: #c9343d;
-  --gem-ink: rgba(86, 24, 30, 0.72);
+  --window-action-color: #ff5f57;
+  --window-action-ink: #742020;
 }
 
 body.desktop-shell.custom-window-controls .desktop-window-button.minimize {
-  --gem-mid: #ffbd2e;
-  --gem-deep: #bd7f12;
-  --gem-ink: rgba(84, 56, 8, 0.72);
+  --window-action-color: #ffbd2e;
+  --window-action-ink: #6d4f00;
 }
 
 body.desktop-shell.custom-window-controls .desktop-window-button.zoom {
-  --gem-mid: #2acb47;
-  --gem-deep: #108a38;
-  --gem-ink: rgba(12, 72, 29, 0.74);
+  --window-action-color: #28c840;
+  --window-action-ink: #0f6427;
 }
 
 body.desktop-shell.custom-window-controls .desktop-window-button span {
@@ -458,14 +442,8 @@ body.desktop-shell.custom-window-controls .desktop-window-button span {
   display: block;
   width: 100%;
   height: 100%;
-  color: var(--gem-ink);
-  opacity: 0.76;
-  transition: opacity 120ms var(--ease-snap);
-}
-
-body.desktop-shell.custom-window-controls .desktop-window-controls:hover .desktop-window-button span,
-body.desktop-shell.custom-window-controls .desktop-window-button:focus-visible span {
-  opacity: 0.96;
+  color: var(--window-action-ink);
+  opacity: 0.92;
 }
 
 body.desktop-shell.custom-window-controls .desktop-window-button.close span::before,
@@ -477,11 +455,10 @@ body.desktop-shell.custom-window-controls .desktop-window-button.zoom span::afte
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 8px;
-  height: 1.7px;
-  border-radius: 99px;
+  width: 6px;
+  height: 1.75px;
+  border-radius: 999px;
   background: currentColor;
-  box-shadow: 0 0 1px rgba(255, 255, 255, 0.24);
   transform-origin: center;
 }
 
@@ -498,14 +475,14 @@ body.desktop-shell.custom-window-controls .desktop-window-button.minimize span::
 }
 
 body.desktop-shell.custom-window-controls .desktop-window-button.zoom span::before {
-  width: 7.25px;
-  transform: translate(-50%, -50%);
+  width: 6px;
+  transform: translate(-50%, -50%) rotate(-45deg);
 }
 
 body.desktop-shell.custom-window-controls .desktop-window-button.zoom span::after {
-  width: 1.7px;
-  height: 7.25px;
-  transform: translate(-50%, -50%);
+  width: 1.75px;
+  height: 6px;
+  transform: translate(-50%, -50%) rotate(45deg);
 }
 
 body.desktop-shell.frameless-window .brand {

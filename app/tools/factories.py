@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from app.tools import filesystem, git, internet, notification, shell
+from app.tools import editing, filesystem, git, internet, notification, shell
 from app.tools.definitions import ToolDefinition, ToolHandler
 
 
@@ -51,6 +51,35 @@ def make_workspace_search_files_tool() -> ToolDefinition:
     )
 
 
+def make_workspace_edit_file_tool() -> ToolDefinition:
+    return ToolDefinition(
+        name="nixai_workspace_edit_file",
+        description="Previews and writes a UTF-8 text file inside the configured workspace after approval.",
+        routing_description=(
+            "Use when the user asks to edit, patch, create, update, or replace a workspace text file. "
+            "The tool always shows a diff preview before writing."
+        ),
+        input_schema=_object_schema(
+            {
+                "path": _string_schema("Workspace-relative file path."),
+                "content": _string_schema("Complete new UTF-8 file content to write."),
+                "expected_sha256": _string_schema("Optional previous content hash from the approval preview."),
+            },
+            ["path", "content"],
+        ),
+        handler=lambda args: editing.edit_file(args),
+        preview_handler=lambda args: editing.preview_edit_file(args),
+        examples=[
+            "Edit app/main.py",
+            "Patch this file",
+            "Ändere README.md",
+            "Create docs/notes.md",
+            "Schreibe diese Datei",
+        ],
+        meta={"autoRun": False, "requiresPerCallConfirmation": True},
+    )
+
+
 def make_git_status_tool() -> ToolDefinition:
     return ToolDefinition(
         name="nixai_git_status",
@@ -88,14 +117,16 @@ def make_shell_command_tool() -> ToolDefinition:
 def make_desktop_notification_tool() -> ToolDefinition:
     return ToolDefinition(
         name="nixai_notify_desktop",
-        description="Sends a macOS desktop notification from NixAI.",
-        routing_description="Use when the user asks NixAI to notify them, alert them, or send a local Mac notification.",
+        description="Sends a local desktop notification from NixAI when the current platform supports it.",
+        routing_description="Use when the user asks NixAI to notify them, alert them, or send a local desktop notification.",
         input_schema=_object_schema(
             {
                 "title": _string_schema("Short notification title."),
                 "message": _string_schema("Notification body text."),
                 "subtitle": _string_schema("Optional notification subtitle."),
-                "sound": _string_schema('Optional macOS notification sound name, or "none" for silent.'),
+                "sound": _string_schema(
+                    'Optional macOS notification sound name, or "none" for silent. Ignored on Linux and Windows.'
+                ),
             },
             ["message"],
         ),
@@ -105,7 +136,11 @@ def make_desktop_notification_tool() -> ToolDefinition:
             str(args.get("subtitle") or ""),
             str(args.get("sound") or "Glass"),
         ),
-        examples=["Notify me when the task is done", "Mac Notification senden", "Schick mir eine lokale Erinnerung"],
+        examples=[
+            "Notify me when the task is done",
+            "Desktop-Benachrichtigung senden",
+            "Schick mir eine lokale Erinnerung",
+        ],
         meta={"autoRun": False},
     )
 
@@ -180,6 +215,7 @@ def base_tool_factories(search_handler: ToolHandler) -> list[ToolFactory]:
         make_workspace_list_files_tool,
         make_workspace_read_file_tool,
         make_workspace_search_files_tool,
+        make_workspace_edit_file_tool,
         make_git_status_tool,
         make_git_diff_tool,
         make_shell_command_tool,

@@ -5,7 +5,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from app.config import config_dir
-from app.runtime_context import local_now
+from app.runtime_meta import local_now
 
 
 MAX_SCRATCH_CHARS = 120_000

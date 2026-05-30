@@ -44,6 +44,9 @@ CONTEXT_TOOL_NAMES: frozenset[str] = frozenset(
 )
 
 
+PER_CALL_CONFIRMATION_TOOL_NAMES: frozenset[str] = frozenset({"nixai_workspace_edit_file"})
+
+
 # Tools that never require user confirmation when executed autonomously by
 # scheduled tasks. They are user-facing and bounded by the OS.
 _AUTONOMOUS_NO_APPROVAL: frozenset[str] = frozenset({"nixai_notify_desktop"})
@@ -77,16 +80,24 @@ class ToolPolicyService:
     # ----- interactive chat call (API) ---------------------------------------
 
     def requires_confirmation(self, name: str) -> bool:
+        if name in PER_CALL_CONFIRMATION_TOOL_NAMES:
+            return True
         return self.settings.require_tool_confirmation and not self.settings.is_tool_always_allowed(name)
 
     def is_always_allowed(self, name: str) -> bool:
+        if name in PER_CALL_CONFIRMATION_TOOL_NAMES:
+            return False
         return self.settings.is_tool_always_allowed(name)
+
+    def requires_per_call_confirmation(self, name: str) -> bool:
+        return name in PER_CALL_CONFIRMATION_TOOL_NAMES
 
     def annotate(self, tool: dict[str, Any]) -> dict[str, Any]:
         """Return a copy of a tool definition with policy metadata."""
         meta = dict(tool.get("meta") or {})
         meta["requiresConfirmation"] = self.requires_confirmation(tool["name"])
         meta["alwaysAllowed"] = self.is_always_allowed(tool["name"])
+        meta["requiresPerCallConfirmation"] = self.requires_per_call_confirmation(tool["name"])
         annotated = dict(tool)
         annotated["meta"] = meta
         return annotated

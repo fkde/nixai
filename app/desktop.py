@@ -4,6 +4,7 @@ import socket
 import sys
 import threading
 import time
+import logging
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -14,6 +15,7 @@ from app.database import init_db
 
 TEMPLATE_DIR = Path(__file__).with_name("templates")
 FRAMELESS_DESKTOP = True
+logger = logging.getLogger(__name__)
 
 
 class DesktopApi:
@@ -26,12 +28,14 @@ class DesktopApi:
             return False
         try:
             from PyObjCTools import AppHelper
-        except Exception:
+        except ImportError:
+            logger.debug("PyObjCTools AppHelper is not available for macOS window action")
             return False
         try:
             AppHelper.callAfter(action)
             return True
         except Exception:
+            logger.warning("failed to dispatch macOS window action", exc_info=True)
             return False
 
     def choose_workspace(self) -> str:
@@ -65,8 +69,10 @@ class DesktopApi:
                 if app is not None and hasattr(app, "terminate_"):
                     app.terminate_(None)
                     return
+            except ImportError:
+                logger.debug("AppKit is not available for close_window action")
             except Exception:
-                pass
+                logger.warning("native AppKit close action failed", exc_info=True)
             native = getattr(self.window, "native", None)
             if native is not None and hasattr(native, "performClose_"):
                 native.performClose_(None)
@@ -147,7 +153,8 @@ def _wait_until_ready(url: str, timeout: float = 10.0) -> None:
 def _configure_macos_chrome(window: object, show_native_buttons: bool = True) -> None:
     try:
         import AppKit
-    except Exception:
+    except ImportError:
+        logger.debug("AppKit is not available for macOS chrome configuration")
         return
 
     native = getattr(window, "native", None)
@@ -169,6 +176,7 @@ def _configure_macos_chrome(window: object, show_native_buttons: bool = True) ->
             if button is not None:
                 button.setHidden_(not show_native_buttons)
     except Exception:
+        logger.warning("failed to configure macOS window chrome", exc_info=True)
         return
 
 
@@ -177,11 +185,13 @@ def _schedule_macos_chrome(window: object, show_native_buttons: bool = True) -> 
         return
     try:
         from PyObjCTools import AppHelper
-    except Exception:
+    except ImportError:
+        logger.debug("PyObjCTools AppHelper is not available for macOS chrome scheduling")
         return
     try:
         AppHelper.callAfter(_configure_macos_chrome, window, show_native_buttons)
     except Exception:
+        logger.warning("failed to schedule macOS chrome configuration", exc_info=True)
         return
 
 
@@ -247,6 +257,7 @@ def run_desktop(host: str = "127.0.0.1", port: int = 0) -> None:
             if api.window is not None:
                 api.window.load_url(url)
         except Exception as exc:
+            logger.warning("desktop server bootstrap failed url=%s", url, exc_info=True)
             server.should_exit = True
             if api.window is not None:
                 api.window.load_html(_error_html(str(exc)))

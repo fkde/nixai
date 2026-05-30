@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from platformdirs import user_config_dir, user_data_dir
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.effort import normalize_effort
 from app.validation import MAX_NAME_LENGTH, clean_single_line, validate_http_url, validate_workspace_path
@@ -26,6 +26,17 @@ class EmailProviderSettings(BaseModel):
     status: str = "disconnected"
     account_email: str = ""
     scopes: list[str] = Field(default_factory=list)
+
+
+class SearchProviderSettings(BaseModel):
+    provider: str = "duckduckgo_html"
+    endpoint_url: str = ""
+    api_key: str = ""
+    api_key_header: str = ""
+    api_key_param: str = ""
+    query_param: str = "q"
+    limit_param: str = "limit"
+    results_path: str = "results"
 
 
 def default_model_roles() -> list[ModelRole]:
@@ -59,13 +70,11 @@ def normalize_workflow_preset_id(workflow_id: str) -> str:
 
 
 class Settings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     user_name: str = ""
     ollama_base_url: str = "http://localhost:11434"
     default_model: str = "llama3.1:8b"
-    planner_model: str = "gemma4:e4b"
-    worker_model: str = "llama3.1:8b"
-    reviewer_model: str = "gemma4:e4b"
-    judge_model: str = "llama3.1:8b"
     workspace_path: str = Field(default_factory=lambda: str(Path.home()))
     model_roles: list[ModelRole] = Field(default_factory=default_model_roles)
     embedding_model: str = ""
@@ -76,6 +85,7 @@ class Settings(BaseModel):
     workflow_presets: dict[str, str] = Field(default_factory=default_workflow_presets)
     effort: str = "medium"
     email_provider: EmailProviderSettings = Field(default_factory=EmailProviderSettings)
+    search_provider: SearchProviderSettings = Field(default_factory=SearchProviderSettings)
 
     @field_validator("user_name", mode="before")
     @classmethod
@@ -166,18 +176,7 @@ def load_settings() -> Settings:
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
     settings = Settings.model_validate(data)
-    if "model_roles" not in data:
-        settings.model_roles = [
-            ModelRole(role="assistant", model=settings.default_model),
-            ModelRole(role="planner", model=settings.planner_model),
-            ModelRole(role="worker", model=settings.worker_model),
-            ModelRole(role="reviewer", model=settings.reviewer_model),
-            ModelRole(role="judge", model=settings.judge_model),
-            ModelRole(role="task_discovery", model=settings.default_model),
-            ModelRole(role="vision", model=""),
-        ]
-        save_settings(settings)
-    else:
+    if "model_roles" in data:
         changed_roles = False
         required_roles = {"task_discovery": settings.default_model, "vision": ""}
         existing = {role.role.strip().casefold() for role in settings.model_roles}
@@ -203,11 +202,6 @@ def load_settings() -> Settings:
 
 def save_settings(settings: Settings) -> None:
     settings.user_name = " ".join(settings.user_name.strip().split())[:80]
-    settings.default_model = settings.model_for_role("assistant")
-    settings.planner_model = settings.model_for_role("planner")
-    settings.worker_model = settings.model_for_role("worker")
-    settings.reviewer_model = settings.model_for_role("reviewer")
-    settings.judge_model = settings.model_for_role("judge")
     settings.always_allowed_tools = sorted({name.strip() for name in settings.always_allowed_tools if name.strip()})
     settings.effort = normalize_effort(settings.effort)
     defaults = default_workflow_presets()
@@ -221,6 +215,16 @@ def save_settings(settings: Settings) -> None:
         settings.email_provider.provider = ""
     if settings.email_provider.status not in {"disconnected", "pending", "connected", "error"}:
         settings.email_provider.status = "disconnected"
+    settings.search_provider.provider = settings.search_provider.provider.strip().lower() or "duckduckgo_html"
+    if settings.search_provider.provider not in {"duckduckgo_html", "json_api"}:
+        settings.search_provider.provider = "duckduckgo_html"
+    settings.search_provider.endpoint_url = settings.search_provider.endpoint_url.strip()
+    settings.search_provider.api_key = settings.search_provider.api_key.strip()
+    settings.search_provider.api_key_header = settings.search_provider.api_key_header.strip()
+    settings.search_provider.api_key_param = settings.search_provider.api_key_param.strip()
+    settings.search_provider.query_param = settings.search_provider.query_param.strip() or "q"
+    settings.search_provider.limit_param = settings.search_provider.limit_param.strip() or "limit"
+    settings.search_provider.results_path = settings.search_provider.results_path.strip() or "results"
     path = config_path()
     with path.open("w", encoding="utf-8") as handle:
         json.dump(settings.model_dump(), handle, indent=2)

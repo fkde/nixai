@@ -67,6 +67,8 @@ class ToolCatalog:
             capabilities.append("filesystem.read")
         if self._contains(text, ["search", "find"]):
             capabilities.append("filesystem.search")
+        if self._contains(text, ["write", "edit", "patch", "update", "replace", "create file", "create, update"]):
+            capabilities.append("filesystem.write")
         if self._contains(text, ["git status"]):
             capabilities.append("git.status")
         if self._contains(text, ["git diff", "diff"]):

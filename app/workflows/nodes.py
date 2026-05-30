@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
@@ -23,6 +24,7 @@ from app.workflows.state import WorkflowState
 
 
 NodeStatus = Literal["done", "retry", "needs_user", "failed", "skipped"]
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -227,6 +229,7 @@ class VisionNodeHandler:
             deps.event_sink.emit(node.id, "failed", message)
             return NodeResult(node_id=node.id, status="failed", summary=message, error=message)
         except Exception as exc:
+            logger.warning("vision node model call failed node_id=%s model=%s", node.id, model, exc_info=True)
             message = (
                 "Vision model call failed. Check that the selected Ollama model supports image input "
                 f"and is available. Detail: {exc}"

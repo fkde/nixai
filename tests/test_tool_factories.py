@@ -11,6 +11,7 @@ def test_tool_factories_create_expected_core_tools() -> None:
         "nixai_workspace_list_files",
         "nixai_workspace_read_file",
         "nixai_workspace_search_files",
+        "nixai_workspace_edit_file",
         "nixai_git_status",
         "nixai_git_diff",
         "nixai_run_command",

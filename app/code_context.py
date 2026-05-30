@@ -1,15 +1,53 @@
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
-from app.code_context_tools import CodeContextTools, DefaultCodeContextTools
+from app.tools import filesystem, git
 from app.tools.workspace import WorkspaceError
+from app.tools.workspace import workspace_root
 
 
 MAX_RESULT_CHARS = 8_000
 MAX_CONTEXT_CHARS = 24_000
+logger = logging.getLogger(__name__)
+
+
+# Protocol keeps code-context gathering injectable for tests and alternate tool backends.
+class CodeContextTools(Protocol):
+    def workspace_root(self, workspace_path: str) -> Path: ...
+
+    def list_files(self, path: str, workspace_path: str) -> object: ...
+
+    def read_file(self, path: str, workspace_path: str) -> object: ...
+
+    def search_files(self, query: str, workspace_path: str) -> object: ...
+
+    def git_status(self, workspace_path: str) -> object: ...
+
+    def git_diff(self, workspace_path: str) -> object: ...
+
+
+class DefaultCodeContextTools:
+    def workspace_root(self, workspace_path: str) -> Path:
+        return workspace_root(workspace_path)
+
+    def list_files(self, path: str, workspace_path: str) -> object:
+        return filesystem.list_files(path, workspace_path)
+
+    def read_file(self, path: str, workspace_path: str) -> object:
+        return filesystem.read_file(path, workspace_path)
+
+    def search_files(self, query: str, workspace_path: str) -> object:
+        return filesystem.search_files(query, workspace_path)
+
+    def git_status(self, workspace_path: str) -> object:
+        return git.git_status(workspace_path)
+
+    def git_diff(self, workspace_path: str) -> object:
+        return git.git_diff(workspace_path)
 
 
 class CodeContextBuilder:
@@ -119,6 +157,13 @@ class CodeContextBuilder:
             else:
                 result = f"Tool is not available in code context: {tool}"
         except Exception as exc:
+            logger.warning(
+                "code context tool call failed tool=%s workspace=%s arguments=%s",
+                tool,
+                self.workspace_path,
+                arguments,
+                exc_info=True,
+            )
             result = f"Tool error: {exc}"
         return {"tool": tool, "arguments": arguments, "result": result}
 

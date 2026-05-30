@@ -14,6 +14,7 @@ class ToolDefinition:
     description: str
     input_schema: dict[str, Any]
     handler: ToolHandler
+    preview_handler: ToolHandler | None = None
     routing_description: str = ""
     examples: list[str] = field(default_factory=list)
     meta: dict[str, Any] = field(default_factory=dict)
@@ -37,6 +38,7 @@ class ToolDefinition:
             description=self.description,
             input_schema=self.input_schema,
             handler=self.handler,
+            preview_handler=self.preview_handler,
             routing_description=self.routing_description,
             examples=self.examples,
             meta=meta,

@@ -11,7 +11,7 @@ from __future__ import annotations
 from app.effort import effort_context
 from app.memory import memory_context
 from app.roles import role_prompt
-from app.runtime_context import runtime_meta_context
+from app.runtime_meta import runtime_meta_context
 
 
 def compose_role_block(

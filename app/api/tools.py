@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -13,6 +14,7 @@ from app.tools.routing.types import ToolContext
 
 
 router = APIRouter(prefix="/api/tools", tags=["tools"])
+logger = logging.getLogger(__name__)
 
 
 class SelectToolsRequest(BaseModel):
@@ -56,20 +58,29 @@ def call_tool(request: CallToolRequest) -> dict[str, Any]:
         definition = next((tool for tool in registry.public_definitions() if tool["name"] == name), None)
         if definition is None:
             raise HTTPException(status_code=400, detail=f"Unknown tool: {name}")
+        try:
+            preview = registry.preview(name, request.arguments)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        arguments = request.arguments
+        if isinstance(preview, dict) and isinstance(preview.get("commit_arguments"), dict):
+            arguments = preview["commit_arguments"]
         return {
             "success": False,
             "tool": name,
             "approval_required": True,
             "tool_definition": definition,
-            "arguments": request.arguments,
+            "arguments": arguments,
+            "preview": preview,
             "message": "Tool call requires user approval.",
         }
 
-    if request.always_allow and not policy.is_always_allowed(name):
+    if request.always_allow and not policy.requires_per_call_confirmation(name) and not policy.is_always_allowed(name):
         settings.always_allowed_tools.append(name)
         save_settings(settings)
 
     try:
         return {"success": True, "tool": name, "result": registry.call(name, request.arguments)}
     except Exception as exc:
+        logger.warning("tool API call failed tool=%s arguments=%s", name, request.arguments, exc_info=True)
         raise HTTPException(status_code=400, detail=str(exc)) from exc

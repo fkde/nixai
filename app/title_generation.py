@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.models import MessageMode
-from app.runtime_context import runtime_meta_context
+from app.runtime_meta import runtime_meta_context
 
 
 DEFAULT_CHAT_TITLES = {"Neuer Chat", "New Chat"}

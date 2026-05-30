@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+
+from pydantic import ValidationError
 
 from app.config import config_dir, default_workflow_presets, normalize_workflow_preset_id
 from app.models import MessageMode
 from app.validation import validate_slug
 from app.workflows.ir import export_workflow_payload, migrate_workflow_payload
 from app.workflows.models import WorkflowDefinition, WorkflowSummary
+
+
+logger = logging.getLogger(__name__)
 
 
 def bundled_workflow_dir() -> Path:
@@ -104,7 +110,8 @@ def _load_workflow_file(path: Path) -> WorkflowDefinition | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         return WorkflowDefinition.model_validate(migrate_workflow_payload(data))
-    except Exception:
+    except (OSError, json.JSONDecodeError, TypeError, ValueError, ValidationError):
+        logger.warning("failed to load workflow definition path=%s", path, exc_info=True)
         return None
 
 

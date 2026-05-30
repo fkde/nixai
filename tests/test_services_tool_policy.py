@@ -20,6 +20,7 @@ def test_unlisted_tool_is_not_autonomous() -> None:
     policy = ToolPolicyService(_settings())
 
     assert policy.is_autonomous("nixai_run_command") is False
+    assert policy.is_autonomous("nixai_workspace_edit_file") is False
     assert policy.is_autonomous("not_a_tool") is False
 
 
@@ -49,3 +50,13 @@ def test_requires_confirmation_and_annotate() -> None:
     assert annotated["meta"]["requiresConfirmation"] is True
     assert annotated["meta"]["alwaysAllowed"] is False
     assert annotated["meta"]["autoRun"] is False
+
+
+def test_write_tool_always_requires_per_call_confirmation() -> None:
+    policy = ToolPolicyService(
+        _settings(require_tool_confirmation=False, always_allowed_tools=["nixai_workspace_edit_file"])
+    )
+
+    assert policy.requires_confirmation("nixai_workspace_edit_file") is True
+    assert policy.is_always_allowed("nixai_workspace_edit_file") is False
+    assert policy.requires_per_call_confirmation("nixai_workspace_edit_file") is True

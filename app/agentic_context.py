@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from html.parser import HTMLParser
 from typing import Any, Optional
 
@@ -11,7 +12,7 @@ from app.config import Settings
 from app.effort import effort_context, effort_tool_calls, effort_tool_steps
 from app.json_utils import parse_json_object_strict
 from app.llm.ollama import OllamaClient, OllamaError
-from app.runtime_context import runtime_meta_context
+from app.runtime_meta import runtime_meta_context
 from app.services.tool_policy import ToolPolicyService
 from app.tools.registry import registry
 
@@ -21,6 +22,7 @@ MAX_FETCH_CHARS = 5_500
 MAX_TOOL_RESULT_CHARS = 8_000
 MAX_TOOL_STEPS = 3
 MAX_TOOL_CALLS_PER_STEP = 4
+logger = logging.getLogger(__name__)
 
 
 class AgenticToolCall(BaseModel):
@@ -149,6 +151,7 @@ class AgenticContextBuilder:
                 result = await asyncio.to_thread(registry.call, name, arguments)
                 results.append({"tool": name, "arguments": arguments, "success": True, "result": result})
             except Exception as exc:
+                logger.warning("agentic context tool call failed tool=%s arguments=%s", name, arguments, exc_info=True)
                 results.append({"tool": name, "arguments": arguments, "success": False, "error": str(exc)})
         return results
 
@@ -249,6 +252,7 @@ def _readable_text(text: str) -> str:
     try:
         parser.feed(text)
     except Exception:
+        logger.debug("failed to parse HTML text for readable extraction", exc_info=True)
         return _compact_whitespace(text)
     return _compact_whitespace("".join(parser.parts))
 

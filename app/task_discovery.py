@@ -12,7 +12,7 @@ from app.effort import effort_context
 from app.json_utils import parse_json_object_strict
 from app.llm.ollama import OllamaClient, OllamaError
 from app.roles import role_prompt
-from app.runtime_context import runtime_meta_context
+from app.runtime_meta import runtime_meta_context
 
 
 class TaskDiscoveryResult(BaseModel):
@@ -177,7 +177,7 @@ class TaskDiscovery:
             "- Preserve the user's requested action in prompt.\n"
             "- Do not translate title or prompt. Keep both in the same language as the user's request.\n"
             "- If the user wrote German, title and prompt must be German; if the user wrote English, title and prompt must be English.\n"
-            "- CRITICAL: For reminders, alerts, wake-ups, and follow-ups, the prompt MUST clearly say that NixAI should send a local Mac desktop notification when the task runs. "
+            "- CRITICAL: For reminders, alerts, wake-ups, and follow-ups, the prompt MUST clearly say that NixAI should send a local desktop notification when the task runs. "
             "Write that notification instruction in the same language as the user's request. "
             "This applies to both one_shot_task and recurring_task."
         )
@@ -205,7 +205,7 @@ class TaskDiscovery:
             "- For recurring_task, use schedules like daily at 18:00, weekly monday at 09:00, monthly on day 1 at 08:00.\n"
             "- If the user wants a reminder but the date or time is missing, leave schedule empty and fill missing_info.\n"
             "- Do not translate title or prompt. Correct translated text back into the user's language.\n"
-            "- Reminder prompts must clearly say that NixAI should send a local Mac desktop notification when the task runs, in the user's language.\n\n"
+            "- Reminder prompts must clearly say that NixAI should send a local desktop notification when the task runs, in the user's language.\n\n"
             "JSON schema:\n"
             '{"kind":"recurring_task | one_shot_task | chat","confidence":0.0,"title":"","prompt":"","schedule":"","missing_info":[],"reason":""}'
         )

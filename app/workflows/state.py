@@ -9,7 +9,7 @@ from app.config import Settings
 from app.effort import effort_context, normalize_effort
 from app.memory import memory_context
 from app.models import ImageAttachment, MessageMode
-from app.runtime_context import runtime_meta_context
+from app.runtime_meta import runtime_meta_context
 from app.workflow_scratch import WorkflowScratchpad, default_workflow_scratchpad
 
 

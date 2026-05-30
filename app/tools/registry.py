@@ -26,6 +26,15 @@ class ToolRegistry:
                 return definition.handler(arguments)
         raise ValueError(f"Unknown tool: {name}")
 
+    def preview(self, name: str, arguments: dict[str, Any] | None = None) -> Any | None:
+        arguments = arguments or {}
+        for definition in self.definitions():
+            if definition.name == name:
+                if definition.preview_handler is None:
+                    return None
+                return definition.preview_handler(arguments)
+        raise ValueError(f"Unknown tool: {name}")
+
     def _search_tool(self, args: dict[str, Any]) -> dict[str, Any]:
         from app.tools.routing.semantic import SemanticToolRouter, ToolContext
 

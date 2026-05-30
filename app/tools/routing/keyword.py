@@ -148,6 +148,19 @@ class KeywordToolRouter:
             "filesystem.list": ["list", "files", "dateien", "struktur", "tree"],
             "filesystem.read": ["read", "öffne", "oeffne", "zeige", "file", "datei", "content"],
             "filesystem.search": ["search", "find", "suche", "wo", "symbol"],
+            "filesystem.write": [
+                "edit",
+                "modify",
+                "patch",
+                "write",
+                "create",
+                "update",
+                "replace",
+                "bearbeite",
+                "ändere",
+                "aendere",
+                "schreibe",
+            ],
             "git.status": ["git", "status", "changed", "änderungen", "aenderungen"],
             "git.diff": ["diff", "changes", "review", "patch"],
             "command.run": ["test", "phpunit", "composer", "npm", "build", "run"],
@@ -186,7 +199,20 @@ class KeywordToolRouter:
     def _has_write_intent(self, query: str) -> bool:
         return any(
             needle in query
-            for needle in ["create", "add", "write", "update", "delete", "erstelle", "ändere", "aendere"]
+            for needle in [
+                "create",
+                "add",
+                "edit",
+                "modify",
+                "patch",
+                "write",
+                "update",
+                "delete",
+                "erstelle",
+                "bearbeite",
+                "ändere",
+                "aendere",
+            ]
         )
 
     def _wants_catalog(self, message: str) -> bool:

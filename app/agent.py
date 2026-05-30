@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Any, Optional
+from typing import Optional
 
 from app import database
 from app.agentic_routing import (
@@ -19,7 +19,6 @@ from app.agentic_routing import (
 from app.config import load_settings
 from app.context_builder import ModeContextBuilder
 from app.effort import normalize_effort
-from app.json_utils import parse_json_object
 from app.llm.ollama import OllamaClient
 from app.models import (
     CreateMessageResponse,
@@ -56,9 +55,7 @@ class Agent:
         mode: MessageMode = "chat",
         attachments: list[ImageAttachment] | None = None,
     ) -> CreateMessageResponse:
-        user, answer = await self._answer(chat_id, user_message, mode, attachments=attachments)
-        self._schedule_chat_title_generation(chat_id, user_message, mode)
-        assistant = database.add_message(chat_id, "assistant", answer, mode=mode)
+        user, assistant = await self._answer(chat_id, user_message, mode, attachments=attachments)
         return CreateMessageResponse(user_message=user, assistant_message=assistant)
 
     async def stream(
@@ -82,19 +79,17 @@ class Agent:
             async for chunk in self._stream_static_text(static_answer):
                 streamed += chunk
                 yield {"type": "token", "content": chunk}
-            assistant = database.add_message(chat_id, "assistant", static_answer, mode=mode)
-            self._schedule_chat_title_generation(chat_id, user_message, mode)
-            yield {"type": "assistant_message", "message": assistant.model_dump()}
-            yield {"type": "done", "stats": {"eval_count": len(streamed.split())}}
+            async for event in self._finalize_assistant_turn(
+                chat_id, user_message, static_answer, mode, {"eval_count": len(streamed.split())}
+            ):
+                yield event
             return
 
         workflow = selected_workflow(self.settings, mode)
         run_agentic_workflow = False
-        agentic_workflow_route: tuple[bool, str] | None = None
         if mode == "agentic" and workflow is not None and not workflow.is_direct():
             yield {"type": "status", "message": "Choosing response path..."}
             run_agentic_workflow, route_reason = await self._should_run_agentic_workflow(chat_id, user_message)
-            agentic_workflow_route = (run_agentic_workflow, route_reason)
             yield {
                 "type": "agentic_route",
                 "path": "workflow" if run_agentic_workflow else "direct",
@@ -148,24 +143,10 @@ class Agent:
                 async for chunk in self._stream_static_text(result.answer):
                     streamed += chunk
                     yield {"type": "token", "content": chunk}
-            assistant = database.add_message(chat_id, "assistant", result.answer, mode=mode)
-            self._schedule_chat_title_generation(chat_id, user_message, mode)
-            yield {"type": "assistant_message", "message": assistant.model_dump()}
-            yield {"type": "done", "stats": {"eval_count": len(streamed.split())}}
-            return
-
-        workflow_answer = await self._workflow_answer(
-            chat_id, user_message, mode, attachments=attachments, agentic_workflow_route=agentic_workflow_route
-        )
-        if workflow_answer is not None:
-            streamed = ""
-            async for chunk in self._stream_static_text(workflow_answer):
-                streamed += chunk
-                yield {"type": "token", "content": chunk}
-            assistant = database.add_message(chat_id, "assistant", workflow_answer, mode=mode)
-            self._schedule_chat_title_generation(chat_id, user_message, mode)
-            yield {"type": "assistant_message", "message": assistant.model_dump()}
-            yield {"type": "done", "stats": {"eval_count": len(streamed.split())}}
+            async for event in self._finalize_assistant_turn(
+                chat_id, user_message, result.answer, mode, {"eval_count": len(streamed.split())}
+            ):
+                yield event
             return
 
         content_parts: list[str] = []
@@ -181,24 +162,24 @@ class Agent:
                 yield {"type": "token", "content": content}
             elif event.get("type") == "done":
                 answer = "".join(content_parts)
-                assistant = database.add_message(chat_id, "assistant", answer, mode=mode)
-                self._schedule_chat_title_generation(chat_id, user_message, mode)
-                yield {"type": "assistant_message", "message": assistant.model_dump()}
-                yield {"type": "done", "stats": self._stream_stats(event)}
+                async for final_event in self._finalize_assistant_turn(
+                    chat_id, user_message, answer, mode, self._stream_stats(event)
+                ):
+                    yield final_event
 
     async def _answer(
         self, chat_id: str, user_message: str, mode: MessageMode, attachments: list[ImageAttachment] | None = None
-    ) -> tuple[Message, str]:
-        user = self._store_user_message(chat_id, user_message, mode, attachments=attachments)
-        static_answer = await self._agentic_static_answer(user_message) if mode == "agentic" else None
-        if static_answer is not None:
-            return user, static_answer
-        workflow_answer = await self._workflow_answer(chat_id, user_message, mode, attachments=attachments)
-        if workflow_answer is not None:
-            return user, workflow_answer
-        history = await self._history_with_mode_context(chat_id, mode, user_message)
-        answer = await self.ollama.chat(history, model=self.settings.model_for_role(self._model_role_for_mode(mode)))
-        return user, answer
+    ) -> tuple[Message, Message]:
+        user: Message | None = None
+        assistant: Message | None = None
+        async for event in self.stream(chat_id, user_message, mode, attachments=attachments):
+            if event.get("type") == "user_message":
+                user = Message.model_validate(event.get("message"))
+            elif event.get("type") == "assistant_message":
+                assistant = Message.model_validate(event.get("message"))
+        if user is None or assistant is None:
+            raise RuntimeError("Agent turn did not produce a complete message pair.")
+        return user, assistant
 
     def _store_user_message(
         self, chat_id: str, user_message: str, mode: MessageMode, attachments: list[ImageAttachment] | None = None
@@ -226,16 +207,14 @@ class Agent:
             title = await self.ollama.chat_payload(
                 build_chat_title_messages(user_message, mode), model=self.settings.model_for_role("assistant")
             )
-            clean_title = self._clean_chat_title(title)
+            clean_title = clean_chat_title(title)
             if clean_title:
                 database.update_chat_title_if_default(chat_id, clean_title)
         except Exception:
+            logger.debug("chat title generation failed chat_id=%s mode=%s", chat_id, mode, exc_info=True)
             return
         finally:
             TITLE_GENERATION_RUNNING.discard(chat_id)
-
-    def _clean_chat_title(self, title: str) -> str:
-        return clean_chat_title(title)
 
     async def _agentic_static_answer(self, user_message: str) -> str | None:
         discovery = await TaskDiscovery(self.settings, self.ollama).discover(user_message)
@@ -268,27 +247,13 @@ class Agent:
             yield part + suffix
             await asyncio.sleep(0.012)
 
-    async def _workflow_answer(
-        self,
-        chat_id: str,
-        user_message: str,
-        mode: MessageMode,
-        attachments: list[ImageAttachment] | None = None,
-        agentic_workflow_route: tuple[bool, str] | None = None,
-    ) -> str | None:
-        workflow = selected_workflow(self.settings, mode)
-        if workflow is None or workflow.is_direct():
-            return None
-        if mode == "agentic":
-            run_workflow, _reason = agentic_workflow_route or await self._should_run_agentic_workflow(
-                chat_id, user_message
-            )
-            if not run_workflow:
-                return None
-        result = await WorkflowRunner(self.settings, self.ollama).run(
-            workflow, chat_id, user_message, mode, attachments=attachments
-        )
-        return result.answer
+    async def _finalize_assistant_turn(
+        self, chat_id: str, user_message: str, answer: str, mode: MessageMode, stats: dict[str, object]
+    ) -> AsyncIterator[dict[str, object]]:
+        assistant = database.add_message(chat_id, "assistant", answer, mode=mode)
+        self._schedule_chat_title_generation(chat_id, user_message, mode)
+        yield {"type": "assistant_message", "message": assistant.model_dump()}
+        yield {"type": "done", "stats": stats}
 
     def _attachment_metadata(self, attachments: list[ImageAttachment] | None) -> list[ImageAttachmentMeta]:
         return [
@@ -308,7 +273,7 @@ class Agent:
             )
             content = await self.ollama.chat_payload(
                 [
-                    {"role": "system", "content": self._agentic_router_prompt()},
+                    {"role": "system", "content": agentic_router_prompt()},
                     {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
                 ],
                 model=self.settings.model_for_role("orchestrator"),
@@ -317,22 +282,13 @@ class Agent:
             return decision.run_workflow, decision.reason
         except Exception as exc:
             logger.warning("agentic router failed", exc_info=exc)
-            if self._agentic_workflow_fallback(user_message):
+            if agentic_workflow_fallback(user_message):
                 return True, "Fallback matched workflow-style request."
             return False, DEFAULT_DIRECT_REASON
-
-    def _agentic_router_prompt(self) -> str:
-        return agentic_router_prompt()
 
     def _agentic_router_history(self, chat_id: str, limit: int = 8) -> list[dict[str, str]]:
         messages = database.list_messages(chat_id, mode="agentic")
         return compact_agentic_history(messages, limit=limit)
-
-    def _agentic_workflow_fallback(self, user_message: str) -> bool:
-        return agentic_workflow_fallback(user_message)
-
-    def _parse_json_object(self, content: str) -> dict[str, Any]:
-        return parse_json_object(content)
 
     async def _history_with_mode_context(
         self, chat_id: str, mode: MessageMode, user_message: str = ""
@@ -342,12 +298,6 @@ class Agent:
 
     async def _mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> str:
         return await ModeContextBuilder(self.settings, self.ollama).build(chat_id, mode, user_message)
-
-    def _memory_context_block(self) -> str:
-        return ModeContextBuilder(self.settings, self.ollama).memory_context_block()
-
-    def _workspace_for_chat(self, chat_id: str) -> str:
-        return ModeContextBuilder(self.settings, self.ollama).workspace_for_chat(chat_id)
 
     def _system_message(self, chat_id: str, content: str) -> Message:
         return Message(id=new_id(), chat_id=chat_id, role="system", content=content, mode="chat", created_at=utc_now())

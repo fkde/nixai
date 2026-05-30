@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 import signal
@@ -25,6 +26,7 @@ from app.workflows.runner import WorkflowRunner
 
 
 router = APIRouter(prefix="/api/updates", tags=["updates"])
+logger = logging.getLogger(__name__)
 
 GITHUB_REPO = "fkde/nixai"
 RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -143,6 +145,7 @@ async def check_updates(force: bool = False) -> UpdateInfo:
                 sha256_url=(sha_asset or {}).get("browser_download_url"),
             )
     except Exception as exc:  # noqa: BLE001 — network call, surface as soft error
+        logger.warning("update check failed repo=%s", GITHUB_REPO, exc_info=True)
         info = UpdateInfo(current=__version__, error=str(exc))
 
     with _cache_lock:
@@ -283,6 +286,7 @@ def _run_macos_install(asset_url: str, asset_size: int, sha256_url: Optional[str
 
         threading.Timer(0.8, lambda: os.kill(os.getpid(), signal.SIGTERM)).start()
     except Exception as exc:  # noqa: BLE001
+        logger.warning("macOS update install failed app_path=%s", app_path, exc_info=True)
         _set_install_state("error", str(exc), 0.0)
 
 

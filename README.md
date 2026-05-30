@@ -113,10 +113,15 @@ Example config:
 {
   "ollama_base_url": "http://localhost:11434",
   "default_model": "llama3.1:8b",
-  "planner_model": "gemma4:e4b",
-  "worker_model": "llama3.1:8b",
-  "reviewer_model": "gemma4:e4b",
-  "judge_model": "llama3.1:8b",
+  "model_roles": [
+    { "role": "assistant", "model": "llama3.1:8b" },
+    { "role": "planner", "model": "gemma4:e4b" },
+    { "role": "worker", "model": "llama3.1:8b" },
+    { "role": "reviewer", "model": "gemma4:e4b" },
+    { "role": "judge", "model": "llama3.1:8b" },
+    { "role": "task_discovery", "model": "llama3.1:8b" },
+    { "role": "vision", "model": "" }
+  ],
   "workspace_path": "/path/to/project"
 }
 ```

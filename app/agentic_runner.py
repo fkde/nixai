@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from typing import Any, Optional
 
@@ -22,6 +23,7 @@ from app.workflows.runtime_trace import TraceEmitter
 AUTO_TOOLS = AUTO_TOOL_NAMES
 MAX_TOOL_CALLS = 5
 MAX_ATTEMPTS = 2
+logger = logging.getLogger(__name__)
 
 
 class AgenticRunner:
@@ -74,6 +76,7 @@ class AgenticRunner:
                     status = "needs_review"
                     summary = self._summary_with_judge(summary, judge)
         except Exception as exc:
+            logger.warning("inline agentic run failed; entering failover title=%s reason=%s", title, reason, exc_info=True)
             failover = await self._failover(task, reason, exc)
             status = failover["status"]
             summary = failover["summary"]
@@ -109,6 +112,9 @@ class AgenticRunner:
                     status = "needs_review"
                     summary = self._summary_with_judge(summary, judge)
         except Exception as exc:
+            logger.warning(
+                "agentic task run failed; entering failover task_id=%s reason=%s", task.id, reason, exc_info=True
+            )
             failover = await self._failover(task, reason, exc)
             status = failover["status"]
             summary = failover["summary"]
@@ -223,6 +229,7 @@ class AgenticRunner:
                 parsed["status"] = "done"
             return parsed
         except Exception:
+            logger.warning("agentic judge failed task_id=%s reason=%s", task.id, reason, exc_info=True)
             return {"status": "needs_user", "reason": "Judge could not validate the run result.", "feedback": []}
 
     def _summary_with_judge(self, summary: str, judge: dict[str, Any]) -> str:
@@ -253,6 +260,12 @@ class AgenticRunner:
                 "The task needs review before further autonomous execution."
             )
         except Exception as failover_exc:
+            logger.warning(
+                "agentic failover tool discovery failed task_id=%s original_error=%s",
+                task.id,
+                exc,
+                exc_info=True,
+            )
             tool_results.append(
                 {
                     "tool": "nixai_tools_search",
@@ -302,6 +315,7 @@ class AgenticRunner:
                     duration_ms=int((time.perf_counter() - started_perf) * 1000),
                 )
             except Exception as exc:
+                logger.warning("autonomous tool call failed tool=%s arguments=%s", name, arguments, exc_info=True)
                 results.append({"tool": name, "arguments": arguments, "success": False, "error": str(exc)})
                 self._emit_tool_trace(
                     trace,

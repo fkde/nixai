@@ -33,8 +33,8 @@ def test_chat_routes_cover_create_update_messages_and_delete(db, monkeypatch, fa
     assert response.status_code == 200
     payload = response.json()
     assert payload["user_message"]["content"] == "Hello API"
-    assert payload["assistant_message"]["content"] == "Fake Ollama response."
-    assert fake_ollama.chat_calls
+    assert payload["assistant_message"]["content"] == "Fake stream response."
+    assert fake_ollama.stream_chat_calls
 
     response = client.get(f"/api/chats/{chat['id']}/messages")
     assert response.status_code == 200
@@ -71,8 +71,32 @@ def test_agent_run_uses_fake_ollama_without_network(db, fake_ollama) -> None:
     chat = db.create_chat("Agent")
     response = asyncio.run(Agent(ollama=fake_ollama).run(chat.id, "Hello Agent", mode="chat"))
 
-    assert response.assistant_message.content == "Fake Ollama response."
-    assert fake_ollama.chat_calls
+    assert response.assistant_message.content == "Fake stream response."
+    assert fake_ollama.stream_chat_calls
+
+
+def test_agent_run_and_stream_produce_same_final_assistant_message(db) -> None:
+    from app.agent import Agent
+    from tests.fakes.ollama import FakeOllamaClient
+
+    async def scenario() -> tuple[str, str]:
+        run_client = FakeOllamaClient(stream_chunks=["Same ", "answer."])
+        stream_client = FakeOllamaClient(stream_chunks=["Same ", "answer."])
+        run_chat = db.create_chat("Run")
+        stream_chat = db.create_chat("Stream")
+
+        run_response = await Agent(ollama=run_client).run(run_chat.id, "Hello Agent", mode="chat")
+
+        streamed_answer = ""
+        async for event in Agent(ollama=stream_client).stream(stream_chat.id, "Hello Agent", mode="chat"):
+            if event.get("type") == "assistant_message":
+                streamed_answer = str(event["message"]["content"])
+
+        return run_response.assistant_message.content, streamed_answer
+
+    run_answer, stream_answer = asyncio.run(scenario())
+
+    assert run_answer == stream_answer == "Same answer."
 
 
 def test_chat_routes_return_errors_for_missing_chat_and_invalid_message(db, monkeypatch, fake_ollama) -> None:

@@ -431,7 +431,7 @@ export function createComposer({
       method: "POST",
       body: JSON.stringify({
         name,
-        arguments: argumentsPayload,
+        arguments: response.arguments || argumentsPayload,
         approved: true,
         always_allow: approval.alwaysAllow,
       }),
