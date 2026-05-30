@@ -76,7 +76,9 @@ def create_agentic_task(title: str, prompt: str, schedule: str, status: TaskStat
     return task
 
 
-def update_agentic_task(task_id: str, title: str, prompt: str, schedule: str, status: TaskStatus) -> Optional[AgenticTask]:
+def update_agentic_task(
+    task_id: str, title: str, prompt: str, schedule: str, status: TaskStatus
+) -> Optional[AgenticTask]:
     now = utc_now()
     with get_connection() as db:
         result = db.execute(
@@ -136,10 +138,7 @@ def update_agentic_task_schedule_state(
         values.append(status)
     values.append(task_id)
     with get_connection() as db:
-        result = db.execute(
-            f"UPDATE agentic_tasks SET {', '.join(assignments)} WHERE id = ?",
-            values,
-        )
+        result = db.execute(f"UPDATE agentic_tasks SET {', '.join(assignments)} WHERE id = ?", values)
     if result.rowcount == 0:
         return None
     return get_agentic_task(task_id)
@@ -179,12 +178,7 @@ def create_agentic_task_run(task_id: str, attempt: int = 1) -> AgenticTaskRun:
 
 
 def finish_agentic_task_run(
-    run_id: str,
-    *,
-    status: TaskRunStatus,
-    summary: str = "",
-    tool_results: str = "[]",
-    error: str = "",
+    run_id: str, *, status: TaskRunStatus, summary: str = "", tool_results: str = "[]", error: str = ""
 ) -> Optional[AgenticTaskRun]:
     with get_connection() as db:
         result = db.execute(

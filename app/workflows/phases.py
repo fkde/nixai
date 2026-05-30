@@ -278,9 +278,7 @@ async def role_call(
     ]
     started_at = asyncio.get_event_loop().time()
     response = await deps.ollama.chat_payload(
-        messages,
-        model=model,
-        response_format="json" if node.expects_json else None,
+        messages, model=model, response_format="json" if node.expects_json else None
     )
     if deps.trace is not None:
         deps.trace.emit_llm_call(

@@ -31,7 +31,9 @@ class ToolContext:
         return self.area.replace("-", "").replace("_", "").lower()
 
     def summary(self) -> str:
-        return " ".join(part for part in [self.area, self.page_id, self.layout_id, self.theme_id, self.content_type] if part)
+        return " ".join(
+            part for part in [self.area, self.page_id, self.layout_id, self.theme_id, self.content_type] if part
+        )
 
     def requested_capabilities(self) -> list[str]:
         values = self.ui_context.get("capabilities") or self.ui_context.get("requestedCapabilities") or []

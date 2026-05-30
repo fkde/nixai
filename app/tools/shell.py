@@ -24,11 +24,6 @@ def run_command(command: str) -> str:
         raise ValueError(f"Command not allowed. Allowed commands: {allowed}")
 
     result = subprocess.run(
-        ALLOWED_COMMANDS[parts],
-        cwd=workspace_root(),
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=120,
+        ALLOWED_COMMANDS[parts], cwd=workspace_root(), check=False, capture_output=True, text=True, timeout=120
     )
     return (result.stdout + result.stderr).strip()

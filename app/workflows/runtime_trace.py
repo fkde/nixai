@@ -107,12 +107,7 @@ class TraceEmitter:
     """
 
     def __init__(
-        self,
-        *,
-        run_id: str,
-        workflow_id: str,
-        persistence: TracePersistence,
-        bus: TraceBus | None = None,
+        self, *, run_id: str, workflow_id: str, persistence: TracePersistence, bus: TraceBus | None = None
     ) -> None:
         self.run_id = run_id
         self.workflow_id = workflow_id
@@ -228,11 +223,7 @@ class TraceEmitter:
             seq = self.persistence.insert(event)
         except Exception:
             logger.warning(
-                "trace_emitter persist failed run_id=%s type=%s node_id=%s",
-                self.run_id,
-                type,
-                node_id,
-                exc_info=True,
+                "trace_emitter persist failed run_id=%s type=%s node_id=%s", self.run_id, type, node_id, exc_info=True
             )
             return event.step_id
         try:
@@ -289,12 +280,7 @@ def default_emitter(run_id: str, workflow_id: str, bus: TraceBus | None = None) 
         from app.workflows.run_bus import get_run_bus
 
         bus = get_run_bus()
-    return TraceEmitter(
-        run_id=run_id,
-        workflow_id=workflow_id,
-        persistence=SqliteTracePersistence(),
-        bus=bus,
-    )
+    return TraceEmitter(run_id=run_id, workflow_id=workflow_id, persistence=SqliteTracePersistence(), bus=bus)
 
 
 __all__ = [

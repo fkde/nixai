@@ -26,10 +26,7 @@ class MistakeReview:
     async def propose_solution(self, entry: MistakeEntry) -> MistakeSolution:
         try:
             content = await self.ollama.chat_payload(
-                [
-                    {"role": "system", "content": self._system_prompt()},
-                    {"role": "user", "content": entry.content},
-                ],
+                [{"role": "system", "content": self._system_prompt()}, {"role": "user", "content": entry.content}],
                 model=self.settings.model_for_role("reviewer"),
             )
             parsed = self._parse_json(content)

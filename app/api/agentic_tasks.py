@@ -4,7 +4,13 @@ from fastapi import APIRouter, HTTPException
 
 from app import database
 from app.agentic_scheduler import scheduler
-from app.models import AgenticTask, AgenticTaskRun, CreateAgenticTaskRequest, RunAgenticTaskResponse, UpdateAgenticTaskRequest
+from app.models import (
+    AgenticTask,
+    AgenticTaskRun,
+    CreateAgenticTaskRequest,
+    RunAgenticTaskResponse,
+    UpdateAgenticTaskRequest,
+)
 from app.services import AgenticTaskService
 
 
@@ -23,10 +29,7 @@ def get_agentic_tasks() -> list[AgenticTask]:
 @router.post("", response_model=AgenticTask)
 def post_agentic_task(request: CreateAgenticTaskRequest) -> AgenticTask:
     return _service().create_task(
-        title=request.title,
-        prompt=request.prompt,
-        schedule=request.schedule,
-        status=request.status,
+        title=request.title, prompt=request.prompt, schedule=request.schedule, status=request.status
     )
 
 
@@ -38,11 +41,7 @@ def get_scheduler_status() -> dict[str, object]:
 @router.put("/{task_id}", response_model=AgenticTask)
 def put_agentic_task(task_id: str, request: UpdateAgenticTaskRequest) -> AgenticTask:
     task = _service().update_task(
-        task_id,
-        title=request.title,
-        prompt=request.prompt,
-        schedule=request.schedule,
-        status=request.status,
+        task_id, title=request.title, prompt=request.prompt, schedule=request.schedule, status=request.status
     )
     if task is None:
         raise HTTPException(status_code=404, detail="Agentic task not found")

@@ -6,7 +6,14 @@ from pydantic import BaseModel
 
 from app.memory import MemoryDocument, load_memory, save_memory
 from app.mistake_review import MistakeReview, MistakeSolution
-from app.mistakes import MistakeEntry, MistakesDocument, get_mistake_entry, list_mistake_entries, load_mistakes, save_mistakes
+from app.mistakes import (
+    MistakeEntry,
+    MistakesDocument,
+    get_mistake_entry,
+    list_mistake_entries,
+    load_mistakes,
+    save_mistakes,
+)
 
 
 router = APIRouter(prefix="/api/mistakes", tags=["mistakes"])
@@ -55,8 +62,7 @@ def post_accept_solution(entry_id: str, payload: AcceptMistakeSolutionPayload) -
     if entry is None:
         raise HTTPException(status_code=404, detail="Mistake entry not found")
     return MistakeReview().accept_solution(
-        entry,
-        MistakeSolution(title=payload.title, instruction=payload.instruction, rationale=payload.rationale),
+        entry, MistakeSolution(title=payload.title, instruction=payload.instruction, rationale=payload.rationale)
     )
 
 

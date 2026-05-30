@@ -59,10 +59,7 @@ def get_message(message_id: str) -> Optional[Message]:
 
 def set_message_feedback(message_id: str, rating: FeedbackRating) -> Optional[Message]:
     with get_connection() as db:
-        result = db.execute(
-            "UPDATE messages SET feedback = ? WHERE id = ?",
-            (rating, message_id),
-        )
+        result = db.execute("UPDATE messages SET feedback = ? WHERE id = ?", (rating, message_id))
     if result.rowcount == 0:
         return None
     return get_message(message_id)

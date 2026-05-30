@@ -21,14 +21,7 @@ def append_node_instruction(prompt: str, node: WorkflowNode) -> str:
     return f"{prompt}\n\n{block}"
 
 
-def build_plan_prompt(
-    *,
-    role: str,
-    runtime_context: str,
-    effort_context: str,
-    memory: str,
-    max_items: int,
-) -> str:
+def build_plan_prompt(*, role: str, runtime_context: str, effort_context: str, memory: str, max_items: int) -> str:
     return (
         f"{role_prompt(role or 'ORCHESTRATOR')}\n\n"
         f"{runtime_context}\n\n"
@@ -54,12 +47,7 @@ def build_plan_prompt(
 
 
 def build_retry_plan_prompt(
-    *,
-    role: str,
-    runtime_context: str,
-    effort_context: str,
-    memory: str,
-    max_items: int,
+    *, role: str, runtime_context: str, effort_context: str, memory: str, max_items: int
 ) -> str:
     return (
         f"{role_prompt(role or 'ORCHESTRATOR')}\n\n"

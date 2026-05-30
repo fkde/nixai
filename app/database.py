@@ -25,22 +25,11 @@ from app.db.chats import (
     update_chat_title_if_default,
 )
 from app.db.connection import connect, get_connection
-from app.db.messages import (
-    add_message,
-    get_message,
-    list_messages,
-    row_to_message,
-    set_message_feedback,
-)
+from app.db.messages import add_message, get_message, list_messages, row_to_message, set_message_feedback
 from app.db.schema import SCHEMA_VERSION, get_schema_version, init_db, set_schema_version
 from app.db.workflow_runs import create_workflow_run, get_workflow_run, row_to_workflow_run, update_workflow_run
 from app.db.workflow_runs import clear_workflow_run_signal, has_workflow_run_signal, request_workflow_run_signal
-from app.db.workflow_trace import (
-    delete_trace_events,
-    insert_trace_event,
-    list_trace_events,
-    list_workflow_runs,
-)
+from app.db.workflow_trace import delete_trace_events, insert_trace_event, list_trace_events, list_workflow_runs
 from app.db.workflow_state import (
     apply_trace_event_to_runtime_state,
     list_node_states,

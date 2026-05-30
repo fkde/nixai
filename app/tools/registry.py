@@ -36,9 +36,7 @@ class ToolRegistry:
             context["mode"] = str(args["mode"]).strip().lower()
 
         selected = SemanticToolRouter(self.definitions()).select(
-            str(args.get("query") or ""),
-            ToolContext.from_dict(context),
-            int(args.get("limit") or 8),
+            str(args.get("query") or ""), ToolContext.from_dict(context), int(args.get("limit") or 8)
         )
         return {"success": True, "tools": [item.tool.public(item.route_payload()) for item in selected]}
 

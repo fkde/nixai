@@ -39,9 +39,7 @@ def list_tools() -> dict[str, Any]:
 async def select_tools(request: SelectToolsRequest) -> dict[str, Any]:
     message = request.message.strip() or request.input.strip()
     selected = await SemanticToolRouter(registry.definitions()).select_async(
-        message,
-        ToolContext.from_dict(request.context),
-        request.limit,
+        message, ToolContext.from_dict(request.context), request.limit
     )
     return {"success": True, "tools": [route.tool.public(route.route_payload()) for route in selected]}
 

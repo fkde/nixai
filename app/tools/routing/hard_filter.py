@@ -8,7 +8,9 @@ from app.tools.routing.types import ToolContext
 
 class ToolHardFilter:
     def filter(self, tools: list[ToolDefinition], user_input: str, context: ToolContext) -> list[ToolDefinition]:
-        query = (user_input + " " + " ".join(str(value) for value in context.ui_context.values() if _is_scalar(value))).lower()
+        query = (
+            user_input + " " + " ".join(str(value) for value in context.ui_context.values() if _is_scalar(value))
+        ).lower()
         write_intent = self._has_write_intent(query)
         destructive_intent = self._has_destructive_intent(query)
         requested_mode = context.requested_mode()
@@ -76,7 +78,9 @@ class ToolHardFilter:
         )
 
     def _has_destructive_intent(self, query: str) -> bool:
-        return any(needle in query for needle in ["delete", "remove", "discard", "rollback", "loesche", "lösche", "entferne"])
+        return any(
+            needle in query for needle in ["delete", "remove", "discard", "rollback", "loesche", "lösche", "entferne"]
+        )
 
 
 def _capabilities(meta: dict[str, Any]) -> list[str]:

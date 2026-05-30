@@ -63,10 +63,7 @@ class WorkflowNode(BaseModel):
     input: list[str] = Field(default_factory=list)
     output: str = ""
     max_parallel: int = Field(
-        default=1,
-        ge=1,
-        le=8,
-        description="Concurrency cap for simultaneously running worker items.",
+        default=1, ge=1, le=8, description="Concurrency cap for simultaneously running worker items."
     )
     max_items: int = Field(default=4, ge=1, le=12)
     expects_json: bool = False
@@ -93,11 +90,7 @@ class WorkflowNode(BaseModel):
     @classmethod
     def _clean_type(cls, value: Any) -> str:
         node_type = clean_single_line(value or "", max_length=MAX_NAME_LENGTH, field_name="value").lower()
-        aliases = {
-            "final": "answer",
-            "judge": "decision",
-            "reviewer": "report",
-        }
+        aliases = {"final": "answer", "judge": "decision", "reviewer": "report"}
         return aliases.get(node_type, node_type)
 
     @field_validator("execution_profile", mode="before")

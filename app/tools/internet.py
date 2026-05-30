@@ -91,12 +91,7 @@ def search_web(query: str, limit: int = 5) -> dict[str, object]:
         if len(results) >= safe_limit:
             break
 
-    return {
-        "success": True,
-        "query": clean_query,
-        "url": str(response.url),
-        "results": results,
-    }
+    return {"success": True, "query": clean_query, "url": str(response.url), "results": results}
 
 
 def _validate_public_url(url: str) -> str:

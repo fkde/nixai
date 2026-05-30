@@ -9,12 +9,7 @@ from platformdirs import user_config_dir, user_data_dir
 from pydantic import BaseModel, Field, field_validator
 
 from app.effort import normalize_effort
-from app.validation import (
-    MAX_NAME_LENGTH,
-    clean_single_line,
-    validate_http_url,
-    validate_workspace_path,
-)
+from app.validation import MAX_NAME_LENGTH, clean_single_line, validate_http_url, validate_workspace_path
 
 
 APP_NAME = "nixai"
@@ -46,11 +41,7 @@ def default_model_roles() -> list[ModelRole]:
 
 
 def default_workflow_presets() -> dict[str, str]:
-    return {
-        "chat": "simple",
-        "code": "simple",
-        "agentic": "simple",
-    }
+    return {"chat": "simple", "code": "simple", "agentic": "simple"}
 
 
 WORKFLOW_PRESET_ALIASES = {
@@ -188,10 +179,7 @@ def load_settings() -> Settings:
         save_settings(settings)
     else:
         changed_roles = False
-        required_roles = {
-            "task_discovery": settings.default_model,
-            "vision": "",
-        }
+        required_roles = {"task_discovery": settings.default_model, "vision": ""}
         existing = {role.role.strip().casefold() for role in settings.model_roles}
         for role, model in required_roles.items():
             if role not in existing:

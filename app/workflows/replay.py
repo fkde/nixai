@@ -44,12 +44,7 @@ class WorkflowReplayPlanner:
         scope: ReplayScope = "downstream",
     ) -> ReplayPlan:
         start_node_id = start_node_id.strip()
-        plan = ReplayPlan(
-            run_id=run_id,
-            workflow_id=workflow.id,
-            start_node_id=start_node_id,
-            scope=scope,
-        )
+        plan = ReplayPlan(run_id=run_id, workflow_id=workflow.id, start_node_id=start_node_id, scope=scope)
         if workflow.node(start_node_id) is None:
             plan.blockers.append("Replay start node was not found in the workflow definition.")
             return plan
@@ -136,10 +131,7 @@ class WorkflowReplayPlanner:
                 plan.blockers.append(f"Prerequisite node output snapshot is truncated: {node_id}")
 
     def _validate_replay_nodes(
-        self,
-        plan: ReplayPlan,
-        workflow: WorkflowDefinition,
-        state_by_node: dict[str, dict[str, Any]],
+        self, plan: ReplayPlan, workflow: WorkflowDefinition, state_by_node: dict[str, dict[str, Any]]
     ) -> None:
         for node_id in plan.replay_node_ids:
             node = workflow.node(node_id)
@@ -160,11 +152,7 @@ class WorkflowReplayPlanner:
                 plan.blockers.append(f"Selective replay of container node is not supported yet: {node_id}")
 
     def _validate_trace_events(
-        self,
-        plan: ReplayPlan,
-        events: list[dict[str, Any]],
-        prerequisite_nodes: set[str],
-        replay_nodes: set[str],
+        self, plan: ReplayPlan, events: list[dict[str, Any]], prerequisite_nodes: set[str], replay_nodes: set[str]
     ) -> None:
         relevant = prerequisite_nodes | replay_nodes
         for event in events:

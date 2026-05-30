@@ -81,7 +81,9 @@ class MistakeDistiller:
         title = str(data.get("title") or "Downvoted assistant response").strip()
         mistake = str(data.get("mistake") or "The assistant response was downvoted.").strip()
         impact = str(data.get("impact") or "The impact needs review.").strip()
-        correction = str(data.get("correction") or "Review the context and avoid repeating this response pattern.").strip()
+        correction = str(
+            data.get("correction") or "Review the context and avoid repeating this response pattern."
+        ).strip()
         evidence = str(data.get("evidence") or f"Message ID: {message.id}").strip()
         return (
             f"### {utc_now()} - {title}\n"

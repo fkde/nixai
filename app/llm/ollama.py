@@ -113,7 +113,9 @@ class OllamaClient:
             raise OllamaError("Ollama response did not contain message.content")
         return clean_model_content(content)
 
-    async def stream_chat(self, messages: list[Message], model: Optional[str] = None) -> AsyncIterator[dict[str, object]]:
+    async def stream_chat(
+        self, messages: list[Message], model: Optional[str] = None
+    ) -> AsyncIterator[dict[str, object]]:
         payload = [
             {"role": message.role, "content": message.content}
             for message in messages
@@ -123,9 +125,7 @@ class OllamaClient:
             yield event
 
     async def stream_payload(
-        self,
-        messages: list[dict[str, Any]],
-        model: Optional[str] = None,
+        self, messages: list[dict[str, Any]], model: Optional[str] = None
     ) -> AsyncIterator[dict[str, object]]:
         payload = self.chat_payload_request(messages, model=model, stream=True)
 
@@ -211,16 +211,9 @@ class OllamaClient:
         return candidates
 
     def chat_payload_request(
-        self,
-        messages: list[dict[str, Any]],
-        model: Optional[str] = None,
-        stream: bool = False,
+        self, messages: list[dict[str, Any]], model: Optional[str] = None, stream: bool = False
     ) -> dict[str, Any]:
-        return {
-            "model": model or self.settings.model_for_role("assistant"),
-            "messages": messages,
-            "stream": stream,
-        }
+        return {"model": model or self.settings.model_for_role("assistant"), "messages": messages, "stream": stream}
 
 
 def _string_value(value: object) -> str:
@@ -304,10 +297,7 @@ def _partial_suffix_length(text: str, tag_start: str) -> int:
 
 
 def _classify_model(
-    name: str,
-    details: dict[str, Any],
-    model_info: dict[str, Any],
-    capabilities: list[str],
+    name: str, details: dict[str, Any], model_info: dict[str, Any], capabilities: list[str]
 ) -> OllamaModelKind:
     normalized_capabilities = {capability.lower() for capability in capabilities}
     if "embedding" in normalized_capabilities:

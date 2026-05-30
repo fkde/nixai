@@ -18,13 +18,7 @@ from app.workflows.models import WorkflowDefinition, WorkflowEvent, WorkflowResu
 from app.workflows.nodes import NodeResult
 from app.workflows.replay import ReplayScope, WorkflowReplayPlanner
 from app.workflows.runtime_trace import TraceEmitter, default_emitter
-from app.workflows.phases import (
-    WorkflowOllamaClient,
-    WorkflowPhaseDeps,
-    final_answer,
-    markdown_data,
-    note,
-)
+from app.workflows.phases import WorkflowOllamaClient, WorkflowPhaseDeps, final_answer, markdown_data, note
 from app.workflows.state import compact_workflow_state, initial_workflow_state
 
 
@@ -249,7 +243,7 @@ class WorkflowRunner:
                     "start_node_id": start_node_id,
                     "scope": scope,
                     "replay_until_seq": plan.replay_until_seq,
-                },
+                }
             },
             resolve_start_nodes=lambda _state, _executor: [start_node_id],
             state_extras={
@@ -259,7 +253,7 @@ class WorkflowRunner:
                     "scope": scope,
                     "replay_node_ids": plan.replay_node_ids,
                     "replay_until_seq": plan.replay_until_seq,
-                },
+                }
             },
             result_state_extras={"replay_plan": plan.model_dump()},
         )
@@ -349,19 +343,10 @@ class WorkflowRunner:
         return result
 
     def _initial_state(
-        self,
-        chat_id: str,
-        user_message: str,
-        mode: MessageMode,
-        attachments: list[Any] | None = None,
+        self, chat_id: str, user_message: str, mode: MessageMode, attachments: list[Any] | None = None
     ) -> dict[str, object]:
         return initial_workflow_state(
-            self.settings,
-            chat_id,
-            user_message,
-            mode,
-            attachments=attachments,
-            scratchpad=self.scratchpad,
+            self.settings, chat_id, user_message, mode, attachments=attachments, scratchpad=self.scratchpad
         )
 
     def _phase_deps(self, event_sink: WorkflowEventSink) -> WorkflowPhaseDeps:
@@ -415,10 +400,7 @@ class WorkflowRunner:
             )
         except Exception:
             logger.warning(
-                "workflow_run persistence failed (start) workflow_id=%s chat_id=%s",
-                workflow.id,
-                chat_id,
-                exc_info=True,
+                "workflow_run persistence failed (start) workflow_id=%s chat_id=%s", workflow.id, chat_id, exc_info=True
             )
 
     def _trace_row_to_event(self, row: Any) -> dict[str, Any]:
@@ -522,9 +504,7 @@ class WorkflowRunner:
             if event["type"] == "node_started" and event.get("step_id"):
                 step_map[str(event["step_id"])] = new_step_id
 
-    def _edited_fork_trace_event(
-        self, event: dict[str, Any], source_seq: int, edited_output: Any
-    ) -> dict[str, Any]:
+    def _edited_fork_trace_event(self, event: dict[str, Any], source_seq: int, edited_output: Any) -> dict[str, Any]:
         if int(event["seq"]) != source_seq or event["type"] != "node_finished":
             return event
         updated = {**event, "payload": {**event["payload"]}}
@@ -582,10 +562,7 @@ class WorkflowRunner:
             )
         except Exception:
             logger.warning(
-                "workflow_run persistence failed (finish) run_id=%s status=%s",
-                run_id,
-                result.status,
-                exc_info=True,
+                "workflow_run persistence failed (finish) run_id=%s status=%s", run_id, result.status, exc_info=True
             )
 
     def _persistable_state(self, state: dict[str, object]) -> dict[str, object]:

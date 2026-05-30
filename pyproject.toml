@@ -49,47 +49,6 @@ line-length = 120
 target-version = "py39"
 
 [tool.ruff.format]
-# Keep formatter adoption incremental; these legacy files need a separate
-# mass-format commit before they can be removed from this list.
-exclude = [
-  "app/agent.py",
-  "app/agentic_context.py",
-  "app/agentic_routing.py",
-  "app/agentic_runner.py",
-  "app/agentic_schedule.py",
-  "app/api/agentic_tasks.py",
-  "app/api/chats.py",
-  "app/api/mistakes.py",
-  "app/api/settings.py",
-  "app/api/tools.py",
-  "app/code_context.py",
-  "app/config.py",
-  "app/database.py",
-  "app/db/agentic_tasks.py",
-  "app/db/chats.py",
-  "app/db/messages.py",
-  "app/desktop.py",
-  "app/effort.py",
-  "app/llm/ollama.py",
-  "app/main.py",
-  "app/memory.py",
-  "app/mistake_distiller.py",
-  "app/mistake_review.py",
-  "app/task_discovery.py",
-  "app/tools/git.py",
-  "app/tools/internet.py",
-  "app/tools/notification.py",
-  "app/tools/registry.py",
-  "app/tools/routing/hard_filter.py",
-  "app/tools/routing/keyword.py",
-  "app/tools/routing/types.py",
-  "app/tools/shell.py",
-  "app/workflows/models.py",
-  "app/workflows/presets.py",
-  "app/workflows/prompts.py",
-  "app/workflows/runner.py",
-  "app/workflows/state.py",
-]
 quote-style = "preserve"
 indent-style = "space"
 skip-magic-trailing-comma = true

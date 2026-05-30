@@ -138,9 +138,7 @@ class WorkflowGraphExecutor:
         if trace is not None:
             input_snapshot, truncated = cap_snapshot(self._input_snapshot(node, state))
             prompt_snapshot, prompt_truncated = cap_snapshot(node.prompt or None)
-            instruction_block, instruction_block_truncated = cap_snapshot(
-                build_node_instruction_block(node) or None
-            )
+            instruction_block, instruction_block_truncated = cap_snapshot(build_node_instruction_block(node) or None)
             started_step_id = trace.emit(
                 "node_started",
                 node_id=node.id,
@@ -168,10 +166,7 @@ class WorkflowGraphExecutor:
                 trace.emit(
                     "node_failed",
                     node_id=node.id,
-                    payload={
-                        "error": result.error or result.summary,
-                        "duration_ms": duration_ms,
-                    },
+                    payload={"error": result.error or result.summary, "duration_ms": duration_ms},
                 )
             else:
                 trace.emit(
@@ -302,9 +297,7 @@ class WorkflowGraphExecutor:
             if when_filter == "" and edge_when.lower() == "error":
                 continue
             trace.emit(
-                "edge_traversed",
-                node_id=from_node,
-                payload={"from": edge.from_node, "to": edge.to, "when": edge.when},
+                "edge_traversed", node_id=from_node, payload={"from": edge.from_node, "to": edge.to, "when": edge.when}
             )
 
     async def _run_handler_with_retry(
@@ -482,10 +475,7 @@ class WorkflowGraphExecutor:
         child_state = copy.deepcopy(state)
         child_state["workflow_stack"] = [*stack, workflow.id]
         if node.prompt.strip():
-            child_state["subworkflow_context"] = {
-                "node_id": node.id,
-                "instruction": node.prompt.strip(),
-            }
+            child_state["subworkflow_context"] = {"node_id": node.id, "instruction": node.prompt.strip()}
         event_sink.emit(node.id, "status", f"Running sub-workflow: {child.name}.")
         result = await WorkflowGraphExecutor(
             handlers=self.handlers,
@@ -716,10 +706,7 @@ def compile_workflow_for_execution(workflow: WorkflowDefinition) -> WorkflowDefi
 
     The input definition is never mutated; persistence is unaffected.
     """
-    input_node = next(
-        (node for node in workflow.nodes if node.type == "io" and node.id == "input"),
-        None,
-    )
+    input_node = next((node for node in workflow.nodes if node.type == "io" and node.id == "input"), None)
     if input_node is None:
         return workflow
     explicit_out = [edge for edge in workflow.edges if edge.from_node == input_node.id]
@@ -742,15 +729,12 @@ def compile_workflow_for_execution(workflow: WorkflowDefinition) -> WorkflowDefi
     auto_targets = [
         node.id
         for node in workflow.nodes
-        if node.id != input_node.id
-        and node.type != "io"
-        and node.id not in main_flow_targets
+        if node.id != input_node.id and node.type != "io" and node.id not in main_flow_targets
     ]
     if not auto_targets:
         return workflow
 
     extra_edges = [
-        WorkflowEdge.model_validate({"from": input_node.id, "to": target_id, "when": ""})
-        for target_id in auto_targets
+        WorkflowEdge.model_validate({"from": input_node.id, "to": target_id, "when": ""}) for target_id in auto_targets
     ]
     return workflow.model_copy(update={"edges": list(workflow.edges) + extra_edges})

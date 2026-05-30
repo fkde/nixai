@@ -164,11 +164,7 @@ def _configure_macos_chrome(window: object, show_native_buttons: bool = True) ->
         if hasattr(native, "setToolbarStyle_") and hasattr(AppKit, "NSWindowToolbarStyleUnifiedCompact"):
             native.setToolbarStyle_(AppKit.NSWindowToolbarStyleUnifiedCompact)
 
-        for button_type in (
-            AppKit.NSWindowCloseButton,
-            AppKit.NSWindowMiniaturizeButton,
-            AppKit.NSWindowZoomButton,
-        ):
+        for button_type in (AppKit.NSWindowCloseButton, AppKit.NSWindowMiniaturizeButton, AppKit.NSWindowZoomButton):
             button = native.standardWindowButton_(button_type)
             if button is not None:
                 button.setHidden_(not show_native_buttons)

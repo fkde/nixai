@@ -36,7 +36,9 @@ class KeywordToolRouter:
             return self._with_search_tool(selected, candidates, limit)
         return self._search_only(candidates, "no-match-search")
 
-    def _with_search_tool(self, selected: list[ToolRoute], candidates: list[ToolDefinition], limit: int) -> list[ToolRoute]:
+    def _with_search_tool(
+        self, selected: list[ToolRoute], candidates: list[ToolDefinition], limit: int
+    ) -> list[ToolRoute]:
         if limit < 4 or len(selected) >= limit or any(route.tool.name == "nixai_tools_search" for route in selected):
             return selected
         search = next((tool for tool in candidates if tool.name == "nixai_tools_search"), None)
@@ -47,12 +49,7 @@ class KeywordToolRouter:
         return [ToolRoute(search, 0.1, [reason])] if search else []
 
     def _route(
-        self,
-        tool: ToolDefinition,
-        query: str,
-        query_tokens: list[str],
-        context: ToolContext,
-        write_intent: bool,
+        self, tool: ToolDefinition, query: str, query_tokens: list[str], context: ToolContext, write_intent: bool
     ) -> ToolRoute:
         meta = tool.meta
         tool_text = " ".join(
@@ -155,7 +152,16 @@ class KeywordToolRouter:
             "git.diff": ["diff", "changes", "review", "patch"],
             "command.run": ["test", "phpunit", "composer", "npm", "build", "run"],
             "tools.read": ["tool", "tools", "werkzeug"],
-            "internet.search": ["search", "research", "recherche", "recherchiere", "trends", "current", "aktuell", "internet"],
+            "internet.search": [
+                "search",
+                "research",
+                "recherche",
+                "recherchiere",
+                "trends",
+                "current",
+                "aktuell",
+                "internet",
+            ],
             "notification.send": ["notify", "notification", "alert", "reminder", "mac", "macos", "benachrichtigung"],
             "internet.fetch": ["web", "url", "http", "https", "internet", "website", "fetch", "read"],
         }
@@ -178,11 +184,17 @@ class KeywordToolRouter:
         return False
 
     def _has_write_intent(self, query: str) -> bool:
-        return any(needle in query for needle in ["create", "add", "write", "update", "delete", "erstelle", "ändere", "aendere"])
+        return any(
+            needle in query
+            for needle in ["create", "add", "write", "update", "delete", "erstelle", "ändere", "aendere"]
+        )
 
     def _wants_catalog(self, message: str) -> bool:
         message = message.lower()
-        return any(needle in message for needle in ["welche tools", "alle tools", "tool liste", "available tools", "list tools"])
+        return any(
+            needle in message
+            for needle in ["welche tools", "alle tools", "tool liste", "available tools", "list tools"]
+        )
 
     def _capabilities(self, meta: dict[str, Any]) -> list[str]:
         values = meta.get("capabilities")

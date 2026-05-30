@@ -242,8 +242,7 @@ def init_db() -> None:
             """
         )
         db.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_run_signals_unique "
-            "ON workflow_run_signals(run_id, kind)"
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_run_signals_unique ON workflow_run_signals(run_id, kind)"
         )
         db.execute(
             """
@@ -284,9 +283,7 @@ def init_db() -> None:
                 )
                 """
             )
-            db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_workflow_run_events_run_seq ON workflow_run_events(run_id, seq)"
-            )
+            db.execute("CREATE INDEX IF NOT EXISTS idx_workflow_run_events_run_seq ON workflow_run_events(run_id, seq)")
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS workflow_node_states (
@@ -387,10 +384,7 @@ def _set_schema_version(db, version: int) -> None:
 
 
 def _table_references_workflow_runs_old(db, table_name: str) -> bool:
-    row = db.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
-        (table_name,),
-    ).fetchone()
+    row = db.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (table_name,)).fetchone()
     return bool(row and "workflow_runs_old" in str(row["sql"]))
 
 
@@ -486,7 +480,9 @@ def _rebuild_workflow_runs_table(db) -> None:
         db.execute("DROP TABLE workflow_run_signals")
     db.execute("DROP TABLE IF EXISTS workflow_run_events")
     has_runs = db.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workflow_runs'").fetchone()
-    has_old = db.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workflow_runs_old'").fetchone()
+    has_old = db.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workflow_runs_old'"
+    ).fetchone()
     if has_runs and not has_old:
         db.execute("ALTER TABLE workflow_runs RENAME TO workflow_runs_old")
         has_old = True

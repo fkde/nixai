@@ -184,11 +184,7 @@ class AgenticRunner:
             return f"Task run completed with {successful}/{len(tool_results)} successful tool call(s)."
 
     async def _judge(
-        self,
-        task: AgenticTask,
-        reason: str,
-        tool_results: list[dict[str, Any]],
-        summary: str,
+        self, task: AgenticTask, reason: str, tool_results: list[dict[str, Any]], summary: str
     ) -> dict[str, Any] | None:
         workflow = selected_workflow(self.settings, "agentic")
         if workflow is None or workflow.is_direct() or workflow.node("judge") is None:
@@ -242,11 +238,15 @@ class AgenticRunner:
             if not self._is_autonomous_tool_allowed("nixai_tools_search"):
                 raise ValueError("nixai_tools_search requires user approval.")
             search_result = registry.call(
-                "nixai_tools_search",
-                {"query": task.prompt, "context": {"mode": "read"}, "limit": 5},
+                "nixai_tools_search", {"query": task.prompt, "context": {"mode": "read"}, "limit": 5}
             )
             tool_results.append(
-                {"tool": "nixai_tools_search", "arguments": {"query": task.prompt}, "success": True, "result": search_result}
+                {
+                    "tool": "nixai_tools_search",
+                    "arguments": {"query": task.prompt},
+                    "success": True,
+                    "result": search_result,
+                }
             )
             summary = (
                 "Agentic failover ran tool discovery after an unexpected model response. "
@@ -266,11 +266,7 @@ class AgenticRunner:
         return {"status": "needs_review", "summary": summary, "tool_results": tool_results}
 
     def _execute_tool_calls(
-        self,
-        tool_calls: Any,
-        *,
-        trace: TraceEmitter | None = None,
-        node_id: str = "tool_agent",
+        self, tool_calls: Any, *, trace: TraceEmitter | None = None, node_id: str = "tool_agent"
     ) -> list[dict[str, Any]]:
         if not isinstance(tool_calls, list):
             return []
@@ -383,9 +379,7 @@ class AgenticRunner:
         if not context:
             return prompt.strip()
         return (
-            f"{prompt.strip()}\n\n"
-            "Workflow node context:\n"
-            f"{json.dumps(context, ensure_ascii=False, indent=2)[:12000]}"
+            f"{prompt.strip()}\n\nWorkflow node context:\n{json.dumps(context, ensure_ascii=False, indent=2)[:12000]}"
         ).strip()
 
     def _is_autonomous_tool_allowed(self, name: str) -> bool:

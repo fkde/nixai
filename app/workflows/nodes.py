@@ -211,19 +211,13 @@ class VisionNodeHandler:
         }
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": json.dumps(user_payload, ensure_ascii=False),
-                "images": images,
-            },
+            {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False), "images": images},
         ]
         model = deps.settings.model_for_role(role)
         started_at = asyncio.get_event_loop().time()
         try:
             response = await deps.ollama.chat_payload(
-                messages,
-                model=model,
-                response_format="json" if node.expects_json else None,
+                messages, model=model, response_format="json" if node.expects_json else None
             )
         except OllamaError as exc:
             message = (

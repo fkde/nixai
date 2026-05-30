@@ -132,16 +132,12 @@ def request_workflow_run_signal(run_id: str, kind: str) -> bool:
 def has_workflow_run_signal(run_id: str, kind: str) -> bool:
     with get_connection() as db:
         row = db.execute(
-            "SELECT 1 FROM workflow_run_signals WHERE run_id = ? AND kind = ? LIMIT 1",
-            (run_id, kind),
+            "SELECT 1 FROM workflow_run_signals WHERE run_id = ? AND kind = ? LIMIT 1", (run_id, kind)
         ).fetchone()
     return row is not None
 
 
 def clear_workflow_run_signal(run_id: str, kind: str) -> int:
     with get_connection() as db:
-        result = db.execute(
-            "DELETE FROM workflow_run_signals WHERE run_id = ? AND kind = ?",
-            (run_id, kind),
-        )
+        result = db.execute("DELETE FROM workflow_run_signals WHERE run_id = ? AND kind = ?", (run_id, kind))
     return int(result.rowcount or 0)

@@ -22,12 +22,7 @@ def normalize_effort(value: str | None) -> str:
 
 
 def effort_label(value: str | None) -> str:
-    return {
-        "minimum": "Minimum",
-        "medium": "Medium",
-        "high": "High",
-        "max": "Max",
-    }[normalize_effort(value)]
+    return {"minimum": "Minimum", "medium": "Medium", "high": "High", "max": "Max"}[normalize_effort(value)]
 
 
 def effort_context(value: str | None) -> str:
@@ -94,18 +89,8 @@ def effort_max_parallel(configured_limit: int, value: str | None) -> int:
 
 
 def effort_tool_steps(value: str | None) -> int:
-    return {
-        "minimum": 1,
-        "medium": 2,
-        "high": 3,
-        "max": 4,
-    }[normalize_effort(value)]
+    return {"minimum": 1, "medium": 2, "high": 3, "max": 4}[normalize_effort(value)]
 
 
 def effort_tool_calls(value: str | None) -> int:
-    return {
-        "minimum": 2,
-        "medium": 3,
-        "high": 4,
-        "max": 5,
-    }[normalize_effort(value)]
+    return {"minimum": 2, "medium": 3, "high": 4, "max": 5}[normalize_effort(value)]

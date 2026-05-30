@@ -98,8 +98,7 @@ class CodeContextBuilder:
                     "arguments": {"path": path},
                     "result": (
                         f"Direct read failed and {len(matches)} files named {filename} were found. "
-                        "Ask the user which path to open.\n"
-                        + "\n".join(matches[:20])
+                        "Ask the user which path to open.\n" + "\n".join(matches[:20])
                     ),
                 }
             )

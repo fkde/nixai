@@ -32,12 +32,7 @@ def initial_workflow_state(
     history = database.list_messages(chat_id, mode=mode)[-8:]
     code_context = CodeContextBuilder(workspace).build(user_message) if mode == "code" else ""
     attachment_payload = [
-        {
-            "name": item.name,
-            "mime_type": item.mime_type,
-            "size": item.size,
-            "data": item.data,
-        }
+        {"name": item.name, "mime_type": item.mime_type, "size": item.size, "data": item.data}
         for item in (attachments or [])
     ]
     return {
@@ -65,10 +60,7 @@ def initial_workflow_state(
     }
 
 
-def workflow_state_payload(
-    state: WorkflowState,
-    scratchpad: WorkflowScratchpad | None = None,
-) -> dict[str, Any]:
+def workflow_state_payload(state: WorkflowState, scratchpad: WorkflowScratchpad | None = None) -> dict[str, Any]:
     scratchpad = scratchpad or default_workflow_scratchpad
     payload = {
         "mode": state.get("mode"),
@@ -98,10 +90,7 @@ def workflow_state_payload(
     return payload
 
 
-def final_answer_payload(
-    state: WorkflowState,
-    scratchpad: WorkflowScratchpad | None = None,
-) -> dict[str, Any]:
+def final_answer_payload(state: WorkflowState, scratchpad: WorkflowScratchpad | None = None) -> dict[str, Any]:
     payload = workflow_state_payload(state, scratchpad=scratchpad)
     payload.pop("code_context", None)
     payload.pop("agentic_context", None)
@@ -112,10 +101,7 @@ def final_answer_payload(
     return payload
 
 
-def compact_workflow_state(
-    state: WorkflowState,
-    scratchpad: WorkflowScratchpad | None = None,
-) -> dict[str, Any]:
+def compact_workflow_state(state: WorkflowState, scratchpad: WorkflowScratchpad | None = None) -> dict[str, Any]:
     compact = workflow_state_payload(state, scratchpad=scratchpad)
     for key, value in state.items():
         if key in compact or key in _OMITTED_COMPACT_KEYS:
@@ -173,10 +159,7 @@ def _compact_extra_value(value: Any) -> Any:
 
 
 def record_workflow_round(
-    state: WorkflowState,
-    reports: list[dict[str, Any]],
-    review: dict[str, Any],
-    decision: dict[str, Any],
+    state: WorkflowState, reports: list[dict[str, Any]], review: dict[str, Any], decision: dict[str, Any]
 ) -> None:
     rounds = state.get("workflow_rounds")
     if not isinstance(rounds, list):

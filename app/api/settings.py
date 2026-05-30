@@ -9,7 +9,12 @@ from app.config import Settings, load_settings, save_settings
 from app.llm.ollama import OllamaClient, OllamaError
 from app.models import OllamaModelInfo
 from app.workflows.models import WorkflowDefinition
-from app.workflows.presets import delete_custom_workflow, list_custom_workflow_ids, list_workflow_summaries, save_custom_workflow
+from app.workflows.presets import (
+    delete_custom_workflow,
+    list_custom_workflow_ids,
+    list_workflow_summaries,
+    save_custom_workflow,
+)
 
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])

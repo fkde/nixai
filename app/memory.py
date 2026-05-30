@@ -56,8 +56,7 @@ def append_memory_entry(title: str, instruction: str, source: str = "") -> Memor
     document = load_memory()
     source_line = f"\n- Source: {source.strip()}" if source.strip() else ""
     entry = (
-        f"### {utc_now()} - {title.strip() or 'Reviewed lesson'}\n"
-        f"- Instruction: {instruction.strip()}{source_line}\n"
+        f"### {utc_now()} - {title.strip() or 'Reviewed lesson'}\n- Instruction: {instruction.strip()}{source_line}\n"
     )
     return save_memory(f"{document.content.rstrip()}\n\n{entry}")
 

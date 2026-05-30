@@ -21,7 +21,9 @@ def list_chats() -> list[Chat]:
 
 def create_chat(title: Optional[str] = None, workspace_path: str = "") -> Chat:
     now = utc_now()
-    chat = Chat(id=new_id(), title=title or "New Chat", workspace_path=workspace_path.strip(), created_at=now, updated_at=now)
+    chat = Chat(
+        id=new_id(), title=title or "New Chat", workspace_path=workspace_path.strip(), created_at=now, updated_at=now
+    )
     with get_connection() as db:
         db.execute(
             "INSERT INTO chats (id, title, workspace_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -33,8 +35,7 @@ def create_chat(title: Optional[str] = None, workspace_path: str = "") -> Chat:
 def get_chat(chat_id: str) -> Optional[Chat]:
     with get_connection() as db:
         row = db.execute(
-            "SELECT id, title, workspace_path, created_at, updated_at FROM chats WHERE id = ?",
-            (chat_id,),
+            "SELECT id, title, workspace_path, created_at, updated_at FROM chats WHERE id = ?", (chat_id,)
         ).fetchone()
     return row_to_chat(row) if row else None
 
@@ -55,10 +56,7 @@ def update_chat(chat_id: str, title: Optional[str] = None, workspace_path: Optio
     values.append(now)
     values.append(chat_id)
     with get_connection() as db:
-        result = db.execute(
-            f"UPDATE chats SET {', '.join(assignments)} WHERE id = ?",
-            values,
-        )
+        result = db.execute(f"UPDATE chats SET {', '.join(assignments)} WHERE id = ?", values)
     return get_chat(chat_id) if result.rowcount else None
 
 

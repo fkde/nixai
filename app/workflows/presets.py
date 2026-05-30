@@ -62,7 +62,9 @@ def get_workflow(workflow_id: str, mode: MessageMode | None = None) -> WorkflowD
 
 def selected_workflow(settings, mode: MessageMode) -> WorkflowDefinition | None:
     workflow_map = getattr(settings, "workflow_presets", {}) or {}
-    workflow_id = normalize_workflow_preset_id(str(workflow_map.get(mode) or default_workflow_presets().get(mode) or "").strip())
+    workflow_id = normalize_workflow_preset_id(
+        str(workflow_map.get(mode) or default_workflow_presets().get(mode) or "").strip()
+    )
     workflow = get_workflow(workflow_id, mode)
     if workflow is not None:
         return workflow

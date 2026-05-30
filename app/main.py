@@ -53,16 +53,13 @@ def _build_static_version(static_dir: Path) -> str:
     return hasher.hexdigest()[:12]
 
 
-_ASSET_REF_RE = re.compile(
-    r"""(?P<prefix>(?:href|src)=["'])(?P<url>/static/[^"'?\s]+\.(?:css|js))(?P<suffix>["'])""",
-)
+_ASSET_REF_RE = re.compile(r"""(?P<prefix>(?:href|src)=["'])(?P<url>/static/[^"'?\s]+\.(?:css|js))(?P<suffix>["'])""")
 
 
 def _render_index(static_dir: Path, version: str) -> str:
     raw = (static_dir / "index.html").read_text(encoding="utf-8")
     return _ASSET_REF_RE.sub(
-        lambda match: f"{match.group('prefix')}{match.group('url')}?v={version}{match.group('suffix')}",
-        raw,
+        lambda match: f"{match.group('prefix')}{match.group('url')}?v={version}{match.group('suffix')}", raw
     )
 
 
@@ -96,8 +93,7 @@ def create_app() -> FastAPI:
         # current static version. Combined with the ?v=<hash> stamp this makes
         # stale bundles impossible after a restart, even inside WKWebView.
         return HTMLResponse(
-            _render_index(static_dir, static_version),
-            headers={"Cache-Control": "no-store, must-revalidate"},
+            _render_index(static_dir, static_version), headers={"Cache-Control": "no-store, must-revalidate"}
         )
 
     return fastapi_app

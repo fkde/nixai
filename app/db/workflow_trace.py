@@ -45,7 +45,9 @@ def insert_trace_event(
         return int(cursor.lastrowid or 0)
 
 
-def list_trace_events(run_id: str, *, since_seq: Optional[int] = None, limit: Optional[int] = None) -> list[sqlite3.Row]:
+def list_trace_events(
+    run_id: str, *, since_seq: Optional[int] = None, limit: Optional[int] = None
+) -> list[sqlite3.Row]:
     query = (
         "SELECT seq, step_id, run_id, parent_step_id, workflow_id, node_id, type, ts, payload_json "
         "FROM workflow_run_events WHERE run_id = ?"
@@ -63,11 +65,7 @@ def list_trace_events(run_id: str, *, since_seq: Optional[int] = None, limit: Op
 
 
 def list_workflow_runs(
-    *,
-    workflow_id: Optional[str] = None,
-    status: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0,
+    *, workflow_id: Optional[str] = None, status: Optional[str] = None, limit: int = 50, offset: int = 0
 ) -> list[sqlite3.Row]:
     query = (
         "SELECT id, workflow_id, chat_id, mode, status, current_node, state_json, events_json, "

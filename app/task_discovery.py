@@ -34,7 +34,11 @@ class TaskDiscoveryResult(BaseModel):
 
     @property
     def is_one_shot_task(self) -> bool:
-        return self.canonical_kind in {"one_shot_task", "one_time_task"} and self.confidence >= 0.62 and bool(self.schedule.strip())
+        return (
+            self.canonical_kind in {"one_shot_task", "one_time_task"}
+            and self.confidence >= 0.62
+            and bool(self.schedule.strip())
+        )
 
     @property
     def is_scheduled_task(self) -> bool:
@@ -89,12 +93,16 @@ class TaskDiscovery:
         try:
             repaired = await self._repair_with_model(user_message, result)
         except (OllamaError, ValidationError):
-            result.missing_info = ["The requested one-time schedule resolved to the past. Please confirm the intended future date/time."]
+            result.missing_info = [
+                "The requested one-time schedule resolved to the past. Please confirm the intended future date/time."
+            ]
             result.schedule = ""
             return result
         repaired = self._finalize_result(user_message, repaired)
         if self._one_shot_is_past(repaired):
-            repaired.missing_info = ["The requested one-time schedule resolved to the past. Please confirm the intended future date/time."]
+            repaired.missing_info = [
+                "The requested one-time schedule resolved to the past. Please confirm the intended future date/time."
+            ]
             repaired.schedule = ""
         return repaired
 
@@ -105,11 +113,7 @@ class TaskDiscovery:
                 {
                     "role": "user",
                     "content": json.dumps(
-                        {
-                            "user_message": user_message,
-                            "invalid_result": result.model_dump(),
-                        },
-                        ensure_ascii=False,
+                        {"user_message": user_message, "invalid_result": result.model_dump()}, ensure_ascii=False
                     ),
                 },
             ],
@@ -134,11 +138,7 @@ class TaskDiscovery:
                 {
                     "role": "user",
                     "content": json.dumps(
-                        {
-                            "user_message": user_message,
-                            "first_result": result.model_dump(),
-                        },
-                        ensure_ascii=False,
+                        {"user_message": user_message, "first_result": result.model_dump()}, ensure_ascii=False
                     ),
                 },
             ],

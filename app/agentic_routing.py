@@ -56,20 +56,12 @@ def compact_agentic_history(messages: list[Message], limit: int = 8) -> list[dic
     compact: list[dict[str, str]] = []
     for message in selected:
         text = " ".join((message.content or "").split())
-        compact.append(
-            {
-                "role": message.role,
-                "content": text[:360],
-            }
-        )
+        compact.append({"role": message.role, "content": text[:360]})
     return compact
 
 
 def parse_agentic_route_response(
-    content: object,
-    *,
-    default_reason: str = DEFAULT_DIRECT_REASON,
-    tool_name: str = AGENTIC_WORKFLOW_TOOL,
+    content: object, *, default_reason: str = DEFAULT_DIRECT_REASON, tool_name: str = AGENTIC_WORKFLOW_TOOL
 ) -> AgenticRouteDecision:
     parsed = parse_json_object(content)
     action = str(parsed.get("action") or "").strip().lower()
@@ -79,13 +71,5 @@ def parse_agentic_route_response(
 
 def agentic_workflow_fallback(user_message: object) -> bool:
     text = str(user_message or "").strip().lower()
-    keywords = [
-        "analyse",
-        "analysiere",
-        "research",
-        "recherche",
-        "vergleich",
-        "workflow",
-        "workspace",
-    ]
+    keywords = ["analyse", "analysiere", "research", "recherche", "vergleich", "workflow", "workspace"]
     return any(re.search(rf"\b{re.escape(keyword)}\b", text) for keyword in keywords)

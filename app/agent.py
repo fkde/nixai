@@ -21,7 +21,15 @@ from app.context_builder import ModeContextBuilder
 from app.effort import normalize_effort
 from app.json_utils import parse_json_object
 from app.llm.ollama import OllamaClient
-from app.models import CreateMessageResponse, ImageAttachment, ImageAttachmentMeta, Message, MessageMode, new_id, utc_now
+from app.models import (
+    CreateMessageResponse,
+    ImageAttachment,
+    ImageAttachmentMeta,
+    Message,
+    MessageMode,
+    new_id,
+    utc_now,
+)
 from app.services import AgenticTaskService
 from app.task_discovery import TaskDiscovery
 from app.title_generation import DEFAULT_CHAT_TITLES, build_chat_title_messages, clean_chat_title
@@ -107,12 +115,7 @@ class Agent:
                     queue.put_nowait({"type": "token", "content": event.message})
                     return
                 queue.put_nowait(
-                    {
-                        "type": "workflow_status",
-                        "message": event.message,
-                        "node": event.node,
-                        "status": event.type,
-                    }
+                    {"type": "workflow_status", "message": event.message, "node": event.node, "status": event.type}
                 )
 
             runner = WorkflowRunner(self.settings, self.ollama)
@@ -152,11 +155,7 @@ class Agent:
             return
 
         workflow_answer = await self._workflow_answer(
-            chat_id,
-            user_message,
-            mode,
-            attachments=attachments,
-            agentic_workflow_route=agentic_workflow_route,
+            chat_id, user_message, mode, attachments=attachments, agentic_workflow_route=agentic_workflow_route
         )
         if workflow_answer is not None:
             streamed = ""
@@ -173,7 +172,9 @@ class Agent:
         if mode == "agentic":
             yield {"type": "status", "message": "Preparing agentic context..."}
         history = await self._history_with_mode_context(chat_id, mode, user_message)
-        async for event in self.ollama.stream_chat(history, model=self.settings.model_for_role(self._model_role_for_mode(mode))):
+        async for event in self.ollama.stream_chat(
+            history, model=self.settings.model_for_role(self._model_role_for_mode(mode))
+        ):
             if event.get("type") == "token":
                 content = str(event.get("content") or "")
                 content_parts.append(content)
@@ -186,11 +187,7 @@ class Agent:
                 yield {"type": "done", "stats": self._stream_stats(event)}
 
     async def _answer(
-        self,
-        chat_id: str,
-        user_message: str,
-        mode: MessageMode,
-        attachments: list[ImageAttachment] | None = None,
+        self, chat_id: str, user_message: str, mode: MessageMode, attachments: list[ImageAttachment] | None = None
     ) -> tuple[Message, str]:
         user = self._store_user_message(chat_id, user_message, mode, attachments=attachments)
         static_answer = await self._agentic_static_answer(user_message) if mode == "agentic" else None
@@ -204,11 +201,7 @@ class Agent:
         return user, answer
 
     def _store_user_message(
-        self,
-        chat_id: str,
-        user_message: str,
-        mode: MessageMode,
-        attachments: list[ImageAttachment] | None = None,
+        self, chat_id: str, user_message: str, mode: MessageMode, attachments: list[ImageAttachment] | None = None
     ) -> Message:
         chat = database.get_chat(chat_id)
         if chat is None:
@@ -231,8 +224,7 @@ class Agent:
     async def _generate_chat_title(self, chat_id: str, user_message: str, mode: MessageMode) -> None:
         try:
             title = await self.ollama.chat_payload(
-                build_chat_title_messages(user_message, mode),
-                model=self.settings.model_for_role("assistant"),
+                build_chat_title_messages(user_message, mode), model=self.settings.model_for_role("assistant")
             )
             clean_title = self._clean_chat_title(title)
             if clean_title:
@@ -257,10 +249,13 @@ class Agent:
                 f"- **Status:** {task.status}\n\n"
                 "Du kannst ihn in den Settings bearbeiten, pausieren, loeschen oder manuell starten."
             )
-        elif discovery and discovery.canonical_kind in {"recurring_task", "one_shot_task", "one_time_task"} and discovery.missing_info:
-            answer = (
-                "Ich brauche noch ein paar Angaben, bevor ich daraus einen geplanten Task mache:\n\n"
-                + "\n".join(f"- {item}" for item in discovery.missing_info)
+        elif (
+            discovery
+            and discovery.canonical_kind in {"recurring_task", "one_shot_task", "one_time_task"}
+            and discovery.missing_info
+        ):
+            answer = "Ich brauche noch ein paar Angaben, bevor ich daraus einen geplanten Task mache:\n\n" + "\n".join(
+                f"- {item}" for item in discovery.missing_info
             )
         else:
             answer = None
@@ -286,17 +281,12 @@ class Agent:
             return None
         if mode == "agentic":
             run_workflow, _reason = agentic_workflow_route or await self._should_run_agentic_workflow(
-                chat_id,
-                user_message,
+                chat_id, user_message
             )
             if not run_workflow:
                 return None
         result = await WorkflowRunner(self.settings, self.ollama).run(
-            workflow,
-            chat_id,
-            user_message,
-            mode,
-            attachments=attachments,
+            workflow, chat_id, user_message, mode, attachments=attachments
         )
         return result.answer
 
@@ -344,7 +334,9 @@ class Agent:
     def _parse_json_object(self, content: str) -> dict[str, Any]:
         return parse_json_object(content)
 
-    async def _history_with_mode_context(self, chat_id: str, mode: MessageMode, user_message: str = "") -> list[Message]:
+    async def _history_with_mode_context(
+        self, chat_id: str, mode: MessageMode, user_message: str = ""
+    ) -> list[Message]:
         history = database.list_messages(chat_id, mode=mode)
         return [self._system_message(chat_id, await self._mode_context(chat_id, mode, user_message)), *history]
 
@@ -369,9 +361,7 @@ class Agent:
 
     def _create_agentic_task(self, discovery):
         return AgenticTaskService().create_task(
-            title=discovery.title,
-            prompt=discovery.prompt,
-            schedule=discovery.schedule,
+            title=discovery.title, prompt=discovery.prompt, schedule=discovery.schedule
         )
 
     def _stream_stats(self, event: dict[str, object]) -> dict[str, object]:

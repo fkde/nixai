@@ -200,10 +200,7 @@ def tool_call_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _apply_llm_call(db: sqlite3.Connection, event: Any, payload: dict[str, Any], now: str) -> None:
-    token_usage = {
-        "tokens_in": payload.get("tokens_in"),
-        "tokens_out": payload.get("tokens_out"),
-    }
+    token_usage = {"tokens_in": payload.get("tokens_in"), "tokens_out": payload.get("tokens_out")}
     db.execute(
         """
         UPDATE workflow_node_states
@@ -268,10 +265,7 @@ def _insert_tool_call(db: sqlite3.Connection, event: Any, payload: dict[str, Any
 def _append_node_tool_call(db: sqlite3.Connection, node_step_id: Optional[str], item: dict[str, Any], now: str) -> None:
     if not node_step_id:
         return
-    row = db.execute(
-        "SELECT tool_calls_json FROM workflow_node_states WHERE step_id = ?",
-        (node_step_id,),
-    ).fetchone()
+    row = db.execute("SELECT tool_calls_json FROM workflow_node_states WHERE step_id = ?", (node_step_id,)).fetchone()
     if row is None:
         return
     tool_calls = _load_json(row["tool_calls_json"], [])

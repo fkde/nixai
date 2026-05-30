@@ -24,8 +24,7 @@ def notify_desktop(title: str, message: str, subtitle: str = "", sound: str = "G
         raise ValueError("Desktop notifications are currently implemented for macOS only.")
 
     script = 'display notification "{message}" with title "{title}"'.format(
-        message=_escape_osascript(clean_message),
-        title=_escape_osascript(clean_title),
+        message=_escape_osascript(clean_message), title=_escape_osascript(clean_title)
     )
     if clean_subtitle:
         script += ' subtitle "{subtitle}"'.format(subtitle=_escape_osascript(clean_subtitle))

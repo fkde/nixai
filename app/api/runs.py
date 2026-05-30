@@ -117,9 +117,7 @@ def get_run(run_id: str) -> dict[str, Any]:
 
 @router.get("/{run_id}/events")
 def get_run_events(
-    run_id: str,
-    since: int = Query(default=0, ge=0),
-    limit: int = Query(default=500, ge=1, le=2000),
+    run_id: str, since: int = Query(default=0, ge=0), limit: int = Query(default=500, ge=1, le=2000)
 ) -> dict[str, Any]:
     if database.get_workflow_run(run_id) is None:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -228,11 +226,7 @@ async def fork_run(run_id: str, request: WorkflowForkRequest) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Workflow definition not found")
     try:
         result = await WorkflowRunner().fork(
-            workflow,
-            run,
-            from_step_id=request.from_step_id,
-            edited_output=request.edited_output,
-            label=request.label,
+            workflow, run, from_step_id=request.from_step_id, edited_output=request.edited_output, label=request.label
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

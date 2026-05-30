@@ -52,7 +52,7 @@ def is_one_shot_schedule(schedule: str) -> bool:
 def parse_one_shot_schedule(schedule: str) -> datetime | None:
     if not is_one_shot_schedule(schedule):
         return None
-    value = schedule.strip()[len("once at "):].strip()
+    value = schedule.strip()[len("once at ") :].strip()
     if value.endswith("Z"):
         value = value[:-1] + "+00:00"
     try:
@@ -66,7 +66,7 @@ def parse_one_shot_schedule(schedule: str) -> datetime | None:
 
 def normalize_one_shot_schedule(schedule: str) -> str:
     clean = schedule.strip()
-    value = clean[len("once at "):].strip() if is_one_shot_schedule(clean) else clean
+    value = clean[len("once at ") :].strip() if is_one_shot_schedule(clean) else clean
     if value.endswith("Z"):
         value = value[:-1] + "+00:00"
     try:
@@ -95,15 +95,7 @@ def _next_daily(time_value: tuple[int, int], base: datetime) -> datetime:
 
 
 def _next_weekly(value: str, time_value: tuple[int, int], base: datetime) -> datetime:
-    weekdays = {
-        "monday": 0,
-        "tuesday": 1,
-        "wednesday": 2,
-        "thursday": 3,
-        "friday": 4,
-        "saturday": 5,
-        "sunday": 6,
-    }
+    weekdays = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6}
     target = next((index for name, index in weekdays.items() if name in value), base.weekday())
     days = (target - base.weekday()) % 7
     hour, minute = time_value

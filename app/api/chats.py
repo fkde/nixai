@@ -8,7 +8,17 @@ from fastapi import APIRouter, HTTPException, Query
 from app import database
 from app.agent import Agent
 from app.mistake_distiller import MistakeDistiller
-from app.models import Chat, CreateChatRequest, CreateMessageRequest, CreateMessageResponse, Message, MessageFeedbackRequest, MessageFeedbackResponse, MessageMode, UpdateChatRequest
+from app.models import (
+    Chat,
+    CreateChatRequest,
+    CreateMessageRequest,
+    CreateMessageResponse,
+    Message,
+    MessageFeedbackRequest,
+    MessageFeedbackResponse,
+    MessageMode,
+    UpdateChatRequest,
+)
 from app.streaming import sse_response
 
 
@@ -58,10 +68,7 @@ def get_messages(chat_id: str, mode: Optional[MessageMode] = Query(default=None)
 async def post_message(chat_id: str, request: CreateMessageRequest) -> CreateMessageResponse:
     try:
         return await Agent(effort=request.effort).run(
-            chat_id,
-            request.content,
-            mode=request.mode,
-            attachments=request.attachments,
+            chat_id, request.content, mode=request.mode, attachments=request.attachments
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -71,19 +78,14 @@ async def post_message(chat_id: str, request: CreateMessageRequest) -> CreateMes
 async def post_message_stream(chat_id: str, request: CreateMessageRequest):
     return sse_response(
         Agent(effort=request.effort).stream(
-            chat_id,
-            request.content,
-            mode=request.mode,
-            attachments=request.attachments,
+            chat_id, request.content, mode=request.mode, attachments=request.attachments
         )
     )
 
 
 @router.post("/messages/{message_id}/feedback", response_model=MessageFeedbackResponse)
 async def post_message_feedback(
-    message_id: str,
-    request: MessageFeedbackRequest,
-    background_tasks: BackgroundTasks,
+    message_id: str, request: MessageFeedbackRequest, background_tasks: BackgroundTasks
 ) -> MessageFeedbackResponse:
     message = database.set_message_feedback(message_id, request.rating)
     if message is None:

@@ -35,9 +35,13 @@ class AgenticToolPlan(BaseModel):
 
     @property
     def wants_tools(self) -> bool:
-        return self.action.strip().casefold() in {"use_tools", "tools", "research", "investigate", "web_research"} and bool(
-            self.tool_calls
-        )
+        return self.action.strip().casefold() in {
+            "use_tools",
+            "tools",
+            "research",
+            "investigate",
+            "web_research",
+        } and bool(self.tool_calls)
 
 
 class AgenticContextBuilder:
@@ -168,7 +172,9 @@ class AgenticContextBuilder:
     def _compact_tool_results(self, tool_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         compact = []
         for item in tool_results[-8:]:
-            rendered = self._render_tool_result(str(item.get("tool") or ""), item.get("result") if item.get("success") else item.get("error"))
+            rendered = self._render_tool_result(
+                str(item.get("tool") or ""), item.get("result") if item.get("success") else item.get("error")
+            )
             compact.append(
                 {
                     "tool": item.get("tool"),
